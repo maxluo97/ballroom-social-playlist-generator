@@ -1,0 +1,10 @@
+{
+  "name": "dance-playlist-generator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Rule-based random playlist generator for dance socials.",
+  "type": "module",
+  "scripts": {
+    "test": "node test/test.js"
+  }
+}
