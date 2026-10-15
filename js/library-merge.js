@@ -17,6 +17,40 @@ import { canonicalDance } from "./dance-names.js";
 
 const lower = (s) => String(s ?? "").toLowerCase();
 
+/* ---------------------------------------------------- removed songs (blacklist) */
+/*
+ * Songs removed from the library are listed in data/removed-songs.csv: { id, title, artist, removed }.
+ * Review rows can carry: removedNow (taken out in this session; restorable), blocked (a new import
+ * of a previously removed song; left out unless re-imported), reimported (blocked, then re-imported).
+ */
+
+/** Flag imported songs that were removed from the library before: they stay out unless re-imported. */
+export function markPreviouslyRemoved(rows, blacklist) {
+  for (const r of rows) {
+    if (r.status === "new" && blacklist.has(r.song.id)) {
+      r.blocked = true;
+      r.removedEntry = blacklist.get(r.song.id);
+    }
+  }
+  return rows;
+}
+
+/** The songs to save in songs.csv: everything except removed rows and blocked imports. */
+export const keptSongs = (rows) => rows.filter((r) => !r.removedNow && !r.blocked).map((r) => r.song);
+
+/** The blacklist to save: the old one, plus songs removed now, minus songs re-imported. */
+export function updatedBlacklist(blacklist, rows, today) {
+  const out = new Map(blacklist);
+  for (const r of rows) {
+    if (r.removedNow) out.set(r.song.id, { id: r.song.id, title: r.song.title, artist: r.song.artist || "", removed: today });
+    if (r.reimported) out.delete(r.song.id);
+  }
+  return [...out.values()];
+}
+
+/** Whether the rows change the blacklist at all (so it needs saving). */
+export const blacklistChanged = (rows) => rows.some((r) => r.removedNow || r.reimported);
+
 /** Parse tag rules written one per line as "keyword => Tag". Blank lines and # comments ignored. */
 export function parseTagRules(text) {
   const rules = [];

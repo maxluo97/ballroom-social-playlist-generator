@@ -4,8 +4,8 @@
  */
 
 import { guessDanceInfo, canonicalDance, setCustomDances, newDanceProblem } from "../js/dance-names.js";
-import { mergeImport, parseTagRules } from "../js/library-merge.js";
-import { songsToCSV, parseSongsText } from "../js/data.js";
+import { mergeImport, parseTagRules, markPreviouslyRemoved, keptSongs, updatedBlacklist, blacklistChanged } from "../js/library-merge.js";
+import { songsToCSV, parseSongsText, parseRemovedSongs, removedSongsToCSV } from "../js/data.js";
 import { buildSampleLibrary } from "../tools/sample-library.js";
 import { playlistIdFrom } from "../js/spotify.js";
 
@@ -131,6 +131,33 @@ check(newDanceProblem({ name: "Balboa Swing", style: null }) === null, "a genuin
 check(newDanceProblem({ name: "Salsa" }, ["Salsa"]) !== null, "a library dance refused");
 setCustomDances([]);
 check(same(guessDanceInfo("Peabody").dances, []), "removing own dances forgets them");
+
+console.log("=== Removing songs (blacklist)");
+{
+  const tid = (n) => `${"x".repeat(21)}${n}`; // 22-character fake Spotify IDs
+  const lib = [
+    { id: tid(1), title: "Keep me", artist: "A", lengthSec: 180, dances: ["Smooth Waltz"], tags: [] },
+    { id: tid(2), title: "Remove me", artist: "B", lengthSec: 180, dances: ["Smooth Waltz"], tags: [] },
+  ];
+  const black = parseRemovedSongs(`id,title,artist,removed\n${tid(3)},"Gone, once",C,2026-10-01\n`);
+  check(black.size === 1 && black.get(tid(3)).title === "Gone, once" && black.get(tid(3)).removed === "2026-10-01", "removed-songs.csv parsed");
+  const rows = markPreviouslyRemoved(mergeImport(lib, [
+    { playlistName: "Waltzes", dances: ["Smooth Waltz"], tags: [], songs: [sp(tid(3), "Gone, once"), sp(tid(4), "Brand new")] },
+  ]), black);
+  const r = Object.fromEntries(rows.map((x) => [x.song.id, x]));
+  check(r[tid(3)].blocked && !r[tid(4)].blocked, "a previously removed song coming back in an import is blocked; others are not");
+  check(same(keptSongs(rows).map((s) => s.id), [tid(1), tid(2), tid(4)]), "blocked songs are not saved");
+  check(!blacklistChanged(rows), "nothing removed yet: blacklist unchanged");
+  r[tid(2)].removedNow = true; // remove a library song
+  r[tid(3)].blocked = false; // and re-import the blocked one
+  r[tid(3)].reimported = true;
+  check(same(keptSongs(rows).map((s) => s.id), [tid(1), tid(3), tid(4)]), "removed song left out, re-imported song kept");
+  const next = updatedBlacklist(black, rows, "2026-10-20");
+  check(blacklistChanged(rows) && same(next.map((e) => e.id), [tid(2)]) && next[0].removed === "2026-10-20",
+    `blacklist: + removed song, - re-imported song: ${JSON.stringify(next)}`);
+  const back = parseRemovedSongs(removedSongsToCSV(next));
+  check(back.get(tid(2)).title === "Remove me" && back.get(tid(2)).removed === "2026-10-20", "removed-songs.csv round trip");
+}
 
 console.log("=== Playlist links");
 const pid = "37i9dQZF1DXcBWIGoYBM5M";

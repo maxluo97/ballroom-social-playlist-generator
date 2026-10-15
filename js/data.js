@@ -136,6 +136,30 @@ export function parseCSV(text) {
   return rows.filter((r) => r.some((f) => f.trim() !== ""));
 }
 
+/* ------------------------------------------- removed songs (data/removed-songs.csv) */
+
+const REMOVED_COLUMNS = ["id", "title", "artist", "removed"];
+
+/** Parse data/removed-songs.csv. Returns a Map id -> { id, title, artist, removed }. */
+export function parseRemovedSongs(text) {
+  const rows = parseCSV(String(text).replace(/^﻿/, "").trim());
+  const out = new Map();
+  if (rows.length < 2) return out;
+  const headers = rows[0].map((h) => h.trim().toLowerCase());
+  const col = Object.fromEntries(REMOVED_COLUMNS.map((c) => [c, headers.indexOf(c)]));
+  for (const r of rows.slice(1)) {
+    const get = (c) => (col[c] >= 0 ? (r[col[c]] ?? "").trim() : "");
+    const id = spotifyTrackId(get("id")) ?? get("id");
+    if (id) out.set(id, { id, title: get("title"), artist: get("artist"), removed: get("removed") });
+  }
+  return out;
+}
+
+/** Removed songs -> CSV text for data/removed-songs.csv. */
+export function removedSongsToCSV(entries) {
+  return [REMOVED_COLUMNS.join(","), ...entries.map((e) => REMOVED_COLUMNS.map((c) => esc(e[c] ?? "")).join(","))].join("\n") + "\n";
+}
+
 /**
  * The 22-character Spotify track ID from a bare ID, a "spotify:track:..." URI, or an
  * open.spotify.com track link (with or without "?si=..." or a locale segment). Otherwise null.

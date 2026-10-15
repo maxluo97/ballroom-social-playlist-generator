@@ -13,16 +13,19 @@ import {
   getTrack, searchTracks, playlistIdFrom,
 } from "./spotify.js";
 import { spotifyTrackId } from "./data.js";
-import { loadSongsFromUrl, parseSongsText, songsToCSV } from "./data.js";
+import { loadSongsFromUrl, parseSongsText, songsToCSV, parseRemovedSongs, removedSongsToCSV } from "./data.js";
 import {
   guessDanceInfo, canonicalDance, unknownDanceMessage, DANCE_ALIASES, BALLROOM_STYLES, BALLROOM_DANCE_NAMES,
   setCustomDances, customDanceNames, newDanceProblem,
 } from "./dance-names.js";
-import { mergeImport, parseTagRules } from "./library-merge.js";
+import {
+  mergeImport, parseTagRules, markPreviouslyRemoved, keptSongs, updatedBlacklist, blacklistChanged,
+} from "./library-merge.js";
 import { LIBRARY_KEY } from "./settings.js";
 import { formatTime } from "./generator.js";
 
 const PROJECT_URL = "data/songs.csv";
+const REMOVED_URL = "data/removed-songs.csv";
 const RULES_KEY = "dpg.tagRules.v2"; // [{ keyword, tag }]
 const OLD_RULES_KEY = "dpg.tagRules.v1"; // older text format, migrated once
 const DEFAULT_RULES = [
@@ -48,6 +51,7 @@ const state = {
   manualHideKnown: false,
   spotifySearch: { query: "", results: [], total: 0, nextOffset: null },
   rows: null, // merge result
+  blacklist: new Map(), // songs removed from the library before (data/removed-songs.csv)
   filter: "all",
   search: "",
 };
@@ -243,12 +247,21 @@ async function loadProject() {
 function setExisting(songs, name, problems) {
   state.existing = songs;
   state.existingName = name;
-  state.rows = null;
   state.imports = null;
   updateLists();
   renderExisting(problems);
   renderManual(); // its "In library" column depends on the starting library
-  renderReview();
+  computeRows(); // the review shows the whole library straight away (so songs can be removed)
+}
+
+/** Songs removed from the library before (data/removed-songs.csv): Map id -> { id, title, artist, removed }. */
+async function loadRemoved() {
+  try {
+    const res = await fetch(REMOVED_URL, { cache: "no-store" });
+    state.blacklist = res.ok ? parseRemovedSongs(await res.text()) : new Map();
+  } catch {
+    state.blacklist = new Map();
+  }
 }
 
 function renderExisting(problems = []) {
@@ -497,7 +510,8 @@ async function runImport() {
 
 /** (Re)build the review rows from the imported playlists and the current tag rules. */
 function computeRows() {
-  state.rows = mergeImport(state.existing, [...(state.imports || []), ...manualImports()], { tagRules: loadRules() });
+  const merged = mergeImport(state.existing, [...(state.imports || []), ...manualImports()], { tagRules: loadRules() });
+  state.rows = markPreviouslyRemoved(merged, state.blacklist);
   state.filter = "all";
   renderReview();
 }
@@ -512,6 +526,15 @@ function manualImports() {
 }
 
 const libraryEntry = (id) => state.existing.find((s) => s.id === id) ?? null;
+
+/** What the library says about a song: its dances, "removed on <date>" if removed before, else `fallback`. */
+function libraryStatus(id, fallback) {
+  const lib = libraryEntry(id);
+  if (lib) return lib.dances.join(", ") || "(no dance)";
+  const gone = state.blacklist.get(id);
+  if (gone) return `removed from the library${gone.removed ? ` on ${gone.removed}` : ""}`;
+  return fallback;
+}
 
 /** Add songs to the worklist (skipping ones already on it). Returns how many were new. */
 function addToWorklist(songs, source, include) {
@@ -580,14 +603,13 @@ function renderManual(message) {
       el("table", { class: "playlist" },
         el("thead", {}, el("tr", {}, ["", "Title", "Artist", "Album", "Length", "In library"].map((h) => el("th", { scope: "col" }, h)))),
         el("tbody", {}, state.spotifySearch.results.map((s) => {
-          const lib = libraryEntry(s.id);
           return el("tr", {},
             el("td", {}, onList.has(s.id)
               ? el("span", { class: "muted" }, "on list")
               : el("button", { type: "button", class: "small", onclick: () => { addToWorklist([s], "Added by hand", true); renderManual(); } }, "Add")),
             el("td", {}, s.title), el("td", {}, s.artist), el("td", {}, s.album),
             el("td", { class: "num" }, formatTime(s.lengthSec)),
-            el("td", { class: "muted" }, lib ? lib.dances.join(", ") || "(no dance)" : ""));
+            el("td", { class: "muted" }, libraryStatus(s.id, "")));
         }))),
       el("p", { class: "muted" }, `Showing ${state.spotifySearch.results.length} of ${state.spotifySearch.total}. `,
         state.spotifySearch.nextOffset != null && el("button", { type: "button", class: "small", onclick: () => runSearch(state.spotifySearch.nextOffset) }, "More results")));
@@ -645,7 +667,6 @@ function renderWorklist() {
   const visible = () => state.manual.filter((m) => !(state.manualHideKnown && libraryEntry(m.song.id)));
   const drawRows = () => {
     fill(tbody, visible().map((m) => {
-      const lib = libraryEntry(m.song.id);
       const tick = el("input", { type: "checkbox", checked: m.include, "aria-label": `Include ${m.song.title}`,
         onchange: () => { m.include = tick.checked; updateCount(); } });
       const dances = danceChips(m.dances, `Dances for ${m.song.title}`, () => {
@@ -659,7 +680,7 @@ function renderWorklist() {
         el("td", {}, m.song.title),
         el("td", {}, m.song.artist),
         el("td", { class: "num" }, formatTime(m.song.lengthSec)),
-        el("td", { class: "muted" }, lib ? lib.dances.join(", ") || "(no dance)" : "new"),
+        el("td", { class: "muted" }, libraryStatus(m.song.id, "new")),
         el("td", {}, dances),
         el("td", {}, tags),
         el("td", { class: "muted" }, m.source),
@@ -734,12 +755,14 @@ const FILTERS = {
   guessed: ["Keyword tags", (r) => r.guessed.tags.length],
   nodance: ["No dance", (r) => !r.song.dances.length],
   unchanged: ["Unchanged", (r) => r.status === "unchanged"],
+  removed: ["Removed", (r) => r.removedNow],
+  blocked: ["Removed before", (r) => r.blocked || r.reimported],
 };
 
 function renderReview() {
   const rows = state.rows;
-  if (!rows) {
-    fill($("review"), el("p", { class: "muted" }, "Import playlists in step 4 to see the result here."));
+  if (!rows || !rows.length) {
+    fill($("review"), el("p", { class: "muted" }, "The library is empty. Import playlists in step 4 or add songs in step 4a."));
     renderOutput();
     return;
   }
@@ -761,8 +784,10 @@ function renderReview() {
 
   fill($("review"),
     state.failures.length > 0 && el("ul", { class: "msgs" }, state.failures.map((f) => el("li", { class: "error" }, f))),
-    el("p", { class: "help" }, "Edit dances and tags directly in the table: × removes one, the dropdown adds one. " +
-      "A song in several of the imported playlists gets all of their dances. Highlighted tags came from keyword rules; remove any that are wrong."),
+    el("p", { class: "help" }, "The whole library is listed here, with any imported songs. Edit dances and tags directly in the table: " +
+      "× removes one, the dropdown adds one. A song in several of the imported playlists gets all of their dances. " +
+      "Highlighted tags came from keyword rules; remove any that are wrong. " +
+      "“Remove” takes a song out of the library and remembers it (data/removed-songs.csv), so a later import will ask before bringing it back."),
     el("div", { class: "inline-fields" }, ...filterButtons, search),
     (state.imports || state.manual.length > 0) && el("div", { class: "actions" },
       el("button", { type: "button", class: "small", onclick: () => {
@@ -770,13 +795,47 @@ function renderReview() {
       } }, "Re-apply tag rules")),
     el("div", { class: "table-wrap" },
       el("table", { class: "playlist" },
-        el("thead", {}, el("tr", {}, ["Status", "Title", "Artist", "Album", "Length", "Dances", "Tags", "From playlist(s)"].map((h) => el("th", { scope: "col" }, h)))),
+        el("thead", {}, el("tr", {}, ["Status", "Title", "Artist", "Album", "Length", "Dances", "Tags", "From playlist(s)", ""].map((h) => el("th", { scope: "col" }, h)))),
         tbody)));
   renderOutput();
 }
 
 function reviewRow(r) {
   const s = r.song;
+  const button = (cls, label, title, onclick) => el("button", { type: "button", class: cls, title, "aria-label": title, onclick: () => { onclick(); renderReview(); } }, label);
+
+  // Taken out of the library in this session: small and faded, can be restored.
+  if (r.removedNow) {
+    return el("tr", { class: "removed" },
+      el("td", {}, "Removed"),
+      el("td", {}, el("s", {}, s.title)),
+      el("td", {}, s.artist),
+      el("td", {}, s.album || ""),
+      el("td", { class: "num" }, formatTime(s.lengthSec)),
+      el("td", {}, s.dances.join(", ")),
+      el("td", {}, s.tags.join(", ")),
+      el("td", { class: "muted" }, r.sources.join(", ")),
+      el("td", {}, button("small undo", "Restore", `Keep ${s.title} in the library`, () => (r.removedNow = false))));
+  }
+  // An import of a song that was removed before: left out unless re-imported.
+  if (r.blocked) {
+    return el("tr", { class: "removed blocked" },
+      el("td", {}, "Removed before"),
+      el("td", {}, s.title,
+        el("div", { class: "swap-warning" }, `Warning: you removed this song from the library` +
+          (r.removedEntry && r.removedEntry.removed ? ` on ${r.removedEntry.removed}` : "") + ". It is left out unless you re-import it.")),
+      el("td", {}, s.artist),
+      el("td", {}, s.album || ""),
+      el("td", { class: "num" }, formatTime(s.lengthSec)),
+      el("td", {}, s.dances.join(", ")),
+      el("td", {}, s.tags.join(", ")),
+      el("td", { class: "muted" }, r.sources.join(", ")),
+      el("td", {}, button("small", "Re-import", `Bring ${s.title} back into the library`, () => {
+        r.blocked = false;
+        r.reimported = true;
+      })));
+  }
+
   let row = null;
   const edited = () => {
     row.className = s.dances.length ? "" : "nodance";
@@ -787,30 +846,43 @@ function reviewRow(r) {
       editor,
       guessed.length > 0 && el("small", { class: "muted", style: "display:block" }, `from keywords: ${guessed.join(", ")}`));
   row = el("tr", { class: !s.dances.length ? "nodance" : null },
-    el("td", {}, r.status === "new" ? "New" : r.status === "updated" ? `+ ${[...r.added.dances, ...r.added.tags].join(", ")}` : ""),
+    el("td", {}, r.reimported ? "Re-imported"
+      : r.status === "new" ? "New" : r.status === "updated" ? `+ ${[...r.added.dances, ...r.added.tags].join(", ")}` : ""),
     el("td", {}, s.title),
     el("td", {}, s.artist),
     el("td", {}, s.album || ""),
     el("td", { class: "num" }, formatTime(s.lengthSec)),
     cell(danceChips(s.dances, `Dances for ${s.title}`, edited), []),
     cell(tagChips(s.tags, `Tags for ${s.title}`, edited), r.guessed.tags),
-    el("td", { class: "muted" }, r.sources.join(", ")));
+    el("td", { class: "muted" }, r.sources.join(", ")),
+    el("td", {}, r.reimported
+      ? button("small undo", "Undo re-import", `Leave ${s.title} out again`, () => {
+          r.reimported = false;
+          r.blocked = true;
+        })
+      : button("small", "Remove", `Take ${s.title} out of the library`, () => (r.removedNow = true))));
   return row;
 }
 
 /* ------------------------------------------------------------------- 6. Save */
 
 function renderOutput() {
-  if (!state.rows) return fill($("output"), el("p", { class: "muted" }, "Nothing to save yet."));
-  const songs = () => state.rows.map((r) => r.song);
-  const download = () => {
-    const blob = new Blob([songsToCSV(songs())], { type: "text/csv" });
-    const a = el("a", { href: URL.createObjectURL(blob), download: "songs.csv" });
+  if (!state.rows || !state.rows.length) return fill($("output"), el("p", { class: "muted" }, "Nothing to save yet."));
+  const songs = () => keptSongs(state.rows);
+  const saveFile = (name, text) => {
+    const blob = new Blob([text], { type: "text/csv" });
+    const a = el("a", { href: URL.createObjectURL(blob), download: name });
     document.body.append(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
+  const download = () => saveFile("songs.csv", songsToCSV(songs()));
+  const today = new Date().toISOString().slice(0, 10);
+  const listChanged = blacklistChanged(state.rows);
+  const downloadRemoved = () => saveFile("removed-songs.csv", removedSongsToCSV(updatedBlacklist(state.blacklist, state.rows, today)));
+  const removedNow = state.rows.filter((r) => r.removedNow).length;
+  const blocked = state.rows.filter((r) => r.blocked).length;
   const useNow = () => {
     try {
       localStorage.setItem(LIBRARY_KEY, JSON.stringify({ name: "Library builder result (not yet saved as data/songs.csv)", songs: songs().filter((s) => s.dances.length) }));
@@ -819,18 +891,23 @@ function renderOutput() {
       alert(`Could not hand the library to the generator: ${err.message}`);
     }
   };
-  const noDance = state.rows.filter((r) => !r.song.dances.length).length;
+  const noDance = songs().filter((s) => !s.dances.length).length;
   fill($("output"),
-    el("p", {}, `The merged library has ${state.rows.length} songs.`),
+    el("p", {}, `The library will have ${songs().length} songs.` +
+      (removedNow ? ` ${removedNow} removed now.` : "") +
+      (blocked ? ` ${blocked} previously removed song(s) from the import left out.` : "")),
     noDance > 0 && el("ul", { class: "msgs" }, el("li", { class: "warning" },
       `${noDance} song(s) have no dance. They are kept in songs.csv, but the generator skips them until they get one (filter “No dance” above).`)),
     el("div", { class: "actions" },
       el("button", { type: "button", class: "primary", onclick: download }, "Download songs.csv"),
+      listChanged && el("button", { type: "button", class: "primary", onclick: downloadRemoved }, "Download removed-songs.csv"),
       el("button", { type: "button", onclick: useNow }, "Try it in the generator now")),
     el("ol", { class: "help" },
       el("li", {}, "Download songs.csv and move it into the project's data folder, replacing data/songs.csv if it exists."),
+      listChanged && el("li", {}, "You removed or re-imported songs: also download removed-songs.csv and put it in the data folder " +
+        "(replacing data/removed-songs.csv if it exists). It is how the app remembers removed songs."),
       el("li", {}, "Reload the generator page and press “Use data/songs.csv” (or it is picked automatically if nothing else was loaded)."),
-      el("li", {}, "Commit the file when you are happy with it.")));
+      el("li", {}, listChanged ? "Commit both files when you are happy with them." : "Commit the file when you are happy with it.")));
 }
 
 /* -------------------------------------------------------------------- init */
@@ -842,6 +919,7 @@ async function init() {
   renderRules();
   renderPlaylists();
   renderManual();
+  await loadRemoved();
   await loadProject();
 }
 
