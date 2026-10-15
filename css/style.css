@@ -197,6 +197,11 @@ table.playlist tr.inserted td.type { color: var(--accent); font-weight: 600; }
 /* removed rows stay listed, smaller and faded, with a Restore button */
 table.playlist tr.removed td { font-size: 0.82em; padding-top: 1px; padding-bottom: 1px; color: var(--muted); }
 .row-actions { display: flex; flex-wrap: wrap; gap: 3px; }
+/* buttons that undo a manual change (Reset, Restore, Remove an inserted song, Reset all) */
+button.undo { background: var(--warn-bg); color: var(--warn); border-color: var(--warn); }
+button.undo:hover { border-color: var(--text); }
+.edit-bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between; margin: 8px 0; }
+.edit-bar .help { flex: 1 1 24em; }
 .row-actions button.small { padding: 1px 6px; font-size: 0.82em; }
 .swap-note { color: var(--accent); font-size: 0.85em; }
 .swap-warning { color: var(--warn); font-size: 0.85em; }

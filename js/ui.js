@@ -1004,6 +1004,8 @@ function renderResults() {
   };
 
   const small = (label, title, onclick) => el("button", { type: "button", class: "small", title, "aria-label": title, onclick }, label);
+  /** Buttons that undo a manual change (Reset, Remove an inserted song, Restore) look different. */
+  const undo = (label, title, onclick) => el("button", { type: "button", class: "small undo", title, "aria-label": title, onclick }, label);
   const activeRow = (it) => {
     const name = `#${it.index + 1} ${it.song.title}`;
     return el("tr", { class: [it.kind, it.swapped && "swapped", it.inserted && "inserted"].filter(Boolean).join(" ") },
@@ -1017,10 +1019,12 @@ function renderResults() {
       themed && el("td", { class: "theme-mark" }, it.isTheme ? "Yes" : ""),
       el("td", {}, el("div", { class: "row-actions" },
         small("Swap", `Choose a different song for ${name}`, () => openSongPicker({ item: it })),
-        it.swapped && small("Reset", `Put back the generator's song (${it.original.song.title})`, () => resetSwap(it)),
-        small("+ Before", `Insert a song before ${name}`, () => openSongPicker({ insertAt: r.playlist.indexOf(it) })),
-        small("+ After", `Insert a song after ${name}`, () => openSongPicker({ insertAt: r.playlist.indexOf(it) + 1 })),
-        small("Remove", it.inserted ? `Delete ${name} (added by you)` : `Take ${name} out (it can be restored)`, () => removeItem(it)))));
+        it.swapped && undo("Reset", `Put back the generator's song (${it.original.song.title})`, () => resetSwap(it)),
+        small("Insert before…", `Insert a song before ${name}`, () => openSongPicker({ insertAt: r.playlist.indexOf(it) })),
+        small("Insert after…", `Insert a song after ${name}`, () => openSongPicker({ insertAt: r.playlist.indexOf(it) + 1 })),
+        it.inserted
+          ? undo("Remove", `Delete ${name} (added by you)`, () => removeItem(it))
+          : small("Remove", `Take ${name} out (it can be restored)`, () => removeItem(it)))));
   };
   const removedRow = (it) =>
     el("tr", { class: "removed" },
@@ -1032,7 +1036,7 @@ function renderResults() {
       el("td", { class: "num" }, hms(it.song.lengthSec)),
       themed && el("td", {}),
       el("td", {}, el("div", { class: "row-actions" },
-        small("Restore", `Put ${it.song.title} back in the playlist`, () => restoreItem(it)))));
+        undo("Restore", `Put ${it.song.title} back in the playlist`, () => restoreItem(it)))));
 
   fill(box,
     el("ul", { id: "stale", class: "msgs", hidden: !state.stale },
@@ -1063,8 +1067,11 @@ function renderResults() {
     (r.editViolations || []).length > 0 &&
       el("ul", { class: "msgs" },
         r.editViolations.map((v) => el("li", { class: "warning" }, `After your changes: ${v.index >= 0 ? `#${v.index + 1}: ` : ""}${v.message}`))),
-    el("p", { class: "help" }, "Change the playlist by hand with the buttons on each row. Swapped songs can be Reset to the " +
-      "generator's choice, songs you added can be removed, and removed songs stay listed (small) so you can Restore them."),
+    el("div", { class: "edit-bar" },
+      el("p", { class: "help" }, "Change the playlist by hand with the buttons on each row. Swapped songs can be Reset to the " +
+        "generator's choice, songs you added can be removed, and removed songs stay listed (small) so you can Restore them."),
+      hasEdits(r) && el("button", { type: "button", class: "undo", onclick: resetAll,
+        title: "Undo every swap, insertion and removal: back to exactly the playlist the generator made" }, "Reset all")),
     el("div", { class: "table-wrap" },
       el("table", { class: "playlist" },
         el("thead", {}, el("tr", {},
@@ -1158,6 +1165,20 @@ function removeItem(item) {
 
 function restoreItem(item) {
   item.removed = false;
+  recompute();
+}
+
+/** Undo every manual change: exactly the playlist the generator made. */
+function resetAll() {
+  if (!confirm("Undo all your changes and go back to the playlist exactly as the generator made it?")) return;
+  const r = state.result;
+  r.playlist = r.playlist.filter((x) => !x.inserted);
+  for (const x of r.playlist) {
+    if (x.original) Object.assign(x, x.original);
+    delete x.original;
+    x.swapped = false;
+    x.removed = false;
+  }
   recompute();
 }
 
