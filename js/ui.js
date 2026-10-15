@@ -422,12 +422,15 @@ function excursionsSection(s) {
         if (!jitter) return `Every ${every} minutes`;
         return `Every ${Math.max(1, every - jitter)} to ${every + jitter} minutes`;
       }, "span", "")),
-    rows.length
-      ? el("table", { class: "pool-table" },
-          el("thead", {}, el("tr", {}, el("th", {}, "Dance"), el("th", {}, "Max count"), el("th", {}))),
-          el("tbody", {}, rows))
-      : el("p", { class: "muted" }, "No excursion dances yet."),
-    el("div", { class: "inline-fields" }, addWrap, el("button", { type: "button", class: "small", onclick: addDance }, "+ Add"))
+    // The dances and their counts, in their own box so they stand apart from the timing fields.
+    el("div", { class: "subbox" },
+      el("div", { class: "subbox-title" }, "Excursion dances"),
+      rows.length
+        ? el("table", { class: "pool-table" },
+            el("thead", {}, el("tr", {}, el("th", {}, "Dance"), el("th", {}, "Max count"), el("th", {}))),
+            el("tbody", {}, rows))
+        : el("p", { class: "muted" }, "No excursion dances yet."),
+      el("div", { class: "inline-fields" }, addWrap, el("button", { type: "button", class: "small", onclick: addDance }, "+ Add")))
   );
 }
 

@@ -170,6 +170,19 @@ input:invalid { border-color: var(--error); }
 [hidden] { display: none !important; }
 
 .pool-table { border-collapse: collapse; }
+.pool-table th { text-align: left; font-weight: 600; padding-right: 8px; }
+
+/* a shaded box grouping related controls inside a section */
+.subbox {
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--row-alt);
+  display: grid;
+  gap: 8px;
+}
+.subbox-title { font-weight: 600; font-size: 0.95em; }
 .pool-table td { padding: 2px 8px 2px 0; }
 
 .actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 8px; }
