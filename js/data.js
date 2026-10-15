@@ -139,9 +139,13 @@ export function parseCSV(text) {
 
 /* ------------------------------------------- removed songs (data/removed-songs.csv) */
 
-const REMOVED_COLUMNS = ["id", "title", "artist", "removed"];
+/*
+ * removed-songs.csv keeps the whole song (the same columns as songs.csv) plus the date it was
+ * removed, so a removed song can be restored exactly as it was.
+ */
+const REMOVED_COLUMNS = ["id", "title", "artist", "removed", "album", "length", "dances", "tags", "isrc"];
 
-/** Parse data/removed-songs.csv. Returns a Map id -> { id, title, artist, removed }. */
+/** Parse data/removed-songs.csv. Returns a Map id -> { id, title, artist, removed, album, lengthSec, dances, tags, isrc }. */
 export function parseRemovedSongs(text) {
   const rows = parseCSV(String(text).replace(/^﻿/, "").trim());
   const out = new Map();
@@ -151,14 +155,30 @@ export function parseRemovedSongs(text) {
   for (const r of rows.slice(1)) {
     const get = (c) => (col[c] >= 0 ? (r[col[c]] ?? "").trim() : "");
     const id = spotifyTrackId(get("id")) ?? get("id");
-    if (id) out.set(id, { id, title: get("title"), artist: get("artist"), removed: get("removed") });
+    if (!id) continue;
+    out.set(id, {
+      id,
+      title: get("title"),
+      artist: get("artist"),
+      removed: get("removed"),
+      album: get("album"),
+      lengthSec: parseLength(get("length")),
+      dances: [...new Set(splitList(get("dances")).map(canonicalDance))],
+      tags: splitList(get("tags")),
+      isrc: get("isrc"),
+    });
   }
   return out;
 }
 
 /** Removed songs -> CSV text for data/removed-songs.csv. */
 export function removedSongsToCSV(entries) {
-  return [REMOVED_COLUMNS.join(","), ...entries.map((e) => REMOVED_COLUMNS.map((c) => esc(e[c] ?? "")).join(","))].join("\n") + "\n";
+  const cell = (e, c) => {
+    if (c === "length") return e.lengthSec > 0 ? mmss(e.lengthSec) : "";
+    if (c === "dances" || c === "tags") return (e[c] || []).join("; ");
+    return e[c] ?? "";
+  };
+  return [REMOVED_COLUMNS.join(","), ...entries.map((e) => REMOVED_COLUMNS.map((c) => esc(cell(e, c))).join(","))].join("\n") + "\n";
 }
 
 /**

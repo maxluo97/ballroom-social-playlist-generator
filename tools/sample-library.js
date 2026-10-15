@@ -2,8 +2,8 @@
  * sample-library.js — a made-up song library tagged the way a competitive-ballroom
  * database might be: style-specific dance names ("Smooth Waltz", "Standard Waltz", ...).
  *
- * Used by tools/make-sample-songs.js (writes data/sample-songs.json for the app) and by
- * the tests. Titles and IDs are fake; output is the same every run.
+ * Used by the tests (the app itself only uses your real library, data/songs.csv).
+ * Titles and IDs are fake; output is the same every run.
  */
 
 export const SAMPLE_DANCES = {

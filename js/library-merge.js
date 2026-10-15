@@ -38,14 +38,44 @@ export function markPreviouslyRemoved(rows, blacklist) {
 /** The songs to save in songs.csv: everything except removed rows and blocked imports. */
 export const keptSongs = (rows) => rows.filter((r) => !r.removedNow && !r.blocked).map((r) => r.song);
 
-/** The blacklist to save: the old one, plus songs removed now, minus songs re-imported. */
+/** The blacklist to save: the old one, plus songs removed now, minus songs re-imported / restored. */
 export function updatedBlacklist(blacklist, rows, today) {
   const out = new Map(blacklist);
   for (const r of rows) {
-    if (r.removedNow) out.set(r.song.id, { id: r.song.id, title: r.song.title, artist: r.song.artist || "", removed: today });
+    if (r.removedNow) {
+      const s = r.song;
+      // The whole song is kept, so it can be restored later with its dances and tags.
+      out.set(s.id, {
+        id: s.id, title: s.title, artist: s.artist || "", removed: today, album: s.album || "",
+        lengthSec: s.lengthSec, dances: [...(s.dances || [])], tags: [...(s.tags || [])], isrc: s.isrc || "",
+      });
+    }
     if (r.reimported) out.delete(r.song.id);
   }
   return [...out.values()];
+}
+
+/**
+ * Review rows for blacklisted songs that are not otherwise in the review (not in the library, not in
+ * this import): left out, but each can be restored ("re-imported"), which takes it off the blacklist.
+ */
+export function blacklistRows(rows, blacklist) {
+  const present = new Set(rows.map((r) => r.song.id));
+  const extra = [];
+  for (const e of blacklist.values()) {
+    if (present.has(e.id)) continue;
+    extra.push({
+      song: { id: e.id, title: e.title, artist: e.artist, album: e.album, lengthSec: e.lengthSec, dances: [...e.dances], tags: [...e.tags], isrc: e.isrc },
+      status: "blacklisted",
+      added: { dances: [], tags: [] },
+      guessed: { dances: [], tags: [] },
+      sources: [],
+      blocked: true,
+      fromBlacklist: true,
+      removedEntry: e,
+    });
+  }
+  return extra;
 }
 
 /** Whether the rows change the blacklist at all (so it needs saving). */

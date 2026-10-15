@@ -21,7 +21,7 @@ import {
   setCustomDances, customDanceNames, newDanceProblem,
 } from "./dance-names.js";
 import {
-  mergeImport, parseTagRules, markPreviouslyRemoved, keptSongs, updatedBlacklist, blacklistChanged,
+  mergeImport, parseTagRules, markPreviouslyRemoved, keptSongs, updatedBlacklist, blacklistChanged, blacklistRows,
 } from "./library-merge.js";
 import { formatTime } from "./generator.js";
 
@@ -519,8 +519,10 @@ async function runImport() {
 
 /** (Re)build the review rows from the imported playlists and the current tag rules. */
 function computeRows() {
-  const merged = mergeImport(state.existing, [...(state.imports || []), ...manualImports()], { tagRules: loadRules() });
-  state.rows = markPreviouslyRemoved(merged, state.blacklist);
+  const merged = markPreviouslyRemoved(
+    mergeImport(state.existing, [...(state.imports || []), ...manualImports()], { tagRules: loadRules() }), state.blacklist);
+  // Every other blacklisted song gets a (hidden unless filtered) row too, so it can be restored.
+  state.rows = [...merged, ...blacklistRows(merged, state.blacklist)];
   state.filter = "all";
   renderReview();
 }
@@ -839,8 +841,11 @@ const FILTERS = {
   unchanged: ["Unchanged", (r) => r.status === "unchanged"],
   unavailable: ["Not available on Spotify", (r) => notAvailable(r.song.id)],
   removed: ["Removed", (r) => r.removedNow],
-  blocked: ["Removed before", (r) => r.blocked || r.reimported],
+  blocked: ["Removed earlier", (r) => r.blocked || r.reimported],
 };
+
+/** Blacklisted songs only show under "Removed earlier" (until restored); every other filter hides them. */
+const shownIn = (key, r) => (key === "blocked" || !r.fromBlacklist || r.reimported) && FILTERS[key][1](r);
 
 function renderReview() {
   const rows = state.rows;
@@ -853,16 +858,15 @@ function renderReview() {
   const search = el("input", { type: "text", placeholder: "search title / artist…", value: state.search, "aria-label": "Search songs" });
   const drawRows = () => {
     const q = state.search.toLowerCase();
-    const [, test] = FILTERS[state.filter];
-    const shown = rows.filter((r) => test(r) && `${r.song.title} ${r.song.artist}`.toLowerCase().includes(q));
+    const shown = rows.filter((r) => shownIn(state.filter, r) && `${r.song.title} ${r.song.artist}`.toLowerCase().includes(q));
     fill(tbody, shown.slice(0, 1000).map(reviewRow),
       shown.length > 1000 && el("tr", {}, el("td", { colspan: 8, class: "muted" }, `…and ${shown.length - 1000} more (use the filter or search).`)));
   };
   search.addEventListener("input", () => { state.search = search.value; drawRows(); });
 
-  const filterButtons = Object.entries(FILTERS).map(([key, [label, test]]) =>
+  const filterButtons = Object.entries(FILTERS).map(([key, [label]]) =>
     el("button", { type: "button", class: key === state.filter ? "small primary" : "small", onclick: () => { state.filter = key; renderReview(); } },
-      `${label} (${rows.filter(test).length})`));
+      `${label} (${rows.filter((r) => shownIn(key, r)).length})`));
   drawRows();
 
   fill($("review"),
@@ -894,6 +898,13 @@ function jump(id) {
   window.scrollTo({ top: target.getBoundingClientRect().top + window.scrollY - 12, behavior: "smooth" });
 }
 
+/** Put a blacklisted song back into the library, as it was (it comes off the blacklist when saved). */
+function restoreFromBlacklist(r) {
+  r.blocked = false;
+  r.reimported = true;
+  renderReview();
+}
+
 function reviewRow(r) {
   const s = r.song;
   const button = (cls, label, title, onclick) => el("button", { type: "button", class: cls, title, "aria-label": title, onclick: () => { onclick(); renderReview(); } }, label);
@@ -913,21 +924,25 @@ function reviewRow(r) {
   }
   // An import of a song that was removed before: left out unless re-imported.
   if (r.blocked) {
+    const when = r.removedEntry && r.removedEntry.removed ? ` on ${r.removedEntry.removed}` : "";
     return el("tr", { class: "removed blocked" },
-      el("td", {}, "Removed before"),
+      el("td", {}, r.fromBlacklist ? "Removed earlier" : "Removed before"),
       el("td", {}, s.title,
-        el("div", { class: "swap-warning" }, `Warning: you removed this song from the library` +
-          (r.removedEntry && r.removedEntry.removed ? ` on ${r.removedEntry.removed}` : "") + ". It is left out unless you re-import it.")),
+        r.fromBlacklist
+          ? el("div", { class: "muted", style: "font-size:0.85em" }, `Removed from the library${when}.`)
+          : el("div", { class: "swap-warning" }, `Warning: you removed this song from the library${when}. It is left out unless you re-import it.`)),
       el("td", {}, s.artist),
       el("td", {}, s.album || ""),
-      el("td", { class: "num" }, formatTime(s.lengthSec)),
+      el("td", { class: "num" }, s.lengthSec ? formatTime(s.lengthSec) : ""),
       el("td", {}, s.dances.join(", ")),
       el("td", {}, s.tags.join(", ")),
       el("td", { class: "muted" }, r.sources.join(", ")),
-      el("td", {}, button("small", "Re-import", `Bring ${s.title} back into the library`, () => {
-        r.blocked = false;
-        r.reimported = true;
-      })));
+      el("td", {}, r.fromBlacklist
+        ? button("small", "Restore", `Put ${s.title} back into the library`, () => restoreFromBlacklist(r))
+        : button("small", "Re-import", `Bring ${s.title} back into the library`, () => {
+            r.blocked = false;
+            r.reimported = true;
+          })));
   }
 
   let row = null;
@@ -940,7 +955,7 @@ function reviewRow(r) {
       editor,
       guessed.length > 0 && el("small", { class: "muted", style: "display:block" }, `from keywords: ${guessed.join(", ")}`));
   row = el("tr", { class: !s.dances.length ? "nodance" : null },
-    el("td", {}, r.reimported ? "Re-imported"
+    el("td", {}, r.reimported ? (r.fromBlacklist ? "Restored" : "Re-imported")
       : r.status === "new" ? "New" : r.status === "updated" ? `+ ${[...r.added.dances, ...r.added.tags].join(", ")}` : ""),
     el("td", {}, s.title, availabilityNote(s.id)),
     el("td", {}, s.artist),
@@ -950,7 +965,7 @@ function reviewRow(r) {
     cell(tagChips(s.tags, `Tags for ${s.title}`, edited), r.guessed.tags),
     el("td", { class: "muted" }, r.sources.join(", ")),
     el("td", {}, r.reimported
-      ? button("small undo", "Undo re-import", `Leave ${s.title} out again`, () => {
+      ? button("small undo", r.fromBlacklist ? "Undo restore" : "Undo re-import", `Leave ${s.title} out again`, () => {
           r.reimported = false;
           r.blocked = true;
         })
@@ -1030,7 +1045,8 @@ function renderOutput() {
   const files = currentFiles();
   const count = keptSongs(state.rows).length;
   const removedNow = state.rows.filter((r) => r.removedNow).length;
-  const blocked = state.rows.filter((r) => r.blocked).length;
+  const blocked = state.rows.filter((r) => r.blocked && !r.fromBlacklist).length;
+  const restored = state.rows.filter((r) => r.fromBlacklist && r.reimported).length;
   const noDance = keptSongs(state.rows).filter((s) => !s.dances.length).length;
   const unsaved = looksUnsaved();
 
@@ -1080,7 +1096,8 @@ function renderOutput() {
   fill($("output"),
     el("p", {}, `The library will have ${count} songs.` +
       (removedNow ? ` ${removedNow} removed now.` : "") +
-      (blocked ? ` ${blocked} previously removed song(s) from the import left out.` : "")),
+      (blocked ? ` ${blocked} previously removed song(s) from the import left out.` : "") +
+      (restored ? ` ${restored} restored from the removed songs.` : "")),
     noDance > 0 && el("ul", { class: "msgs" }, el("li", { class: "warning" },
       `${noDance} song(s) have no dance. They are kept in songs.csv, but the generator skips them until they get one (filter “No dance” above).`)),
     unsaved

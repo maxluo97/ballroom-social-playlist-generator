@@ -4,7 +4,7 @@
  */
 
 import { guessDanceInfo, canonicalDance, setCustomDances, newDanceProblem } from "../js/dance-names.js";
-import { mergeImport, parseTagRules, markPreviouslyRemoved, keptSongs, updatedBlacklist, blacklistChanged } from "../js/library-merge.js";
+import { mergeImport, parseTagRules, markPreviouslyRemoved, keptSongs, updatedBlacklist, blacklistChanged, blacklistRows } from "../js/library-merge.js";
 import { songsToCSV, parseSongsText, parseRemovedSongs, removedSongsToCSV } from "../js/data.js";
 import { buildSampleLibrary } from "../tools/sample-library.js";
 import { playlistIdFrom } from "../js/spotify.js";
@@ -157,6 +157,24 @@ console.log("=== Removing songs (blacklist)");
     `blacklist: + removed song, - re-imported song: ${JSON.stringify(next)}`);
   const back = parseRemovedSongs(removedSongsToCSV(next));
   check(back.get(tid(2)).title === "Remove me" && back.get(tid(2)).removed === "2026-10-20", "removed-songs.csv round trip");
+  check(back.get(tid(2)).lengthSec === 180 && same(back.get(tid(2)).dances, ["Smooth Waltz"]),
+    "the whole song is kept in removed-songs.csv (length, dances), so it can be restored as it was");
+
+  // Restoring from the blacklist: every blacklisted song not otherwise present gets a row.
+  check(blacklistRows(markPreviouslyRemoved(mergeImport(lib, []), back), back).length === 0,
+    "no extra row for a blacklisted song that is still in the library");
+  const onlyKeep = markPreviouslyRemoved(mergeImport([lib[0]], []), back); // the library after saving the removal
+  const extra = blacklistRows(onlyKeep, back);
+  check(extra.length === 1 && extra[0].song.id === tid(2) && extra[0].fromBlacklist && extra[0].blocked,
+    "a blacklisted song gets a restorable row");
+  const rows2 = [...onlyKeep, ...extra];
+  check(same(keptSongs(rows2).map((s) => s.id), [tid(1)]), "blacklisted song left out until restored");
+  const row = rows2.find((x) => x.fromBlacklist);
+  row.blocked = false; // Restore
+  row.reimported = true;
+  check(same(keptSongs(rows2).map((s) => s.id), [tid(1), tid(2)]) && same(keptSongs(rows2)[1].dances, ["Smooth Waltz"]),
+    "a restored song is saved again with its dances");
+  check(updatedBlacklist(back, rows2, "2026-10-21").length === 0, "a restored song comes off the blacklist");
 }
 
 console.log("=== Playlist links");

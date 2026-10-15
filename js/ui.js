@@ -19,8 +19,6 @@ import { el, fill, $, comboInput, chipEditor as sharedChipEditor } from "./dom.j
 import { checkSongs, isUnavailable, unavailableReason, availabilityOf } from "./availability.js";
 import { DANCE_ALIASES, BALLROOM_DANCE_NAMES, canonicalDance, unknownDanceMessage } from "./dance-names.js";
 
-const SAMPLE_URL = "data/sample-songs.json";
-const SAMPLE_NAME = "Sample library (made-up songs)";
 const PROJECT_URL = "data/songs.csv";
 const PROJECT_NAME = "Project library (data/songs.csv)";
 const DEFAULTS_LABEL = "Default settings";
@@ -736,7 +734,7 @@ function renderSettingsBar() {
 /*
  * The song library is always data/songs.csv, made and saved with the library builder. Nothing is
  * kept in the browser, so there is never any doubt which library is in use. Until data/songs.csv
- * exists, the page points to the library builder (and offers made-up sample songs to look around).
+ * exists, the page points to the library builder.
  */
 
 function setLibrary(songs, name, problems) {
@@ -754,15 +752,6 @@ async function fetchProjectLibrary() {
     return await loadSongsFromUrl(PROJECT_URL);
   } catch {
     return null;
-  }
-}
-
-async function useSample() {
-  try {
-    const { songs, problems } = await loadSongsFromUrl(SAMPLE_URL);
-    setLibrary(songs, SAMPLE_NAME, problems);
-  } catch (err) {
-    alert(`Could not load the sample songs: ${err.message}`);
   }
 }
 
@@ -787,17 +776,13 @@ function renderLibrary() {
       el("ul", { class: "msgs" }, el("li", { class: "warning" },
         "No song library yet: data/songs.csv was not found. Build your library from your Spotify playlists in the " +
           "library builder and save it there; the generator then uses it automatically.")),
-      el("div", { class: "library-line" }, builder,
-        el("button", { type: "button", class: "small", onclick: useSample }, "Look around with made-up sample songs")));
+      el("div", { class: "library-line" }, builder));
   }
   fill($("library"),
     el("div", { class: "library-line" },
       el("span", {}, "Song library: ", el("strong", {}, name), ` — ${state.songs.length} songs, ${rawDances().length} dances`),
       el("button", { type: "button", class: "small", onclick: openLibraryView, disabled: !state.songs.length }, "View library"),
       builder),
-    name === SAMPLE_NAME &&
-      el("p", { class: "help" }, "These are made-up songs for trying the app; they have no real Spotify songs. " +
-        "Reload the page to leave them, and build your own library in the library builder."),
     problems.length > 0 &&
       el("details", {},
         el("summary", {}, `${problems.length} row(s) skipped or changed while loading`),
