@@ -145,6 +145,26 @@ button.icon { padding: 0 7px; line-height: 1.6; }
 .chip button:hover { background: var(--border); }
 .chips input { width: 11em; }
 .chips-list, .contents { display: contents; }
+
+/* autocompleting dropdowns (js/dom.js attachCombo) */
+.combo { display: inline-block; }
+.row-head .combo { flex: 1 1 10em; }
+.row-head .combo input { width: 100%; font-weight: 600; }
+.combo-list {
+  position: fixed;
+  z-index: 50;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  max-height: 16em;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+.combo-list li { padding: 3px 12px; cursor: pointer; white-space: nowrap; }
+.combo-list li:hover, .combo-list li.active { background: var(--chip); }
 input:invalid { border-color: var(--error); }
 .label { margin-bottom: 4px; }
 [hidden] { display: none !important; }

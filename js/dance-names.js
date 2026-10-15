@@ -75,6 +75,10 @@ export const DOUBLE_CHECK = {
   Tango: { alternative: "Argentine Tango", message: "Assumed ballroom Tango (Smooth/Standard). Double-check: is it Argentine Tango?" },
 };
 
+/** Message for a dance name the app does not know (dance boxes accept known dances only). */
+export const unknownDanceMessage = (v) =>
+  `“${v}” is not a known dance. Pick one from the list (defining new dances is planned for a later version).`;
+
 /** All standard ballroom names, e.g. "Smooth Waltz" ... "Latin Jive" (19 dances). */
 export const BALLROOM_DANCE_NAMES = Object.entries(BALLROOM_STYLES).flatMap(([style, s]) => s.dances.map((d) => `${style} ${d}`));
 

@@ -13,8 +13,8 @@ import {
 } from "./settings.js";
 import { loadSongsFromUrl, parseSongsText, playlistToCSV, spotifyLink } from "./data.js";
 import { handleLoginRedirect } from "./spotify.js";
-import { el, fill, $ } from "./dom.js";
-import { DANCE_ALIASES } from "./dance-names.js";
+import { el, fill, $, comboInput, chipEditor as sharedChipEditor } from "./dom.js";
+import { DANCE_ALIASES, BALLROOM_DANCE_NAMES, canonicalDance, unknownDanceMessage } from "./dance-names.js";
 
 const SAMPLE_URL = "data/sample-songs.json";
 const SAMPLE_NAME = "Sample library (made-up songs)";
@@ -167,12 +167,17 @@ function numberInput(get, set, { min, max, step = 1 } = {}) {
 
 /**
  * Text input. Updates on every keystroke unless `commitOnly` (then on Enter / leaving the box).
- * `suggest`: a function returning suggestions for this box's own dropdown (refreshed on focus).
+ * `suggest`: a function returning suggestions for a dropdown; picking one counts as committing it.
  */
-function textInput(get, set, { placeholder, list, suggest, commitOnly = false, onCommit } = {}) {
-  const ownList = suggest ? el("datalist", { id: `dl-auto-${++autoListId}` }) : null;
-  const input = el("input", { type: "text", value: get() ?? "", placeholder, list: ownList ? ownList.id : list });
-  if (ownList) input.addEventListener("focus", () => ownList.replaceChildren(...suggest().map((v) => el("option", { value: v }))));
+function textInput(get, set, { placeholder, suggest, commitOnly = false, onCommit } = {}) {
+  const combo = suggest
+    ? comboInput({ value: get() ?? "", placeholder }, suggest, (v) => {
+        combo.input.value = v;
+        combo.input.dispatchEvent(new Event("input"));
+        combo.input.dispatchEvent(new Event("change"));
+      })
+    : null;
+  const input = combo ? combo.input : el("input", { type: "text", value: get() ?? "", placeholder });
   if (!commitOnly) {
     input.addEventListener("input", () => {
       set(input.value);
@@ -186,7 +191,7 @@ function textInput(get, set, { placeholder, list, suggest, commitOnly = false, o
       changed();
     }
   });
-  return ownList ? el("span", { class: "contents" }, input, ownList) : input;
+  return combo ? combo.wrap : input;
 }
 
 /** Slider + number box for a 0..1 fraction shown as a percentage. */
@@ -205,75 +210,21 @@ function percentSlider(get, set) {
   return el("span", { class: "inline-fields" }, range, num, "%");
 }
 
-/**
- * Editable list of names shown as removable chips, with a suggestion dropdown.
- * `source` is a function returning the suggestions, or the id of a shared <datalist> to copy
- * them from. Each editor keeps its own list (refreshed on focus) and leaves out items
- * already added. `check(value)` may return an error message to refuse a value.
+/** Chip editor (see js/dom.js) whose changes count as settings edits. */
+const chipEditor = (list, source, options = {}) => sharedChipEditor(list, source, { ...options, onChange: () => changed() });
+
+/*
+ * Dance boxes accept known dances only (no free typing of new dances; a dedicated "define a dance"
+ * button is planned). Known = the library's dances, association names, and the app's built-in names.
  */
-let autoListId = 0;
-function chipEditor(list, source, { placeholder = "add…", label = "Add", check = null } = {}) {
-  const chips = el("span", { class: "chips-list" });
-  const suggestions = typeof source === "function" ? source : () => [...$(source).options].map((o) => o.value);
-  const datalist = el("datalist", { id: `dl-auto-${++autoListId}` });
-  const refresh = () =>
-    datalist.replaceChildren(...suggestions().filter((v) => !list.includes(v)).map((v) => el("option", { value: v })));
-  const input = el("input", { type: "text", list: datalist.id, placeholder, "aria-label": label });
-  const draw = () => {
-    chips.replaceChildren(
-      ...list.map((d, i) =>
-        el(
-          "span",
-          { class: "chip" },
-          d,
-          el("button", { type: "button", title: `Remove ${d}`, "aria-label": `Remove ${d}`, onclick: () => {
-            list.splice(i, 1);
-            draw();
-            changed();
-          } }, "×")
-        )
-      )
-    );
-    refresh();
-  };
-  /** `explain`: show the reason if the value is refused (on Enter; not when leaving the box). */
-  const add = (explain) => {
-    const v = input.value.replace(/,$/, "").trim();
-    if (!v) return;
-    const problem = list.includes(v) ? `${v} is already in this list.` : check && check(v);
-    if (problem) {
-      input.setCustomValidity(problem);
-      if (explain) input.reportValidity();
-      return;
-    }
-    input.value = "";
-    list.push(v);
-    draw();
-    changed();
-  };
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === ",") {
-      e.preventDefault();
-      add(true);
-    } else if (e.key === "Backspace" && !input.value && list.length) {
-      list.pop();
-      draw();
-      changed();
-    }
-  });
-  input.addEventListener("input", (e) => {
-    input.setCustomValidity("");
-    // Picking an entry from the suggestion list adds it straight away.
-    if (e.inputType === undefined || e.inputType === "insertReplacementText") {
-      const options = [...datalist.options].map((o) => o.value);
-      if (options.includes(input.value)) add(true);
-    }
-  });
-  input.addEventListener("focus", refresh);
-  input.addEventListener("blur", () => add(false));
-  draw();
-  return el("div", { class: "chips" }, chips, input, datalist);
-}
+const builtInDances = () => [...BALLROOM_DANCE_NAMES, ...Object.keys(DANCE_ALIASES)];
+/** Dances usable in settings (after associations). */
+const settingDances = () =>
+  [...new Set([...resolvedDances(), ...state.settings.associations.map((a) => a.name).filter(Boolean), ...builtInDances()])];
+/** Dances usable inside associations (the library's own tags). */
+const libraryDanceNames = () => [...new Set([...rawDances(), ...builtInDances()])];
+/** Options for a dance chip editor that only accepts the names in `allowedFn()`. */
+const onlyDances = (allowedFn) => ({ allowed: allowedFn, notAllowed: unknownDanceMessage, normalize: canonicalDance });
 
 function removeButton(what, onclick) {
   return el("button", { type: "button", class: "icon", title: `Remove ${what}`, "aria-label": `Remove ${what}`, onclick }, "×");
@@ -332,6 +283,7 @@ function associationsSection(s) {
           changed(true);
         })),
       chipEditor(a.dances, dancesNotInAnAssociation, {
+        ...onlyDances(libraryDanceNames),
         placeholder: "add a dance…",
         label: `Add a dance to ${a.name}`,
         check: (v) => {
@@ -382,6 +334,7 @@ function categoriesSection(s) {
           changed(true);
         })),
       chipEditor(c.dances, dancesNotInACategory, {
+        ...onlyDances(settingDances),
         placeholder: "add a dance…",
         label: `Add a dance to ${c.name}`,
         check: (v) => {
@@ -422,22 +375,25 @@ function repetitionSection(s) {
 
 function excursionsSection(s) {
   const ex = s.excursions;
-  // Suggestions leave out dances that are already excursions or belong to a category.
-  const addList = el("datalist", { id: `dl-auto-${++autoListId}` });
-  const addBox = el("input", { type: "text", list: addList.id, placeholder: "dance to add…", "aria-label": "Excursion dance to add" });
-  addBox.addEventListener("focus", () => addList.replaceChildren(...dancesForExcursions().map((v) => el("option", { value: v }))));
+  // Dropdown leaves out dances that are already excursions or belong to a category; picking one adds it.
+  const { wrap: addWrap, input: addBox } = comboInput({ placeholder: "dance to add…", "aria-label": "Excursion dance to add" },
+    dancesForExcursions, (v) => { addBox.value = v; addDance(); });
   const addDance = () => {
-    const d = addBox.value.trim();
-    if (d && !(d in ex.pool)) {
+    const typed = canonicalDance(addBox.value);
+    if (!typed) return;
+    const d = settingDances().find((k) => k.toLowerCase() === typed.toLowerCase());
+    if (!d) {
+      addBox.setCustomValidity(unknownDanceMessage(typed));
+      addBox.reportValidity();
+      return;
+    }
+    if (!(d in ex.pool)) {
       ex.pool[d] = 1;
       changed(true);
     }
   };
+  addBox.addEventListener("input", () => addBox.setCustomValidity(""));
   addBox.addEventListener("keydown", (e) => e.key === "Enter" && (e.preventDefault(), addDance()));
-  addBox.addEventListener("input", (e) => {
-    // Picking an entry from the suggestion list adds it straight away.
-    if ((e.inputType === undefined || e.inputType === "insertReplacementText") && [...addList.options].some((o) => o.value === addBox.value)) addDance();
-  });
   const rows = Object.keys(ex.pool).map((d) =>
     el("tr", {},
       el("td", {}, d),
@@ -463,7 +419,7 @@ function excursionsSection(s) {
           el("thead", {}, el("tr", {}, el("th", {}, "Dance"), el("th", {}, "Max count"), el("th", {}))),
           el("tbody", {}, rows))
       : el("p", { class: "muted" }, "No excursion dances yet."),
-    el("div", { class: "inline-fields" }, addBox, addList, el("button", { type: "button", class: "small", onclick: addDance }, "+ Add"))
+    el("div", { class: "inline-fields" }, addWrap, el("button", { type: "button", class: "small", onclick: addDance }, "+ Add"))
   );
 }
 
@@ -478,13 +434,17 @@ function fixedSection(s) {
           changed(true);
         })),
       el("div", { class: "inline-fields" }, "Dance(s):",
-        chipEditor(e.dances, resolvedDances, { placeholder: "add a dance…", label: `Add a dance to ${e.name}` })),
+        chipEditor(e.dances, resolvedDances, { ...onlyDances(settingDances), placeholder: "add a dance…", label: `Add a dance to ${e.name}` })),
       el("div", { class: "inline-fields" },
         el("label", {}, "Songs", numberInput(() => e.count ?? 1, (v) => (e.count = v), { min: 1, max: 10 }))),
       el("div", { class: "inline-fields" }, "At", percentSlider(() => e.at, (v) => (e.at = v)), "of the night"),
       el("div", { class: "inline-fields" }, "Never directly after:",
-        chipEditor(e.notAfter, () => [...s.fixedEvents.filter((x) => x !== e).map((x) => x.name), ...resolvedDances()],
-          { placeholder: "dance or event…", label: `Never directly after (${e.name})` })));
+        chipEditor(e.notAfter, () => [...s.fixedEvents.filter((x) => x !== e).map((x) => x.name), ...resolvedDances()], {
+          allowed: () => [...s.fixedEvents.filter((x) => x !== e).map((x) => x.name), ...settingDances()],
+          notAllowed: (v) => `“${v}” is not a known dance or fixed event.`,
+          placeholder: "dance or event…",
+          label: `Never directly after (${e.name})`,
+        })));
   });
   return section(
     "Fixed events",
@@ -521,7 +481,7 @@ function themeSection(s) {
       } }, label);
     body.push(
       field("Theme name", textInput(() => t.name, (v) => (t.name = v), { placeholder: "e.g. Roarin' Twenties" })),
-      el("div", {}, el("div", { class: "label" }, "Theme dances"), chipEditor(t.dances, resolvedDances, { placeholder: "add a dance…", label: "Add a theme dance" })),
+      el("div", {}, el("div", { class: "label" }, "Theme dances"), chipEditor(t.dances, resolvedDances, { ...onlyDances(settingDances), placeholder: "add a dance…", label: "Add a theme dance" })),
       el("div", {}, el("div", { class: "label" }, "Theme song tags"), chipEditor(t.tags, allTags, { placeholder: "add a tag…", label: "Add a theme tag" })),
       live(() => {
         const tags = allTags();
@@ -548,7 +508,7 @@ function openingSection(s) {
     field("Opening length", el("span", { class: "inline-fields" },
       numberInput(() => s.opening.earlyCount, (v) => (s.opening.earlyCount = v), { min: 0, max: 30 }), "songs")),
     el("div", {}, el("div", { class: "label" }, "Not allowed in the opening"),
-      chipEditor(s.opening.blacklist, "dl-dances", { placeholder: "add a dance…", label: "Add a dance to the opening blacklist" })),
+      chipEditor(s.opening.blacklist, "dl-dances", { ...onlyDances(settingDances), placeholder: "add a dance…", label: "Add a dance to the opening blacklist" })),
     field("Last dance of the night",
       selectInput(() => s.closing.finalDance, (v) => (s.closing.finalDance = v), resolvedDances, "(none)"))
   );

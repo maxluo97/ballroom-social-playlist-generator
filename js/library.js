@@ -7,14 +7,16 @@
  * Imports only add to the library; see js/library-merge.js for the exact rules.
  */
 
-import { el, fill, $ } from "./dom.js";
+import { el, fill, $, chipEditor, comboInput } from "./dom.js";
 import {
   login, logout, isLoggedIn, handleLoginRedirect, getMyPlaylists, getPlaylistTracks,
   getTrack, searchTracks, playlistIdFrom,
 } from "./spotify.js";
 import { spotifyTrackId } from "./data.js";
 import { loadSongsFromUrl, parseSongsText, songsToCSV } from "./data.js";
-import { guessDanceInfo, canonicalDance, DANCE_ALIASES, BALLROOM_STYLES, BALLROOM_DANCE_NAMES } from "./dance-names.js";
+import {
+  guessDanceInfo, canonicalDance, unknownDanceMessage, DANCE_ALIASES, BALLROOM_STYLES, BALLROOM_DANCE_NAMES,
+} from "./dance-names.js";
 import { mergeImport, parseTagRules } from "./library-merge.js";
 import { LIBRARY_KEY } from "./settings.js";
 import { formatTime } from "./generator.js";
@@ -35,12 +37,12 @@ const state = {
   existingName: "",
   playlists: null, // readable playlists
   hiddenCount: 0,
-  // playlist id -> { selected, dances: "a; b", tags: "a; b", ambiguous: [{dance, options}], checks: [guesses to confirm] }
+  // playlist id -> { selected, dances: [...], tags: [...], ambiguous: [{dance, options}], checks: [guesses to confirm] }
   choices: new Map(),
   playlistSearch: "",
   imports: null, // last imported playlists (kept so tag rules can be re-applied without Spotify)
   failures: [],
-  // Step 4a worklist: songs added one by one. { song, include, dances: "a; b", tags: "a; b", source }
+  // Step 4a worklist: songs added one by one. { song, include, dances: [...], tags: [...], source }
   manual: [],
   manualHideKnown: false,
   spotifySearch: { query: "", results: [], total: 0, nextOffset: null },
@@ -82,11 +84,38 @@ function knownDances() {
   return [...set].sort();
 }
 
+/**
+ * Tag suggestions: tags in the library and the keyword rules, plus every tag typed anywhere on this
+ * page so far (playlist rows, worklist, review), so a new tag is offered in all later tag boxes.
+ */
+const knownTags = () =>
+  [...new Set([
+    ...state.existing.flatMap((s) => s.tags || []),
+    ...loadRules().map((r) => r.tag),
+    ...[...state.choices.values()].flatMap((c) => c.tags),
+    ...state.manual.flatMap((m) => m.tags),
+    ...(state.rows || []).flatMap((r) => r.song.tags),
+  ])].filter(Boolean).sort();
+
 function updateLists() {
   $("dl-known").replaceChildren(...knownDances().map((d) => el("option", { value: d })));
-  const tags = [...new Set([...state.existing.flatMap((s) => s.tags || []), ...loadRules().map((r) => r.tag)])].filter(Boolean).sort();
-  $("dl-tags").replaceChildren(...tags.map((t) => el("option", { value: t })));
+  $("dl-tags").replaceChildren(...knownTags().map((t) => el("option", { value: t })));
 }
+
+const UNKNOWN_DANCE = unknownDanceMessage;
+
+/**
+ * Chip editor for a list of dances: dropdown of known dances; "American Rumba" -> "Rhythm Rumba".
+ * Only known dances can be added (new dances will get their own button, not free typing).
+ */
+const danceChips = (list, label, onChange) =>
+  chipEditor(list, knownDances, {
+    placeholder: "add a dance…", label, normalize: canonicalDance, onChange,
+    allowed: knownDances, notAllowed: UNKNOWN_DANCE,
+  });
+
+/** Chip editor for a list of tags. */
+const tagChips = (list, label, onChange) => chipEditor(list, knownTags, { placeholder: "add a tag…", label, onChange });
 
 /* ---------------------------------------------------------------- 1. Spotify */
 
@@ -168,11 +197,13 @@ function renderRules() {
     fill(tbody, rules.map((r, i) => {
       const keyword = el("input", { type: "text", value: r.keyword, placeholder: "e.g. soundtrack", "aria-label": "Words to look for",
         oninput: () => { r.keyword = keyword.value.trim(); save(); } });
-      const tag = el("input", { type: "text", value: r.tag, list: "dl-tags", placeholder: "e.g. Hollywood", "aria-label": "Tag to add",
-        oninput: () => { r.tag = tag.value.trim(); save(); } });
+      const { wrap: tagWrap, input: tag } = comboInput(
+        { value: r.tag, placeholder: "e.g. Hollywood", "aria-label": "Tag to add", oninput: () => { r.tag = tag.value.trim(); save(); } },
+        knownTags,
+        (v) => { tag.value = v; r.tag = v; save(); });
       return el("tr", {},
         el("td", {}, keyword),
-        el("td", {}, tag),
+        el("td", {}, tagWrap),
         el("td", {}, el("button", { type: "button", class: "icon", title: "Remove rule", "aria-label": "Remove rule",
           onclick: () => { rules.splice(i, 1); save(); drawRules(); } }, "×")));
     }));
@@ -222,7 +253,7 @@ async function loadPlaylists() {
     for (const p of state.playlists) {
       if (state.choices.has(p.id)) continue;
       const { dances, ambiguous, checks } = guessDanceInfo(p.name, libraryDances());
-      state.choices.set(p.id, { selected: dances.length > 0 && !ambiguous.length, dances: dances.join("; "), tags: "", ambiguous, checks });
+      state.choices.set(p.id, { selected: dances.length > 0 && !ambiguous.length, dances, tags: [], ambiguous, checks });
     }
   } catch (err) {
     state.playlists = null;
@@ -262,16 +293,17 @@ function renderPlaylists() {
     fill(tbody, state.playlists.filter((p) => p.name.toLowerCase().includes(q)).map((p) => {
       const c = state.choices.get(p.id);
       const check = el("input", { type: "checkbox", checked: c.selected, "aria-label": `Import ${p.name}`, onchange: () => { c.selected = check.checked; updateCount(); } });
-      const dances = el("input", { type: "text", value: c.dances, list: "dl-known", placeholder: "e.g. Standard Waltz", "aria-label": `Dances for ${p.name}`,
-        oninput: () => (c.dances = dances.value),
-        onchange: () => { c.dances = danceList(dances.value).join("; "); dances.value = c.dances; } });
-      const tags = el("input", { type: "text", value: c.tags, list: "dl-tags", placeholder: "optional", "aria-label": `Tags for ${p.name}`,
-        oninput: () => (c.tags = tags.value) });
+      const dances = danceChips(c.dances, `Dances for ${p.name}`, () => {
+        // Giving a playlist a dance selects it for import.
+        if (c.dances.length && !c.selected) (c.selected = true), (check.checked = true);
+        updateCount();
+      });
+      const tags = tagChips(c.tags, `Tags for ${p.name}`);
       // A bare "Rumba" could be American (Rhythm) or International (Latin): ask.
       const questions = c.ambiguous.map((a) =>
         el("div", { class: "ask" }, `“${a.dance}”: which style? `,
           a.options.map((opt) => el("button", { type: "button", class: "small", onclick: () => {
-            c.dances = danceList(`${c.dances}; ${opt}`).join("; ");
+            if (!c.dances.includes(opt)) c.dances.push(opt);
             c.ambiguous = c.ambiguous.filter((x) => x !== a);
             c.selected = true;
             drawRows();
@@ -281,7 +313,7 @@ function renderPlaylists() {
       const flags = c.checks.map((k) =>
         el("div", { class: "ask" }, `⚠ ${k.message} `,
           el("button", { type: "button", class: "small", onclick: () => {
-            c.dances = danceList([...danceList(c.dances).filter((d) => !k.guessed.includes(d)), k.alternative].join("; ")).join("; ");
+            c.dances = [...c.dances.filter((d) => !k.guessed.includes(d)), k.alternative].filter((d, i, all) => all.indexOf(d) === i);
             c.checks = c.checks.filter((x) => x !== k);
             drawRows();
           } }, `It's ${k.alternative}`),
@@ -310,10 +342,11 @@ function renderPlaylists() {
     el("p", { class: "help" },
       `${state.playlists.length} playlists can be read` +
         (state.hiddenCount ? `; ${state.hiddenCount} others you follow are hidden (copy their songs into a playlist of your own to import them).` : ".") +
-        " Dances: separate several with “;”. Ballroom dances use the style name: Smooth / Rhythm (American), Standard / Latin (International). " +
+        " Dances: pick from the dropdown (or type and press Enter); add several if a playlist fits more than one. " +
+        "Ballroom dances use the style name: Smooth / Rhythm (American), Standard / Latin (International). " +
         "Names like “American Rumba” or “Intl Cha Cha” are converted automatically. Tags (optional) are added to every song in that playlist."),
     el("div", { class: "inline-fields" }, search,
-      el("button", { type: "button", class: "small", onclick: () => setAll((c) => danceList(c.dances).length > 0) }, "Select all with a dance"),
+      el("button", { type: "button", class: "small", onclick: () => setAll((c) => c.dances.length > 0) }, "Select all with a dance"),
       el("button", { type: "button", class: "small", onclick: () => setAll(() => false) }, "Select none"),
       el("button", { type: "button", class: "small", onclick: loadPlaylists }, "Reload playlists")),
     el("div", { class: "table-wrap" },
@@ -339,7 +372,7 @@ async function runImport() {
     `These playlists have a guess you have not confirmed:\n` +
       unchecked.map((p) => `• ${p.name}: ${state.choices.get(p.id).checks.map((k) => k.message).join(" ")}`).join("\n") +
       "\n\nImport them with the guess as it stands?")) return;
-  const noDance = chosen.filter((p) => !danceList(state.choices.get(p.id).dances).length);
+  const noDance = chosen.filter((p) => !state.choices.get(p.id).dances.length);
   if (noDance.length && !confirm(
     `These playlists have no dance set:\n${noDance.map((p) => "• " + p.name).join("\n")}\n\n` +
       "Their songs only get tags. Songs that end up with no dance at all are flagged in the review. Continue?")) return;
@@ -351,7 +384,7 @@ async function runImport() {
     try {
       const songs = await getPlaylistTracks(p.id);
       const c = state.choices.get(p.id);
-      imports.push({ playlistName: p.name, dances: danceList(c.dances), tags: splitList(c.tags), songs });
+      imports.push({ playlistName: p.name, dances: [...c.dances], tags: [...c.tags], songs });
     } catch (err) {
       failures.push(`${p.name}: ${err.message}`);
     }
@@ -374,7 +407,7 @@ function computeRows() {
 function manualImports() {
   return state.manual
     .filter((m) => m.include)
-    .map((m) => ({ playlistName: m.source, dances: danceList(m.dances), tags: splitList(m.tags), songs: [m.song] }));
+    .map((m) => ({ playlistName: m.source, dances: [...m.dances], tags: [...m.tags], songs: [m.song] }));
 }
 
 const libraryEntry = (id) => state.existing.find((s) => s.id === id) ?? null;
@@ -386,7 +419,7 @@ function addToWorklist(songs, source, include) {
   for (const song of songs) {
     if (onList.has(song.id)) continue;
     onList.add(song.id);
-    state.manual.push({ song, include, dances: "", tags: "", source });
+    state.manual.push({ song, include, dances: [], tags: [], source });
     added++;
   }
   return added;
@@ -505,7 +538,7 @@ function renderWorklist() {
   const count = el("span", { class: "muted" });
   const updateCount = () => {
     const ticked = state.manual.filter((m) => m.include);
-    const noDance = ticked.filter((m) => !danceList(m.dances).length && !(libraryEntry(m.song.id) || { dances: [] }).dances.length);
+    const noDance = ticked.filter((m) => !m.dances.length && !(libraryEntry(m.song.id) || { dances: [] }).dances.length);
     count.textContent = `${ticked.length} ticked` + (noDance.length ? `, ${noDance.length} of them without a dance` : "");
   };
   const visible = () => state.manual.filter((m) => !(state.manualHideKnown && libraryEntry(m.song.id)));
@@ -514,15 +547,12 @@ function renderWorklist() {
       const lib = libraryEntry(m.song.id);
       const tick = el("input", { type: "checkbox", checked: m.include, "aria-label": `Include ${m.song.title}`,
         onchange: () => { m.include = tick.checked; updateCount(); } });
-      const dances = el("input", { type: "text", value: m.dances, list: "dl-known", placeholder: "e.g. Rhythm Rumba", "aria-label": `Dances for ${m.song.title}`,
-        oninput: () => {
-          m.dances = dances.value;
-          if (dances.value.trim() && !m.include) (m.include = true), (tick.checked = true);
-          updateCount();
-        },
-        onchange: () => { m.dances = danceList(dances.value).join("; "); dances.value = m.dances; } });
-      const tags = el("input", { type: "text", value: m.tags, list: "dl-tags", placeholder: "optional", "aria-label": `Tags for ${m.song.title}`,
-        oninput: () => (m.tags = tags.value) });
+      const dances = danceChips(m.dances, `Dances for ${m.song.title}`, () => {
+        // Giving a song a dance ticks it.
+        if (m.dances.length && !m.include) (m.include = true), (tick.checked = true);
+        updateCount();
+      });
+      const tags = tagChips(m.tags, `Tags for ${m.song.title}`);
       return el("tr", {},
         el("td", {}, tick),
         el("td", {}, m.song.title),
@@ -539,12 +569,21 @@ function renderWorklist() {
   };
 
   // Bulk: add a dance or tag to every ticked song.
-  const bulkDance = el("input", { type: "text", list: "dl-known", placeholder: "dance", "aria-label": "Dance to add to ticked songs" });
-  const bulkTag = el("input", { type: "text", list: "dl-tags", placeholder: "tag", "aria-label": "Tag to add to ticked songs" });
+  const { wrap: bulkDanceWrap, input: bulkDance } = comboInput({ placeholder: "dance", "aria-label": "Dance to add to ticked songs" },
+    knownDances, (v) => (bulkDance.value = v));
+  const { wrap: bulkTagWrap, input: bulkTag } = comboInput({ placeholder: "tag", "aria-label": "Tag to add to ticked songs" },
+    knownTags, (v) => (bulkTag.value = v));
   const addToTicked = (key, input, normalize) => {
-    const values = normalize(input.value);
+    let values = normalize(input.value);
     if (!values.length) return;
-    for (const m of state.manual) if (m.include) m[key] = normalize(`${m[key]}; ${values.join("; ")}`).join("; ");
+    if (key === "dances") {
+      // Only known dances (spelled as in the list).
+      const known = knownDances();
+      const unknown = values.filter((v) => !known.some((k) => k.toLowerCase() === v.toLowerCase()));
+      if (unknown.length) return alert(UNKNOWN_DANCE(unknown[0]));
+      values = values.map((v) => known.find((k) => k.toLowerCase() === v.toLowerCase()));
+    }
+    for (const m of state.manual) if (m.include) for (const v of values) if (!m[key].includes(v)) m[key].push(v);
     input.value = "";
     drawRows();
   };
@@ -565,8 +604,8 @@ function renderWorklist() {
         if (confirm("Empty the worklist?")) { state.manual = []; renderManual(); }
       } }, "Empty worklist")),
     el("div", { class: "inline-fields" }, "For all ticked songs:",
-      bulkDance, el("button", { type: "button", class: "small", onclick: () => addToTicked("dances", bulkDance, danceList) }, "Add dance"),
-      bulkTag, el("button", { type: "button", class: "small", onclick: () => addToTicked("tags", bulkTag, splitList) }, "Add tag")),
+      bulkDanceWrap, el("button", { type: "button", class: "small", onclick: () => addToTicked("dances", bulkDance, danceList) }, "Add dance"),
+      bulkTagWrap, el("button", { type: "button", class: "small", onclick: () => addToTicked("tags", bulkTag, splitList) }, "Add tag")),
     el("div", { class: "table-wrap" },
       el("table", { class: "playlist" },
         el("thead", {}, el("tr", {}, ["Include?", "Title", "Artist", "Length", "In library", "Dance(s)", "Tags", "From", ""].map((h) => el("th", { scope: "col" }, h)))),
@@ -575,7 +614,7 @@ function renderWorklist() {
       el("button", { type: "button", class: "primary", onclick: () => {
         const ticked = state.manual.filter((m) => m.include);
         if (!ticked.length) return alert("Tick at least one song.");
-        const noDance = ticked.filter((m) => !danceList(m.dances).length && !(libraryEntry(m.song.id) || { dances: [] }).dances.length);
+        const noDance = ticked.filter((m) => !m.dances.length && !(libraryEntry(m.song.id) || { dances: [] }).dances.length);
         if (noDance.length && !confirm(`${noDance.length} ticked song(s) have no dance yet. Add them to the review anyway (they will be flagged “No dance”)?`)) return;
         computeRows();
         $("review").scrollIntoView({ behavior: "smooth" });
@@ -620,7 +659,7 @@ function renderReview() {
 
   fill($("review"),
     state.failures.length > 0 && el("ul", { class: "msgs" }, state.failures.map((f) => el("li", { class: "error" }, f))),
-    el("p", { class: "help" }, "Edit dances and tags directly in the table (separate several with “;”). " +
+    el("p", { class: "help" }, "Edit dances and tags directly in the table: × removes one, the dropdown adds one. " +
       "A song in several of the imported playlists gets all of their dances. Highlighted tags came from keyword rules; remove any that are wrong."),
     el("div", { class: "inline-fields" }, ...filterButtons, search),
     (state.imports || state.manual.length > 0) && el("div", { class: "actions" },
@@ -636,30 +675,25 @@ function renderReview() {
 
 function reviewRow(r) {
   const s = r.song;
-  const cell = (key, guessed) => {
-    const input = el("input", { type: "text", value: s[key].join("; "), list: key === "dances" ? "dl-known" : "dl-tags",
-      "aria-label": `${key} for ${s.title}`,
-      oninput: () => (s[key] = splitList(input.value)),
-      onchange: () => {
-        if (key === "dances") {
-          s.dances = danceList(input.value);
-          input.value = s.dances.join("; ");
-        }
-        renderOutput();
-      } });
-    return el("td", { class: guessed.length ? "guess" : null },
-      input,
-      guessed.length > 0 && el("small", { class: "muted", style: "display:block" }, `from keywords: ${guessed.join(", ")}`));
+  let row = null;
+  const edited = () => {
+    row.className = s.dances.length ? "" : "nodance";
+    renderOutput();
   };
-  return el("tr", { class: !s.dances.length ? "nodance" : null },
+  const cell = (editor, guessed) =>
+    el("td", { class: guessed.length ? "guess" : null },
+      editor,
+      guessed.length > 0 && el("small", { class: "muted", style: "display:block" }, `from keywords: ${guessed.join(", ")}`));
+  row = el("tr", { class: !s.dances.length ? "nodance" : null },
     el("td", {}, r.status === "new" ? "New" : r.status === "updated" ? `+ ${[...r.added.dances, ...r.added.tags].join(", ")}` : ""),
     el("td", {}, s.title),
     el("td", {}, s.artist),
     el("td", {}, s.album || ""),
     el("td", { class: "num" }, formatTime(s.lengthSec)),
-    cell("dances", []),
-    cell("tags", r.guessed.tags),
+    cell(danceChips(s.dances, `Dances for ${s.title}`, edited), []),
+    cell(tagChips(s.tags, `Tags for ${s.title}`, edited), r.guessed.tags),
     el("td", { class: "muted" }, r.sources.join(", ")));
+  return row;
 }
 
 /* ------------------------------------------------------------------- 6. Save */
