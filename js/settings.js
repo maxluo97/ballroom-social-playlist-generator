@@ -7,19 +7,23 @@
 
 /** Defaults matching the sample library (competitive-ballroom dance names). */
 export const APP_DEFAULTS = {
+  version: 2, // bump when saved settings need upgrading (see withDefaults in js/ui.js)
   eventLengthMinutes: 180,
+  // Same-named dances across styles are associated, and each association includes its own name.
+  // Exceptions (competitive ballroom): American (Rhythm) and International (Latin) Rumba stay
+  // separate; American Bolero goes with International Rumba.
   associations: [
-    { name: "Waltz", dances: ["Smooth Waltz", "Standard Waltz"] },
-    { name: "Tango", dances: ["Smooth Tango", "Standard Tango"] },
-    { name: "Foxtrot", dances: ["Smooth Foxtrot", "Standard Foxtrot"] },
-    { name: "Viennese Waltz", dances: ["Smooth Viennese Waltz", "Standard Viennese Waltz"] },
-    { name: "Quickstep", dances: ["Standard Quickstep"] },
-    { name: "Cha-cha", dances: ["Rhythm Cha-cha", "Latin Cha-cha"] },
-    { name: "Swing", dances: ["Rhythm Swing", "Latin Jive"] },
+    { name: "Waltz", dances: ["Waltz", "Smooth Waltz", "Standard Waltz"] },
+    { name: "Tango", dances: ["Tango", "Smooth Tango", "Standard Tango"] },
+    { name: "Foxtrot", dances: ["Foxtrot", "Smooth Foxtrot", "Standard Foxtrot"] },
+    { name: "Viennese Waltz", dances: ["Viennese Waltz", "Smooth Viennese Waltz", "Standard Viennese Waltz"] },
+    { name: "Quickstep", dances: ["Quickstep", "Standard Quickstep"] },
+    { name: "Cha-cha", dances: ["Cha-cha", "Rhythm Cha-cha", "Latin Cha-cha"] },
+    { name: "Swing", dances: ["Swing", "Rhythm Swing", "Latin Jive"] },
     { name: "Bolero / Rumba", dances: ["Rhythm Bolero", "Latin Rumba"] },
     { name: "Mambo / Salsa", dances: ["Rhythm Mambo", "Salsa"] },
-    { name: "Samba", dances: ["Latin Samba"] },
-    { name: "Paso Doble", dances: ["Latin Paso Doble"] },
+    { name: "Samba", dances: ["Samba", "Latin Samba"] },
+    { name: "Paso Doble", dances: ["Paso Doble", "Latin Paso Doble"] },
   ],
   categories: [
     { name: "Ballroom", dances: ["Waltz", "Tango", "Foxtrot", "Viennese Waltz", "Quickstep"] },

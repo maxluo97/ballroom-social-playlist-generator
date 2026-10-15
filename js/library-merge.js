@@ -6,12 +6,14 @@
  *   - Imports only ADD: a playlist's dances and tags are added to its songs; nothing already in
  *     the library is removed or overwritten (your manual edits in songs.csv are safe).
  *     Blank fields (artist, album, isrc, length) are filled in.
- *   - A song found in several dance playlists gets all of their dances.
- *   - Guesses (tag keyword rules, dances named in song titles) are added too, but recorded in
- *     `guessed` so the review table can highlight them for checking.
+ *   - A song (same track ID) found in several dance playlists gets all of their dances,
+ *     e.g. a song in both a Rumba and a Cha-cha playlist gets both.
+ *   - Dance names are put in their standard form ("American Rumba" -> "Rhythm Rumba").
+ *   - Tags from keyword rules are added too, but recorded in `guessed` so the review table can
+ *     highlight them for checking.
  */
 
-import { guessDances } from "./dance-names.js";
+import { canonicalDance } from "./dance-names.js";
 
 const lower = (s) => String(s ?? "").toLowerCase();
 
@@ -30,33 +32,30 @@ export function parseTagRules(text) {
 /**
  * @param existing  current library songs ({ id, title, artist, lengthSec, dances, tags, album?, isrc? })
  * @param imports   [{ playlistName, dances: [...], tags: [...], songs: [spotify songs] }]
- * @param options   { tagRules: [{keyword, tag}], guessTitleDances: bool, knownDances: [...] }
+ * @param options   { tagRules: [{keyword, tag}] }
  * @returns rows: [{ song, status: "new"|"updated"|"unchanged", added: {dances, tags},
  *                   guessed: {dances, tags}, sources: [playlist names] }]
  *          Existing songs come first (in their order), then new songs in import order.
  */
-export function mergeImport(existing, imports, { tagRules = [], guessTitleDances = false, knownDances = [] } = {}) {
+export function mergeImport(existing, imports, { tagRules = [] } = {}) {
   const incoming = new Map();
   for (const imp of imports) {
     for (const s of imp.songs) {
       let e = incoming.get(s.id);
       if (!e) {
-        e = { base: s, dances: new Set(), tags: new Set(), guessedDances: new Set(), guessedTags: new Set(), sources: [] };
+        e = { base: s, dances: new Set(), tags: new Set(), guessedTags: new Set(), sources: [] };
         incoming.set(s.id, e);
       }
       if (!e.sources.includes(imp.playlistName)) e.sources.push(imp.playlistName);
-      (imp.dances || []).forEach((d) => e.dances.add(d));
+      (imp.dances || []).forEach((d) => e.dances.add(canonicalDance(d)));
       (imp.tags || []).forEach((t) => e.tags.add(t));
     }
   }
 
-  // Guesses, made once per song from its title / album.
+  // Tag rules, applied once per song to its title and album.
   for (const e of incoming.values()) {
     const text = `${lower(e.base.title)} ${lower(e.base.album)}`;
-    for (const r of tagRules) if (text.includes(r.keyword) && !e.tags.has(r.tag)) e.guessedTags.add(r.tag);
-    if (guessTitleDances) {
-      for (const d of guessDances(e.base.title, knownDances)) if (!e.dances.has(d)) e.guessedDances.add(d);
-    }
+    for (const r of tagRules) if (r.keyword && r.tag && text.includes(lower(r.keyword)) && !e.tags.has(r.tag)) e.guessedTags.add(r.tag);
   }
 
   const rows = [];
@@ -78,14 +77,14 @@ export function mergeImport(existing, imports, { tagRules = [], guessTitleDances
     for (const k of ["artist", "album", "isrc"]) if (!song[k] && e.base[k]) song[k] = e.base[k];
     if (!(song.lengthSec > 0)) song.lengthSec = e.base.lengthSec;
     const added = {
-      dances: addAll(song.dances, [...e.dances, ...e.guessedDances]),
+      dances: addAll(song.dances, e.dances),
       tags: addAll(song.tags, [...e.tags, ...e.guessedTags]),
     };
     rows.push({
       song,
       status: added.dances.length || added.tags.length ? "updated" : "unchanged",
       added,
-      guessed: { dances: added.dances.filter((d) => e.guessedDances.has(d)), tags: added.tags.filter((t) => e.guessedTags.has(t)) },
+      guessed: { dances: [], tags: added.tags.filter((t) => e.guessedTags.has(t)) },
       sources: e.sources,
     });
   }
@@ -93,8 +92,8 @@ export function mergeImport(existing, imports, { tagRules = [], guessTitleDances
   for (const [id, e] of incoming) {
     if (seen.has(id)) continue;
     const b = e.base;
-    const dances = [...e.dances, ...[...e.guessedDances].filter((d) => !e.dances.has(d))];
-    const tags = [...e.tags, ...[...e.guessedTags].filter((t) => !e.tags.has(t))];
+    const dances = [...e.dances];
+    const tags = [...e.tags, ...e.guessedTags];
     const song = { id, title: b.title, artist: b.artist || "", lengthSec: b.lengthSec, dances, tags };
     if (b.album) song.album = b.album;
     if (b.isrc) song.isrc = b.isrc;
@@ -102,7 +101,7 @@ export function mergeImport(existing, imports, { tagRules = [], guessTitleDances
       song,
       status: "new",
       added: { dances: [...dances], tags: [...tags] },
-      guessed: { dances: [...e.guessedDances], tags: [...e.guessedTags] },
+      guessed: { dances: [], tags: [...e.guessedTags] },
       sources: e.sources,
     });
   }

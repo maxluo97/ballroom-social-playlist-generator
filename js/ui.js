@@ -16,12 +16,13 @@ const SAMPLE_URL = "data/sample-songs.json";
 const SAMPLE_NAME = "Sample library (made-up songs)";
 const PROJECT_URL = "data/songs.csv";
 const PROJECT_NAME = "Project library (data/songs.csv)";
+const SETTINGS_VERSION = 2;
 
 /** Fill in any fields missing from settings saved by an older version of the app. */
 function withDefaults(saved) {
   if (!saved) return clone(APP_DEFAULTS);
   const d = clone(APP_DEFAULTS);
-  return {
+  const s = {
     ...d,
     ...saved,
     excursions: { ...d.excursions, ...saved.excursions },
@@ -29,6 +30,14 @@ function withDefaults(saved) {
     closing: { ...d.closing, ...saved.closing },
     seed: null,
   };
+  // Version 2: associations include their own name by default.
+  if (!(saved.version >= 2)) {
+    for (const a of s.associations || []) {
+      if (a.name && !a.dances.includes(a.name) && !a.name.includes("/")) a.dances.unshift(a.name);
+    }
+  }
+  s.version = SETTINGS_VERSION;
+  return s;
 }
 
 const state = {
@@ -288,6 +297,12 @@ function associationsSection(s) {
             const old = a.name;
             a.name = v.trim();
             if (old && a.name && old !== a.name) renameEverywhere(old, a.name);
+            // By default an association includes its own name (e.g. "Waltz" also covers songs
+            // tagged plain "Waltz"). Keep that chip in step with renames; it can be removed.
+            if (!old || a.dances.includes(old)) {
+              a.dances = a.dances.filter((d) => d !== old);
+              if (a.name && !a.dances.includes(a.name)) a.dances.unshift(a.name);
+            }
             changed(true);
           },
         }),
@@ -312,8 +327,8 @@ function associationsSection(s) {
     } }, "+ Add association")),
     live(() => {
       const raw = rawDances();
-      const m = associationMap(s.associations);
-      const loose = raw.filter((d) => m(d) === d);
+      const inGroup = new Set(s.associations.flatMap((a) => [a.name, ...a.dances]));
+      const loose = raw.filter((d) => !inGroup.has(d));
       return `The library has ${raw.length} dances; after associations there are ${resolvedDances().length}. ` +
         (loose.length ? `Not in any association: ${loose.join(", ")}.` : "");
     })

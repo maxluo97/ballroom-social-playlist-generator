@@ -8,10 +8,13 @@
  *   artist   optional
  *   length   "3:25" or seconds (also: "duration", "lengthSec")
  *   dances   one or more dances separated by ";" or "|"   e.g. "Smooth Waltz; Standard Waltz"
+ *            (ballroom names are standardized on load: "American Rumba" -> "Rhythm Rumba", see dance-names.js)
  *   tags     optional, same separators                      e.g. "Hollywood; tempo change"
  *   album    optional (filled in by the library builder)
  *   isrc     optional recording code from Spotify (filled in by the library builder)
  */
+
+import { canonicalDance } from "./dance-names.js";
 
 const HEADER_ALIASES = {
   id: ["id", "track id", "trackid", "spotify id", "spotify_id", "spotifyid", "track_id"],
@@ -63,7 +66,8 @@ function fromRecords(records, noun, firstNumber = 1) {
     const where = `${noun} ${i + firstNumber}`;
     if (!r || (!r.title && !r.dances)) return; // blank line
     const lengthSec = parseLength(r.lengthSec ?? r.length);
-    const dances = splitList(r.dances ?? r.dance);
+    // Standard dance names ("American Rumba" -> "Rhythm Rumba"); duplicates removed.
+    const dances = [...new Set(splitList(r.dances ?? r.dance).map(canonicalDance))];
     if (!r.title) return problems.push(`${where}: no title.`);
     if (!(lengthSec > 0)) return problems.push(`${where} ("${r.title}"): length missing or not understood.`);
     if (!dances.length) return problems.push(`${where} ("${r.title}"): no dances.`);

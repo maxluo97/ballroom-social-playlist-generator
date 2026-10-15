@@ -191,7 +191,8 @@ function validateAssociations(s, rawDances, errors, warnings) {
     for (const d of a.dances || []) {
       if (owner.has(d)) errors.push(`Dance "${d}" is in both associations "${owner.get(d)}" and "${a.name}".`);
       owner.set(d, a.name);
-      if (!rawDances.has(d)) warnings.push(`Association "${a.name}": no songs are tagged "${d}".`);
+      // An association lists its own name by default; that one needs no songs of its own.
+      if (!rawDances.has(d) && d !== a.name) warnings.push(`Association "${a.name}": no songs are tagged "${d}".`);
     }
   }
   for (const n of names) {
