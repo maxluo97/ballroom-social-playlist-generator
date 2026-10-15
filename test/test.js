@@ -16,7 +16,8 @@
 import { generatePlaylist, checkRules, validateSettings, listDances, formatTime } from "../js/generator.js";
 import { buildSongs, SCENARIOS } from "./sample-data.js";
 import { buildSampleLibrary } from "../tools/sample-library.js";
-import { APP_DEFAULTS } from "../js/settings.js";
+import { APP_DEFAULTS } from "./defaults.js";
+import { parseSettingsFile, settingsFileText, upgradeSettings } from "../js/settings.js";
 
 const SEEDS = Number(process.argv[2]) || 500;
 const SHOW_EXAMPLES = 3;
@@ -62,6 +63,38 @@ let totalBugs = 0;
   const waltzSources = new Set(res.playlist.filter((it) => it.dance === "Waltz").flatMap((it) => it.song.sourceDances));
   console.log(`  "Waltz" slots drew songs tagged: ${[...waltzSources].join(", ")}`);
   expect(waltzSources.has("Smooth Waltz") || waltzSources.has("Standard Waltz"), "Waltz slots drew no Smooth/Standard Waltz songs");
+}
+
+/* ---- settings files ---- */
+{
+  console.log("=== Settings files");
+  const expect = (cond, msg) => {
+    if (!cond) {
+      console.log(`  BUG: ${msg}`);
+      totalBugs++;
+    }
+  };
+  const back = parseSettingsFile(settingsFileText(APP_DEFAULTS, "Test night"));
+  expect(back.name === "Test night", "file name kept");
+  expect(JSON.stringify(back.settings) === JSON.stringify({ ...APP_DEFAULTS, seed: null }), "settings survive save + load unchanged");
+  expect(parseSettingsFile(JSON.stringify(APP_DEFAULTS)).settings.categories.length === APP_DEFAULTS.categories.length, "a bare settings object is accepted");
+  let refused = 0;
+  for (const bad of ["not json", "{}", '{"settings": {"maxInARow": 3}}']) {
+    try {
+      parseSettingsFile(bad);
+    } catch {
+      refused++;
+    }
+  }
+  expect(refused === 3, "non-settings files are refused");
+  // An old (version 1) file: associations get their own name, missing sections come from defaults.
+  const old = upgradeSettings({ categories: [{ name: "A", dances: ["Waltz"] }], associations: [{ name: "Waltz", dances: ["Smooth Waltz"] }] }, APP_DEFAULTS);
+  expect(old.associations[0].dances[0] === "Waltz" && old.version === 2, "version-1 associations upgraded");
+  expect(old.excursions.intervalMinutes === APP_DEFAULTS.excursions.intervalMinutes, "missing sections filled from the defaults");
+  const v = validateSettings(buildSampleLibrary(), APP_DEFAULTS);
+  console.log(`  default settings with the sample library: ${v.errors.length} errors, ${v.warnings.length} warnings`);
+  v.warnings.forEach((w) => console.log(`    warning: ${w}`));
+  expect(v.errors.length === 0, `default settings have errors: ${v.errors.join("; ")}`);
 }
 
 for (const sc of SCENARIOS) {

@@ -6,7 +6,7 @@
  */
 
 import { buildSampleLibrary, SAMPLE_DANCES } from "../tools/sample-library.js";
-import { APP_DEFAULTS } from "../js/settings.js";
+import { APP_DEFAULTS } from "./defaults.js";
 
 export const BALLROOM =["Waltz", "Tango", "Foxtrot", "Viennese Waltz", "Quickstep"];
 export const LATIN = ["Cha-cha", "Rumba", "Swing", "Samba", "Mambo"];

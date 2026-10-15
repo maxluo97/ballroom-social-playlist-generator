@@ -6,8 +6,11 @@
  * form when its structure changes (adding/removing a row); typing just updates the object.
  */
 
-import { generatePlaylist, validateSettings, listDances, associationMap } from "./generator.js";
-import { APP_DEFAULTS, THEME_TEMPLATE, LIBRARY_KEY, clone, loadLastSettings, saveLastSettings } from "./settings.js";
+import { generatePlaylist, validateSettings, listDances, associationMap, DEFAULT_SETTINGS } from "./generator.js";
+import {
+  THEME_TEMPLATE, LIBRARY_KEY, clone, loadLastSettings, saveLastSettings,
+  loadDefaultSettings, upgradeSettings, parseSettingsFile, settingsFileText,
+} from "./settings.js";
 import { loadSongsFromUrl, parseSongsText, playlistToCSV, spotifyLink } from "./data.js";
 import { handleLoginRedirect } from "./spotify.js";
 import { el, fill, $ } from "./dom.js";
@@ -16,32 +19,13 @@ const SAMPLE_URL = "data/sample-songs.json";
 const SAMPLE_NAME = "Sample library (made-up songs)";
 const PROJECT_URL = "data/songs.csv";
 const PROJECT_NAME = "Project library (data/songs.csv)";
-const SETTINGS_VERSION = 2;
-
-/** Fill in any fields missing from settings saved by an older version of the app. */
-function withDefaults(saved) {
-  if (!saved) return clone(APP_DEFAULTS);
-  const d = clone(APP_DEFAULTS);
-  const s = {
-    ...d,
-    ...saved,
-    excursions: { ...d.excursions, ...saved.excursions },
-    opening: { ...d.opening, ...saved.opening },
-    closing: { ...d.closing, ...saved.closing },
-    seed: null,
-  };
-  // Version 2: associations include their own name by default.
-  if (!(saved.version >= 2)) {
-    for (const a of s.associations || []) {
-      if (a.name && !a.dances.includes(a.name) && !a.name.includes("/")) a.dances.unshift(a.name);
-    }
-  }
-  s.version = SETTINGS_VERSION;
-  return s;
-}
+const DEFAULTS_LABEL = "Default settings";
 
 const state = {
-  settings: withDefaults(loadLastSettings()),
+  defaults: null, // from data/default-settings.json
+  settings: null,
+  settingsLabel: DEFAULTS_LABEL, // where the current settings came from
+  settingsModified: false, // edited since they were loaded
   songs: [],
   library: { name: "", problems: [] },
   result: null,
@@ -79,7 +63,21 @@ function live(fn, tag = "p", cls = "help") {
 let validateTimer;
 /** Call after any settings change. `structural` = rows were added/removed, so redraw the form. */
 function changed(structural = false) {
-  saveLastSettings(state.settings);
+  if (!state.settingsModified) {
+    state.settingsModified = true;
+    renderSettingsBar();
+  }
+  rememberSettings();
+  refresh(structural);
+}
+
+/** Keep the current settings in this browser so a reload does not lose them. */
+function rememberSettings() {
+  saveLastSettings(state.settings, { label: state.settingsLabel, modified: state.settingsModified });
+}
+
+/** Redraw everything that depends on the settings or the song library. */
+function refresh(structural = false) {
   if (structural) renderForm();
   updateDatalists();
   liveUpdaters.forEach((u) => u());
@@ -575,6 +573,95 @@ function renderValidation() {
   );
 }
 
+/* --------------------------------------------------------- settings files */
+
+/** Offer `text` as a file download named `filename`. */
+function downloadFile(filename, text, type) {
+  const blob = new Blob([text], { type });
+  const a = el("a", { href: URL.createObjectURL(blob), download: filename });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+/** Replace the current settings (from the defaults file or a user file). */
+function applySettings(settings, label) {
+  state.settings = upgradeSettings(settings, state.defaults);
+  state.settingsLabel = label;
+  state.settingsModified = false;
+  state.themeStash = null;
+  rememberSettings();
+  renderSettingsBar();
+  refresh(true);
+}
+
+function loadDefaults() {
+  if (state.settingsModified && !confirm("Load the default settings? Changes you have not saved to a file will be lost.")) return;
+  applySettings(state.defaults, DEFAULTS_LABEL);
+}
+
+/** Save the current settings to a file the user names (never touches the default settings). */
+async function saveUserSettings() {
+  const suggested = state.settingsLabel !== DEFAULTS_LABEL ? state.settingsLabel : "My settings";
+  const saved = (name) => {
+    state.settingsLabel = name;
+    state.settingsModified = false;
+    rememberSettings();
+    renderSettingsBar();
+  };
+  if (window.showSaveFilePicker) {
+    // Chrome / Edge: a real "Save as" dialog (choose the name and the folder).
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: `${suggested}.json`,
+        types: [{ description: "Playlist settings", accept: { "application/json": [".json"] } }],
+      });
+      const name = handle.name.replace(/\.json$/i, "");
+      const file = await handle.createWritable();
+      await file.write(settingsFileText(state.settings, name));
+      await file.close();
+      saved(name);
+    } catch (err) {
+      if (err.name !== "AbortError") alert(`Could not save the settings: ${err.message}`);
+    }
+    return;
+  }
+  // Other browsers: ask for a name, then download (it goes to the Downloads folder).
+  const name = (prompt("Name for this settings file:", suggested) || "").trim();
+  if (!name) return;
+  downloadFile(`${name.replace(/[\\/:*?"<>|]+/g, "-")}.json`, settingsFileText(state.settings, name), "application/json");
+  saved(name);
+}
+
+function loadUserSettings() {
+  const input = el("input", { type: "file", accept: ".json,application/json", hidden: true });
+  input.addEventListener("change", async () => {
+    const file = input.files[0];
+    input.remove();
+    if (!file) return;
+    if (state.settingsModified && !confirm(`Load “${file.name}”? Changes you have not saved to a file will be lost.`)) return;
+    try {
+      const { name, settings } = parseSettingsFile(await file.text());
+      applySettings(settings, name || file.name.replace(/\.json$/i, ""));
+    } catch (err) {
+      alert(`Could not load ${file.name}: ${err.message}`);
+    }
+  });
+  document.body.append(input);
+  input.click();
+}
+
+function renderSettingsBar() {
+  fill($("settings-bar"),
+    el("div", { class: "library-line" },
+      el("span", {}, "Current settings: ", el("strong", {}, state.settingsLabel),
+        state.settingsModified && el("span", { class: "muted" }, " (changed, not saved to a file)")),
+      el("button", { type: "button", class: "small", onclick: loadDefaults }, "Load default settings"),
+      el("button", { type: "button", class: "small", onclick: saveUserSettings }, "Save user settings…"),
+      el("button", { type: "button", class: "small", onclick: loadUserSettings }, "Load user settings…")));
+}
+
 /* ----------------------------------------------------------------- library */
 
 function setLibrary(songs, name, problems, persist) {
@@ -589,7 +676,7 @@ function setLibrary(songs, name, problems, persist) {
   }
   renderLibrary();
   renderResults();
-  changed();
+  refresh();
 }
 
 function loadSavedLibrary() {
@@ -717,13 +804,8 @@ function renderResults() {
   }
 
   const download = () => {
-    const blob = new Blob([playlistToCSV(r)], { type: "text/csv" });
     const stamp = new Date().toISOString().slice(0, 16).replace("T", "_").replace(":", "");
-    const a = el("a", { href: URL.createObjectURL(blob), download: `playlist-${stamp}.csv` });
-    document.body.append(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    downloadFile(`playlist-${stamp}.csv`, playlistToCSV(r), "text/csv");
   };
 
   const kindLabel = (it) =>
@@ -781,12 +863,20 @@ async function init() {
   if (login.error) alert(login.error);
 
   $("generate").addEventListener("click", generate);
-  $("reset").addEventListener("click", () => {
-    if (!confirm("Reset all settings to the defaults?")) return;
-    state.settings = clone(APP_DEFAULTS);
-    state.themeStash = null;
-    changed(true);
-  });
+
+  // Defaults come from data/default-settings.json; the page then continues where it left off.
+  try {
+    state.defaults = (await loadDefaultSettings()).settings;
+  } catch (err) {
+    alert(`${err.message} Starting with empty settings.`);
+    state.defaults = clone(DEFAULT_SETTINGS);
+  }
+  const last = loadLastSettings();
+  state.settings = upgradeSettings(last && last.settings, state.defaults);
+  state.settingsLabel = (last && last.label) || DEFAULTS_LABEL;
+  state.settingsModified = !!(last && last.modified);
+
+  renderSettingsBar();
   renderForm();
   await loadStartingLibrary();
 }

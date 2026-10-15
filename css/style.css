@@ -154,6 +154,7 @@ input:invalid { border-color: var(--error); }
 
 .actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 8px; }
 #library { margin-bottom: 8px; display: grid; gap: 6px; }
+#settings-bar { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
 .library-line { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 
 /* messages */

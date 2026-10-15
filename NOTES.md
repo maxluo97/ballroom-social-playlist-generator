@@ -78,7 +78,8 @@ Folder layout (planned; ✔ = exists):
 index.html        ✔   app page (GitHub Pages serves the root)
 css/style.css     ✔
 js/generator.js   ✔   pure rules logic (incl. associations)
-js/settings.js    ✔   app defaults (APP_DEFAULTS), last-used settings in localStorage; presets later
+js/settings.js    ✔   settings files (parse/write/upgrade), last-used settings in localStorage
+data/default-settings.json ✔  THE default settings (same format as a user settings file)
 js/ui.js          ✔   settings form + results list
 js/data.js        ✔   loads songs from JSON/CSV, playlist -> CSV
 js/spotify.js         login + playlist creation
@@ -146,7 +147,8 @@ Remaining design assumptions (not specified by the README):
 2. ~~Spotify setup~~ (done): developer app exists (owner's account is Premium; Development Mode). Client ID in `js/config.js`. Redirect URI = app root (`http://127.0.0.1:8000/` locally). The app serves only the developer's own account.
 3. ~~`js/spotify.js` + `spotify-test.html`~~ (done; all four steps passed with the developer's account, Oct 2026): PKCE login -> `GET /me` -> `GET /me/playlists` -> `GET /playlists/{id}/items`. Login always returns to the root page; `handleLoginRedirect()` (called by every page at startup, incl. js/ui.js) finishes it and goes back to the page that started it. Tokens in localStorage (`dpg.spotify.tokens.v1`); auto-refresh; waits on 429.
 4. Library builder (`library.html`, `js/library.js`; built, awaiting the developer's first real import). Pure logic in `js/dance-names.js` (name -> dance guessing with ballroom style rules; spellings editable in `DANCE_ALIASES`, styles in `BALLROOM_STYLES`) and `js/library-merge.js` (imports only add; manual edits never overwritten; a song in several playlists gets all their dances; keyword tag rules recorded for highlighting; no dance guessing from song titles — removed at the developer's request), tested by `test/library-test.js`. CSV columns written: id, title, artist, album, length, dances, tags, isrc. The generator page now loads, in order: a library saved in the browser (file load or "Try it in the generator now"), else `data/songs.csv`, else the sample. Shared DOM helpers in `js/dom.js`. Original plan: pick own single-dance playlists, guess each playlist's dance from its name (user confirms), read tracks, songs in several dance playlists get several dances, suggest tags from editable keyword rules (e.g. album "Soundtrack" -> Hollywood), review table, merge into and download `data/songs.csv`. **`data/songs.csv` in the repo is the master database** (editable as a spreadsheet; the repo may be public, which is acceptable).
-5. "Save to Spotify" button: `POST /me/playlists`, then `POST /playlists/{id}/items` (max 100 per call).
+4b. ~~Settings files~~ (done, added to v0.2 by the developer): main page has "Load default settings", "Save user settings…" (user names the file; Chrome/Edge show a Save-as dialog, other browsers prompt for a name and download), "Load user settings…". Defaults live in `data/default-settings.json` (proposed by Claude Oct 2026; the developer will review). To change the defaults: save user settings and replace that file (or hand the file to Claude). File format: `{ app, kind: "settings", name, savedAt, settings }`; bare settings objects are also accepted; `upgradeSettings()` fills gaps from the defaults and applies version upgrades. Tests read the same defaults file (`test/defaults.js`).
+5. "Save to Spotify" button (**the last required v0.2 item**): `POST /me/playlists`, then `POST /playlists/{id}/items` (max 100 per call).
 6. Optional: availability check of library songs (one `GET /tracks/{id}` per song; batch endpoint removed).
 7. Possibly: manual swap of a song in a generated playlist (alternatives of the same dance; re-run `checkRules` and warn).
 
