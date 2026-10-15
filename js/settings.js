@@ -42,13 +42,13 @@ export const APP_DEFAULTS = {
   seed: null,
 };
 
-/** Theme used when the user switches a theme on. */
+/** Theme used when the user switches a theme on (broad-theme share by default). */
 export const THEME_TEMPLATE = {
   name: "",
   dances: [],
   tags: [],
-  fractionMin: 0.25,
-  fractionMax: 0.4,
+  fractionMin: 0.5,
+  fractionMax: 0.7,
   guaranteedOpeners: 2,
 };
 

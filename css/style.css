@@ -145,6 +145,7 @@ button.icon { padding: 0 7px; line-height: 1.6; }
 .chip button:hover { background: var(--border); }
 .chips input { width: 11em; }
 .chips-list { display: contents; }
+input:invalid { border-color: var(--error); }
 .label { margin-bottom: 4px; }
 [hidden] { display: none !important; }
 

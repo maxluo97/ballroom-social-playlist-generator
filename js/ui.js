@@ -24,6 +24,7 @@ function withDefaults(saved) {
     excursions: { ...d.excursions, ...saved.excursions },
     opening: { ...d.opening, ...saved.opening },
     closing: { ...d.closing, ...saved.closing },
+    seed: null,
   };
 }
 
@@ -42,6 +43,12 @@ const $ = (id) => document.getElementById(id);
 
 /* ------------------------------------------------------------ DOM helpers */
 
+/** Keep only real children: drops null/undefined/false, which `cond && el(...)` produces. */
+const realChildren = (children) => children.flat().filter((c) => c != null && c !== false);
+
+/** Replace a node's contents (use this, not replaceChildren, which would print "false"). */
+const fill = (node, ...children) => node.replaceChildren(...realChildren(children));
+
 /** el("tag", {props}, ...children). Props starting with "on" become event listeners. */
 function el(tag, props = {}, ...children) {
   const node = document.createElement(tag);
@@ -52,7 +59,7 @@ function el(tag, props = {}, ...children) {
     else if (k in node && k !== "list") node[k] = v;
     else node.setAttribute(k, v === true ? "" : v);
   }
-  node.append(...children.flat().filter((c) => c != null && c !== false));
+  node.append(...realChildren(children));
   return node;
 }
 
@@ -100,10 +107,10 @@ const resolvedDances = () => listDances(state.songs, state.settings);
 const allTags = () => [...new Set(state.songs.flatMap((sg) => sg.tags || []))].sort();
 
 function updateDatalists() {
-  const fill = (id, values) => $(id).replaceChildren(...values.map((v) => el("option", { value: v })));
-  fill("dl-raw", rawDances());
-  fill("dl-dances", resolvedDances());
-  fill("dl-tags", allTags());
+  const setOptions = (id, values) => $(id).replaceChildren(...values.map((v) => el("option", { value: v })));
+  setOptions("dl-raw", rawDances());
+  setOptions("dl-dances", resolvedDances());
+  setOptions("dl-tags", allTags());
 }
 
 /** Dances referenced anywhere in the settings (after associations). */
@@ -188,11 +195,21 @@ function percentSlider(get, set) {
   return el("span", { class: "inline-fields" }, range, num, "%");
 }
 
-/** Editable list of names shown as removable chips, with suggestions from a <datalist>. */
-function chipEditor(list, datalistId, { placeholder = "add…", label = "Add" } = {}) {
+/**
+ * Editable list of names shown as removable chips, with a suggestion dropdown.
+ * `source` is a function returning the suggestions, or the id of a shared <datalist> to copy
+ * them from. Each editor keeps its own list (refreshed on focus) and leaves out items
+ * already added. `check(value)` may return an error message to refuse a value.
+ */
+let autoListId = 0;
+function chipEditor(list, source, { placeholder = "add…", label = "Add", check = null } = {}) {
   const chips = el("span", { class: "chips-list" });
-  const input = el("input", { type: "text", list: datalistId, placeholder, "aria-label": label });
-  const draw = () =>
+  const suggestions = typeof source === "function" ? source : () => [...$(source).options].map((o) => o.value);
+  const datalist = el("datalist", { id: `dl-auto-${++autoListId}` });
+  const refresh = () =>
+    datalist.replaceChildren(...suggestions().filter((v) => !list.includes(v)).map((v) => el("option", { value: v })));
+  const input = el("input", { type: "text", list: datalist.id, placeholder, "aria-label": label });
+  const draw = () => {
     chips.replaceChildren(
       ...list.map((d, i) =>
         el(
@@ -207,10 +224,19 @@ function chipEditor(list, datalistId, { placeholder = "add…", label = "Add" } 
         )
       )
     );
-  const add = () => {
+    refresh();
+  };
+  /** `explain`: show the reason if the value is refused (on Enter; not when leaving the box). */
+  const add = (explain) => {
     const v = input.value.replace(/,$/, "").trim();
+    if (!v) return;
+    const problem = list.includes(v) ? `${v} is already in this list.` : check && check(v);
+    if (problem) {
+      input.setCustomValidity(problem);
+      if (explain) input.reportValidity();
+      return;
+    }
     input.value = "";
-    if (!v || list.includes(v)) return;
     list.push(v);
     draw();
     changed();
@@ -218,23 +244,25 @@ function chipEditor(list, datalistId, { placeholder = "add…", label = "Add" } 
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === ",") {
       e.preventDefault();
-      add();
+      add(true);
     } else if (e.key === "Backspace" && !input.value && list.length) {
       list.pop();
       draw();
       changed();
     }
   });
-  // Picking an entry from the suggestion list adds it straight away.
   input.addEventListener("input", (e) => {
+    input.setCustomValidity("");
+    // Picking an entry from the suggestion list adds it straight away.
     if (e.inputType === undefined || e.inputType === "insertReplacementText") {
-      const options = [...$(datalistId).options].map((o) => o.value);
-      if (options.includes(input.value)) add();
+      const options = [...datalist.options].map((o) => o.value);
+      if (options.includes(input.value)) add(true);
     }
   });
-  input.addEventListener("blur", add);
+  input.addEventListener("focus", refresh);
+  input.addEventListener("blur", () => add(false));
   draw();
-  return el("div", { class: "chips" }, chips, input);
+  return el("div", { class: "chips" }, chips, input, datalist);
 }
 
 function removeButton(what, onclick) {
@@ -264,14 +292,6 @@ function basicsSection(s) {
         numberInput(() => s.eventLengthMinutes, (v) => (s.eventLengthMinutes = v), { min: 10, max: 720, step: 5 }),
         "minutes",
         live(() => `(${hms(s.eventLengthMinutes * 60)})`, "span", "muted"))
-    ),
-    field(
-      "Random seed",
-      textInput(() => (s.seed == null ? "" : String(s.seed)), (v) => {
-        const n = parseInt(v, 10);
-        s.seed = Number.isFinite(n) ? n : null;
-      }, { placeholder: "blank = random" }),
-      "Leave blank for a fresh playlist every time. Enter a number to get the same playlist every time."
     )
   );
 }
@@ -319,6 +339,15 @@ function associationsSection(s) {
   );
 }
 
+/** The category already holding this dance (compared after associations), or null. */
+function categoryOf(dance) {
+  const m = associationMap(state.settings.associations);
+  return state.settings.categories.find((c) => c.dances.some((d) => m(d) === m(dance))) ?? null;
+}
+
+/** Suggestions for category editors: each dance can be in only one category. */
+const dancesNotInACategory = () => resolvedDances().filter((d) => !categoryOf(d));
+
 function categoriesSection(s) {
   const rows = s.categories.map((c, i) =>
     el("div", { class: "row" },
@@ -328,7 +357,14 @@ function categoriesSection(s) {
           s.categories.splice(i, 1);
           changed(true);
         })),
-      chipEditor(c.dances, "dl-dances", { placeholder: "add a dance…", label: `Add a dance to ${c.name}` }))
+      chipEditor(c.dances, dancesNotInACategory, {
+        placeholder: "add a dance…",
+        label: `Add a dance to ${c.name}`,
+        check: (v) => {
+          const owner = categoryOf(v);
+          return owner ? `${v} is already in ${owner === c ? "this category" : `“${owner.name}”`}.` : null;
+        },
+      }))
   );
   return section(
     "Categories and dances",
@@ -452,8 +488,8 @@ function themeSection(s) {
       } }, label);
     body.push(
       field("Theme name", textInput(() => t.name, (v) => (t.name = v), { placeholder: "e.g. Roarin' Twenties" })),
-      el("div", {}, el("div", { class: "label" }, "Theme dances"), chipEditor(t.dances, "dl-dances", { placeholder: "add a dance…", label: "Add a theme dance" })),
-      el("div", {}, el("div", { class: "label" }, "Theme song tags"), chipEditor(t.tags, "dl-tags", { placeholder: "add a tag…", label: "Add a theme tag" })),
+      el("div", {}, el("div", { class: "label" }, "Theme dances"), chipEditor(t.dances, resolvedDances, { placeholder: "add a dance…", label: "Add a theme dance" })),
+      el("div", {}, el("div", { class: "label" }, "Theme song tags"), chipEditor(t.tags, allTags, { placeholder: "add a tag…", label: "Add a theme tag" })),
       live(() => {
         const tags = allTags();
         return tags.length ? `Tags in the library: ${tags.join(", ")}.` : "No songs in the library have tags.";
@@ -461,7 +497,10 @@ function themeSection(s) {
       el("p", { class: "help" }, "A song counts toward the theme if it is played as a theme dance or has a theme tag."),
       el("div", { class: "inline-fields" }, "Theme share at least", percentSlider(() => t.fractionMin, (v) => (t.fractionMin = v))),
       el("div", { class: "inline-fields" }, "Theme share at most", percentSlider(() => t.fractionMax, (v) => (t.fractionMax = v))),
-      el("div", { class: "inline-fields" }, "Quick set:", presetButton("Broad theme (25–40%)", 0.25, 0.4), presetButton("Dance-focused theme (20–25%)", 0.2, 0.25)),
+      el("div", { class: "inline-fields" }, "Quick set:", presetButton("Broad theme (50–70%)", 0.5, 0.7), presetButton("Dance-focused theme (20–25%)", 0.2, 0.25)),
+      el("p", { class: "help" },
+        "Broad themes (e.g. Hollywood) match songs of any dance, so a high share is easy to reach. " +
+          "Dance-focused themes (e.g. Hustle night) should stay lower so that one dance does not dominate."),
       field("Guaranteed theme openers", numberInput(() => t.guaranteedOpeners, (v) => (t.guaranteedOpeners = v), { min: 0, max: 10 }),
         "How many songs at the start of the night must be theme songs.")
     );
@@ -478,9 +517,34 @@ function openingSection(s) {
     el("div", {}, el("div", { class: "label" }, "Not allowed in the opening"),
       chipEditor(s.opening.blacklist, "dl-dances", { placeholder: "add a dance…", label: "Add a dance to the opening blacklist" })),
     field("Last dance of the night",
-      textInput(() => s.closing.finalDance ?? "", (v) => (s.closing.finalDance = v.trim() || null), { list: "dl-dances", placeholder: "none" }),
-      "Leave blank for no designated last dance.")
+      selectInput(() => s.closing.finalDance, (v) => (s.closing.finalDance = v), resolvedDances, "(none)"))
   );
+}
+
+/**
+ * Dropdown with no free typing. `options()` is re-read whenever settings change, so the
+ * list follows the song library and associations. `noneLabel` is the "nothing chosen" entry
+ * (its value is null). A current value missing from the options is kept, marked as missing.
+ */
+function selectInput(get, set, options, noneLabel) {
+  const select = el("select", {});
+  const update = () => {
+    const current = get();
+    const values = options();
+    select.replaceChildren(
+      el("option", { value: "" }, noneLabel),
+      ...values.map((v) => el("option", { value: v }, v)),
+      current && !values.includes(current) && el("option", { value: current }, `${current} (no songs)`)
+    );
+    select.value = current ?? "";
+  };
+  select.addEventListener("change", () => {
+    set(select.value || null);
+    changed();
+  });
+  liveUpdaters.push(update);
+  update();
+  return select;
 }
 
 function renderForm() {
@@ -568,7 +632,7 @@ function renderLibrary() {
     }
   });
   const { name, problems } = state.library;
-  $("library").replaceChildren(
+  fill($("library"),
     el("div", { class: "library-line" },
       el("span", {}, "Song library: ", el("strong", {}, name), ` — ${state.songs.length} songs, ${rawDances().length} dances`),
       el("button", { type: "button", class: "small", onclick: () => fileInput.click() }, "Load CSV / JSON…"),
@@ -577,13 +641,7 @@ function renderLibrary() {
     problems.length > 0 &&
       el("details", {},
         el("summary", {}, `${problems.length} row(s) skipped or changed while loading`),
-        el("ul", { class: "msgs" }, problems.map((p) => el("li", { class: "warning" }, p)))),
-    el("details", {},
-      el("summary", { class: "muted" }, "Spreadsheet (CSV) format"),
-      el("p", { class: "help" },
-        "First row = column names: id (Spotify track ID), title, artist (optional), length (3:25 or seconds), " +
-          "dances (separate several with ;), tags (optional, separate with ;). Export from Excel or Google Sheets " +
-          "with File → Download / Save As → CSV."))
+        el("ul", { class: "msgs" }, problems.map((p) => el("li", { class: "warning" }, p))))
   );
 }
 
@@ -593,7 +651,7 @@ function generate() {
   clearTimeout(validateTimer);
   renderValidation();
   if (state.errors.length) return;
-  state.result = generatePlaylist(state.songs, state.settings);
+  state.result = generatePlaylist(state.songs, { ...state.settings, seed: null }); // always a fresh random playlist
   state.stale = false;
   renderResults();
 }
@@ -606,7 +664,7 @@ function renderResults() {
     return;
   }
   const s = state.settings;
-  const themed = s.theme && (s.theme.dances.length || (s.theme.tags || []).length);
+  const themed = Boolean(s.theme && (s.theme.dances.length || (s.theme.tags || []).length));
   const diff = r.totalSec - r.targetSec;
 
   const copyBtn = el("button", { type: "button", onclick: async () => {
@@ -624,40 +682,26 @@ function renderResults() {
 
   const download = () => {
     const blob = new Blob([playlistToCSV(r)], { type: "text/csv" });
-    const a = el("a", { href: URL.createObjectURL(blob), download: `playlist-seed-${r.seed}.csv` });
+    const stamp = new Date().toISOString().slice(0, 16).replace("T", "_").replace(":", "");
+    const a = el("a", { href: URL.createObjectURL(blob), download: `playlist-${stamp}.csv` });
     document.body.append(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
 
-  const seedLocked = s.seed != null;
   const kindLabel = (it) =>
     it.kind === "regular" ? it.category : it.kind === "excursion" ? "Excursion" : it.kind === "fixed" ? it.source : "Last dance";
 
-  box.replaceChildren(
+  fill(box,
     el("ul", { id: "stale", class: "msgs", hidden: !state.stale },
       el("li", { class: "warning" }, "Settings have changed since this playlist was generated.")),
     el("div", { class: "summary" },
       el("span", {}, "Songs: ", el("b", {}, String(r.playlist.length))),
       el("span", {}, "Length: ", el("b", {}, hms(r.totalSec)), ` (target ${hms(r.targetSec)}, ${diff >= 0 ? "+" : ""}${hms(diff)})`),
-      themed && el("span", {}, "Theme share: ", el("b", {}, pct(r.stats.themeFraction))),
-      el("span", {}, "Seed: ", el("b", {}, String(r.seed)))),
+      themed && el("span", {}, "Theme share: ", el("b", {}, pct(r.stats.themeFraction)))),
     el("div", { class: "result-actions" },
-      el("button", { type: "button", class: "primary", onclick: generate, disabled: state.errors.length > 0 },
-        seedLocked ? "Generate (seed locked)" : "Generate another"),
-      seedLocked
-        ? el("button", { type: "button", onclick: () => {
-            s.seed = null;
-            changed(true);
-            renderResults();
-          } }, "Unlock seed")
-        : el("button", { type: "button", title: "Put this seed in the settings so the same playlist comes back", onclick: () => {
-            s.seed = r.seed;
-            changed(true);
-            state.stale = false;
-            renderResults();
-          } }, "Keep this playlist's seed"),
+      el("button", { type: "button", class: "primary", onclick: generate, disabled: state.errors.length > 0 }, "Generate another"),
       copyBtn,
       el("button", { type: "button", onclick: download }, "Download CSV")),
     r.warnings.length > 0 &&
@@ -667,7 +711,7 @@ function renderResults() {
       el("table", { class: "playlist" },
         el("thead", {}, el("tr", {},
           ["#", "Start", "Dance", "Type", "Title", "Length"].map((h) => el("th", { scope: "col" }, h)),
-          themed && el("th", { scope: "col", title: "Theme song" }, "★"))),
+          themed && el("th", { scope: "col" }, "Theme?"))),
         el("tbody", {},
           r.playlist.map((it) =>
             el("tr", { class: it.kind },
@@ -677,7 +721,7 @@ function renderResults() {
               el("td", { class: "type" }, kindLabel(it)),
               el("td", {}, it.song.title, it.song.artist && el("span", { class: "muted" }, ` – ${it.song.artist}`)),
               el("td", { class: "num" }, hms(it.song.lengthSec)),
-              themed && el("td", { class: "theme-mark", title: it.isTheme ? "Theme song" : null }, it.isTheme ? "★" : ""))))))
+              themed && el("td", { class: "theme-mark" }, it.isTheme ? "Yes" : ""))))))
   );
 }
 

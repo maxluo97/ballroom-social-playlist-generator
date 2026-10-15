@@ -72,8 +72,8 @@ const THEME_DEFAULTS = {
   name: "",
   dances: [],
   tags: [],
-  fractionMin: 0.25,
-  fractionMax: 0.4,
+  fractionMin: 0.5, // broad-theme default; dance-focused themes should use about 0.2-0.25
+  fractionMax: 0.7,
   guaranteedOpeners: 2,
 };
 
