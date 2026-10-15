@@ -186,6 +186,16 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
 dialog h2 { margin: 0 0 8px; font-size: 1.15rem; }
 dialog > * + * { margin-top: 8px; }
 .plain-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+dialog.wide { width: min(72em, calc(100vw - 32px)); max-height: calc(100vh - 48px); }
+.dialog-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.dialog-head h2 { margin: 0; }
+button.count-chip { border: none; cursor: pointer; padding: 2px 10px; }
+table.playlist tr.cannot-play td { color: var(--muted); }
+table.playlist tr.swapped td { background: var(--chip); }
+.swap-note { color: var(--accent); font-size: 0.85em; }
+.swap-warning { color: var(--warn); font-size: 0.85em; }
+table.playlist tr.not-allowed td { background: var(--warn-bg); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* a shaded box grouping related controls inside a section */
 .subbox {

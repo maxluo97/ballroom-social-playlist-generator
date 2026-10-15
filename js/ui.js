@@ -6,7 +6,9 @@
  * form when its structure changes (adding/removing a row); typing just updates the object.
  */
 
-import { generatePlaylist, validateSettings, listDances, associationMap, withinLengthLimits, DEFAULT_SETTINGS } from "./generator.js";
+import {
+  generatePlaylist, validateSettings, listDances, associationMap, withinLengthLimits, checkRules, computeStats, DEFAULT_SETTINGS,
+} from "./generator.js";
 import {
   THEME_TEMPLATE, LIBRARY_KEY, clone, loadLastSettings, saveLastSettings,
   loadDefaultSettings, upgradeSettings, parseSettingsFile, settingsFileText,
@@ -623,6 +625,18 @@ function downloadFile(filename, text, type) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
+/**
+ * Options shared by the "Save user settings" and "Load user settings" file windows (Chrome / Edge).
+ * Web pages may not open a file window in a particular folder (such as the project's data folder),
+ * but the same `id` makes the browser reopen whichever folder was used last for settings files.
+ * `startIn` only applies the very first time, before any folder has been remembered.
+ */
+const SETTINGS_PICKER = {
+  id: "dpg-settings",
+  startIn: "documents",
+  types: [{ description: "Playlist settings", accept: { "application/json": [".json"] } }],
+};
+
 /** Replace the current settings (from the defaults file or a user file). */
 function applySettings(settings, label) {
   state.settings = upgradeSettings(settings, state.defaults);
@@ -652,8 +666,8 @@ async function saveUserSettings() {
     // Chrome / Edge: a real "Save as" dialog (choose the name and the folder).
     try {
       const handle = await window.showSaveFilePicker({
+        ...SETTINGS_PICKER,
         suggestedName: `${suggested}.json`,
-        types: [{ description: "Playlist settings", accept: { "application/json": [".json"] } }],
       });
       const name = handle.name.replace(/\.json$/i, "");
       const file = await handle.createWritable();
@@ -672,12 +686,8 @@ async function saveUserSettings() {
   saved(name);
 }
 
-function loadUserSettings() {
-  const input = el("input", { type: "file", accept: ".json,application/json", hidden: true });
-  input.addEventListener("change", async () => {
-    const file = input.files[0];
-    input.remove();
-    if (!file) return;
+async function loadUserSettings() {
+  const use = async (file) => {
     if (state.settingsModified && !confirm(`Load “${file.name}”? Changes you have not saved to a file will be lost.`)) return;
     try {
       const { name, settings } = parseSettingsFile(await file.text());
@@ -685,6 +695,23 @@ function loadUserSettings() {
     } catch (err) {
       alert(`Could not load ${file.name}: ${err.message}`);
     }
+  };
+  if (window.showOpenFilePicker) {
+    // Chrome / Edge: opens in the folder last used for settings files (see SETTINGS_PICKER).
+    try {
+      const [handle] = await window.showOpenFilePicker({ ...SETTINGS_PICKER, multiple: false });
+      await use(await handle.getFile());
+    } catch (err) {
+      if (err.name !== "AbortError") alert(`Could not open the file: ${err.message}`);
+    }
+    return;
+  }
+  // Other browsers: the standard file box (the browser decides where it opens).
+  const input = el("input", { type: "file", accept: ".json,application/json", hidden: true });
+  input.addEventListener("change", async () => {
+    const file = input.files[0];
+    input.remove();
+    if (file) await use(file);
   });
   document.body.append(input);
   input.click();
@@ -780,6 +807,7 @@ function renderLibrary() {
   fill($("library"),
     el("div", { class: "library-line" },
       el("span", {}, "Song library: ", el("strong", {}, name), ` — ${state.songs.length} songs, ${rawDances().length} dances`),
+      el("button", { type: "button", class: "small", onclick: openLibraryView, disabled: !state.songs.length }, "View library"),
       el("button", { type: "button", class: "small", onclick: () => fileInput.click() }, "Load CSV / JSON…"),
       name !== PROJECT_NAME && el("button", { type: "button", class: "small", onclick: useProject }, "Use data/songs.csv"),
       name !== SAMPLE_NAME && el("button", { type: "button", class: "small", onclick: useSample }, "Use sample library"),
@@ -792,6 +820,95 @@ function renderLibrary() {
   );
 }
 
+/* ------------------------------------------------------------ view library */
+
+/**
+ * Read-only window listing the loaded song library, with search, a dance filter, song counts per
+ * dance, and a note on songs that cannot play with the current settings. Editing and removing songs
+ * happen in the library builder.
+ */
+function openLibraryView() {
+  const dialog = $("library-dialog");
+  const s = state.settings;
+  const m = associationMap(s.associations);
+  const used = referencedDances();
+
+  /** Why a song cannot play with the current settings, or "". */
+  const problem = (sg) => {
+    if (s.minSongSec > 0 && sg.lengthSec < s.minSongSec) return "shorter than the shortest allowed";
+    if (s.maxSongSec > 0 && sg.lengthSec > s.maxSongSec) return "longer than the longest allowed";
+    if (!sg.dances.some((d) => used.has(m(d)))) return "its dances are not used by the settings";
+    return "";
+  };
+  const rows = state.songs.map((sg) => ({ sg, merged: [...new Set(sg.dances.map(m))], why: problem(sg) }));
+
+  // Songs per dance (after associations), counting only songs that can play.
+  const counts = new Map();
+  for (const r of rows) if (!r.why) for (const d of r.merged) counts.set(d, (counts.get(d) || 0) + 1);
+  const danceNames = [...new Set(rows.flatMap((r) => r.merged))].sort();
+
+  const view = { search: "", dance: "", only: "" }; // only: "" | "can" | "cannot"
+  const search = el("input", { type: "text", placeholder: "search title / artist / tag…", "aria-label": "Search the library", style: "flex:1 1 16em" });
+  const danceFilter = el("select", { "aria-label": "Show one dance" },
+    el("option", { value: "" }, "All dances"),
+    danceNames.map((d) => el("option", { value: d }, `${d} (${counts.get(d) || 0})`)));
+  // Two "only" boxes that exclude each other: ticking one unticks the other.
+  const onlyCan = el("input", { type: "checkbox" });
+  const onlyCannot = el("input", { type: "checkbox" });
+  const summary = el("p", { class: "muted" });
+  const tbody = el("tbody");
+
+  const draw = () => {
+    const q = view.search.toLowerCase();
+    const shown = rows.filter((r) =>
+      (!view.dance || r.merged.includes(view.dance)) &&
+      (view.only !== "can" || !r.why) &&
+      (view.only !== "cannot" || r.why) &&
+      `${r.sg.title} ${r.sg.artist || ""} ${(r.sg.tags || []).join(" ")}`.toLowerCase().includes(q));
+    summary.textContent = `Showing ${Math.min(shown.length, 1000)} of ${shown.length} matching songs (${rows.length} in the library).`;
+    fill(tbody, shown.slice(0, 1000).map((r) =>
+      el("tr", { class: r.why ? "cannot-play" : null },
+        el("td", {}, r.sg.title),
+        el("td", { class: "muted" }, r.sg.artist || ""),
+        el("td", { class: "num" }, hms(r.sg.lengthSec)),
+        el("td", { title: r.merged.join(", ") !== r.sg.dances.join(", ") ? `Counts as: ${r.merged.join(", ")}` : null }, r.sg.dances.join(", ")),
+        el("td", {}, (r.sg.tags || []).join(", ")),
+        el("td", { class: "muted" }, r.why))));
+  };
+  search.addEventListener("input", () => { view.search = search.value; draw(); });
+  danceFilter.addEventListener("change", () => { view.dance = danceFilter.value; draw(); });
+  const setOnly = (box, other, value) => {
+    if (box.checked) other.checked = false;
+    view.only = box.checked ? value : "";
+    draw();
+  };
+  onlyCan.addEventListener("change", () => setOnly(onlyCan, onlyCannot, "can"));
+  onlyCannot.addEventListener("change", () => setOnly(onlyCannot, onlyCan, "cannot"));
+  draw();
+
+  const cannot = rows.filter((r) => r.why).length;
+  fill(dialog,
+    el("div", { class: "dialog-head" },
+      el("h2", {}, `Song library: ${state.library.name}`),
+      el("button", { type: "button", onclick: () => dialog.close() }, "Close")),
+    el("p", { class: "help" },
+      `${rows.length} songs. ` + (cannot ? `${cannot} cannot play with the current settings (marked below). ` : "") +
+        "To change or remove songs, use the library builder."),
+    el("details", {},
+      el("summary", {}, "Songs per dance (playable songs, after associations)"),
+      el("div", { class: "chips" }, [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([d, n]) =>
+        el("button", { type: "button", class: "chip count-chip", onclick: () => { danceFilter.value = d; view.dance = d; draw(); } }, `${d} · ${n}`)))),
+    el("div", { class: "inline-fields" }, search, danceFilter,
+      el("label", { class: "inline-fields" }, onlyCan, "Only songs that can play"),
+      el("label", { class: "inline-fields" }, onlyCannot, "Only songs that cannot play")),
+    summary,
+    el("div", { class: "table-wrap" },
+      el("table", { class: "playlist" },
+        el("thead", {}, el("tr", {}, ["Title", "Artist", "Length", "Dances", "Tags", "Cannot play because"].map((h) => el("th", { scope: "col" }, h)))),
+        tbody)));
+  dialog.showModal();
+}
+
 /* ----------------------------------------------------------------- results */
 
 function generate() {
@@ -799,6 +916,8 @@ function generate() {
   renderValidation();
   if (state.errors.length) return;
   state.result = generatePlaylist(state.songs, { ...state.settings, seed: null }); // always a fresh random playlist
+  // Remember which rules were already relaxed, so swaps only report problems they cause.
+  state.result.baselineViolations = checkRules(state.result, state.settings).map((v) => `${v.rule}|${v.index}`);
   state.stale = false;
   renderResults();
 }
@@ -875,22 +994,144 @@ function renderResults() {
     r.warnings.length > 0 &&
       el("ul", { class: "msgs" },
         r.warnings.map((w) => el("li", { class: "warning" }, (w.index >= 0 ? `#${w.index + 1}: ` : "") + w.message))),
+    (r.swapViolations || []).length > 0 &&
+      el("ul", { class: "msgs" },
+        r.swapViolations.map((v) => el("li", { class: "warning" }, `After your swaps: ${v.index >= 0 ? `#${v.index + 1}: ` : ""}${v.message}`))),
     el("div", { class: "table-wrap" },
       el("table", { class: "playlist" },
         el("thead", {}, el("tr", {},
           ["#", "Start", "Dance", "Type", "Title", "Length"].map((h) => el("th", { scope: "col" }, h)),
-          themed && el("th", { scope: "col" }, "Theme?"))),
+          themed && el("th", { scope: "col" }, "Theme?"),
+          el("th", { scope: "col" }, el("span", { class: "visually-hidden" }, "Swap")))),
         el("tbody", {},
           r.playlist.map((it) =>
-            el("tr", { class: it.kind },
+            el("tr", { class: `${it.kind}${it.swapped ? " swapped" : ""}` },
               el("td", { class: "num" }, String(it.index + 1)),
               el("td", { class: "num" }, hms(it.startSec)),
               el("td", { title: it.song.sourceDances ? `Tagged: ${it.song.sourceDances.join(", ")}` : null }, it.dance),
               el("td", { class: "type" }, kindLabel(it)),
-              el("td", {}, it.song.title, it.song.artist && el("span", { class: "muted" }, ` – ${it.song.artist}`)),
+              el("td", {}, it.song.title, it.song.artist && el("span", { class: "muted" }, ` – ${it.song.artist}`),
+                it.swapped && el("span", { class: "swap-note" }, " (swapped)")),
               el("td", { class: "num" }, hms(it.song.lengthSec)),
-              themed && el("td", { class: "theme-mark" }, it.isTheme ? "Yes" : ""))))))
+              themed && el("td", { class: "theme-mark" }, it.isTheme ? "Yes" : ""),
+              el("td", {}, el("button", { type: "button", class: "small", title: "Choose a different song for this slot",
+                "aria-label": `Swap #${it.index + 1} ${it.song.title}`, onclick: () => openSwap(it.index) }, "Swap")))))))
   );
+}
+
+/* ----------------------------------------------------------- swap a song */
+
+/**
+ * Replace the song in one slot of the generated playlist with another song of the same dance.
+ * Songs that follow the settings (same dance, not already in the playlist, inside the length limits)
+ * come first; every other library song is offered too, marked with a warning and the reason.
+ */
+function openSwap(index) {
+  const r = state.result;
+  const it = r.playlist[index];
+  const s = state.settings;
+  const m = associationMap(s.associations);
+  const position = new Map(r.playlist.map((x) => [x.song.id, x.index]));
+
+  /** Why picking this song would not obey the generator settings (empty = it does). */
+  const reasons = (sg) => {
+    const out = [];
+    const merged = [...new Set(sg.dances.map(m))];
+    if (!merged.includes(it.dance)) out.push(`a different dance (${merged.join(", ") || "none"})`);
+    if (position.has(sg.id)) out.push(`already in this playlist (#${position.get(sg.id) + 1})`);
+    if (!withinLengthLimits(sg, s)) out.push("outside the song length limits");
+    return out;
+  };
+  const closeness = (sg) => Math.abs(sg.lengthSec - it.song.lengthSec);
+  const all = state.songs.filter((sg) => sg.id !== it.song.id).map((sg) => ({ sg, why: reasons(sg) }));
+  const legal = all.filter((o) => !o.why.length).sort((a, b) => closeness(a.sg) - closeness(b.sg));
+  // Others: same dance first (they only break the length or no-repeat rules), then by title.
+  const sameDanceFirst = (o) => (o.why.some((w) => w.startsWith("a different dance")) ? 1 : 0);
+  const illegal = all.filter((o) => o.why.length)
+    .sort((a, b) => sameDanceFirst(a) - sameDanceFirst(b) || a.sg.title.localeCompare(b.sg.title));
+
+  const dialog = $("library-dialog");
+  const diff = (sg) => {
+    const d = sg.lengthSec - it.song.lengthSec;
+    return d === 0 ? "same length" : `${d > 0 ? "+" : "−"}${hms(Math.abs(d))} to the night`;
+  };
+  const search = el("input", { type: "text", placeholder: "search title / artist…", "aria-label": "Search alternatives", style: "flex:1 1 16em" });
+  const tbody = el("tbody");
+  const LIMIT = 300;
+  const draw = () => {
+    const q = search.value.toLowerCase();
+    const shown = [...legal, ...illegal].filter((o) => `${o.sg.title} ${o.sg.artist || ""}`.toLowerCase().includes(q));
+    fill(tbody,
+      shown.slice(0, LIMIT).map(({ sg, why }) =>
+        el("tr", { class: why.length ? "not-allowed" : null },
+          el("td", {}, el("button", { type: "button", class: "small", onclick: () => { swapSong(index, sg); dialog.close(); } }, "Use this")),
+          el("td", {}, sg.title, why.length > 0 &&
+            el("div", { class: "swap-warning" }, `Warning: ${why.join("; ")}.`)),
+          el("td", { class: "muted" }, sg.artist || ""),
+          el("td", {}, sg.dances.join(", ")),
+          el("td", { class: "num" }, hms(sg.lengthSec)),
+          el("td", { class: "muted" }, diff(sg)))),
+      shown.length > LIMIT && el("tr", {}, el("td", { colspan: 6, class: "muted" }, `…and ${shown.length - LIMIT} more. Use the search box.`)));
+  };
+  search.addEventListener("input", draw);
+  draw();
+
+  fill(dialog,
+    el("div", { class: "dialog-head" },
+      el("h2", {}, `Swap #${index + 1}: ${it.dance}`),
+      el("button", { type: "button", onclick: () => dialog.close() }, "Close")),
+    el("p", {}, "Now: ", el("strong", {}, it.song.title), it.song.artist ? ` – ${it.song.artist}` : "", ` (${hms(it.song.lengthSec)})`),
+    el("div", { class: "inline-fields" }, search,
+      el("button", { type: "button", disabled: !legal.length, onclick: () => {
+        swapSong(index, legal[Math.floor(Math.random() * legal.length)].sg);
+        dialog.close();
+      } }, "Pick one for me")),
+    el("p", { class: "help" },
+      (legal.length
+        ? `${legal.length} other ${it.dance} song(s) follow the settings and are listed first, closest in length first. `
+        : `No other ${it.dance} song follows the settings. `) +
+        "Every other song in the library is listed after them with a warning; you can still pick one."),
+    el("div", { class: "table-wrap" },
+      el("table", { class: "playlist" },
+        el("thead", {}, el("tr", {}, ["", "Title", "Artist", "Dances", "Length", "Change"].map((h) => el("th", { scope: "col" }, h)))),
+        tbody)));
+  dialog.showModal();
+}
+
+/** Put `song` in slot `index`, then recalculate times, the theme mark, stats and the rule check. */
+function swapSong(index, song) {
+  const r = state.result;
+  const s = state.settings;
+  const it = r.playlist[index];
+  const m = associationMap(s.associations);
+  it.song = { ...song, sourceDances: song.dances, dances: [...new Set(song.dances.map(m))] };
+  // A song of another dance changes what the slot is (the rule check then reports any breaks).
+  if (!it.song.dances.includes(it.dance) && it.song.dances.length) it.dance = it.song.dances[0];
+  it.swapped = true;
+  if (s.theme && it.kind !== "fixed") {
+    const themeDances = new Set((s.theme.dances || []).map(m));
+    const themeTags = new Set(s.theme.tags || []);
+    it.isTheme = themeDances.has(it.dance) || (song.tags || []).some((t) => themeTags.has(t));
+  }
+  let t = 0;
+  for (const x of r.playlist) {
+    x.startSec = t;
+    t += x.song.lengthSec;
+  }
+  r.totalSec = t;
+  r.overtimeSec = t - r.targetSec;
+  r.stats = computeStats(r);
+  // Report only rule breaks the swaps introduced (not ones generation already warned about).
+  const before = new Set(r.baselineViolations || []);
+  r.swapViolations = checkRules(r, s).filter((v) => !before.has(`${v.rule}|${v.index}`));
+  // The generator never repeats a song, so its rule check does not look for that; a swap can.
+  const firstAt = new Map();
+  for (const x of r.playlist) {
+    if (firstAt.has(x.song.id)) {
+      r.swapViolations.push({ rule: "duplicate", index: x.index, message: `“${x.song.title}” is also #${firstAt.get(x.song.id) + 1}.` });
+    } else firstAt.set(x.song.id, x.index);
+  }
+  renderResults();
 }
 
 /* --------------------------------------------------------- save to Spotify */

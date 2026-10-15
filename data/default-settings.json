@@ -1,8 +1,8 @@
 {
   "app": "Dance Playlist Generator",
   "kind": "settings",
-  "name": "default-settings",
-  "savedAt": "2026-10-15T15:01:06.432Z",
+  "name": "My settings",
+  "savedAt": "2026-10-15T16:54:33.312Z",
   "settings": {
     "version": 2,
     "eventLengthMinutes": 180,
@@ -129,17 +129,21 @@
     "fixedEvents": [
       {
         "name": "Line dance break",
-        "dance": "Line dance",
         "count": 3,
         "at": 0.5,
-        "notAfter": []
+        "notAfter": [],
+        "dances": [
+          "Line dance"
+        ]
       },
       {
         "name": "Paso Doble",
-        "dance": "Paso Doble",
         "count": 1,
         "at": 0.7,
-        "notAfter": []
+        "notAfter": [],
+        "dances": [
+          "Paso Doble"
+        ]
       }
     ],
     "theme": null,
@@ -153,6 +157,8 @@
     "closing": {
       "finalDance": "Waltz"
     },
+    "minSongSec": 120,
+    "maxSongSec": 270,
     "seed": null
   }
 }
