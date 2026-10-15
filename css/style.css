@@ -172,6 +172,21 @@ input:invalid { border-color: var(--error); }
 .pool-table { border-collapse: collapse; }
 .pool-table th { text-align: left; font-weight: 600; padding-right: 8px; }
 
+/* pop-up windows (<dialog>) */
+dialog {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 20px;
+  width: min(36em, calc(100vw - 32px));
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.3);
+}
+dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
+dialog h2 { margin: 0 0 8px; font-size: 1.15rem; }
+dialog > * + * { margin-top: 8px; }
+.plain-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+
 /* a shaded box grouping related controls inside a section */
 .subbox {
   margin-top: 6px;

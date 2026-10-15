@@ -16,6 +16,7 @@ import { spotifyTrackId } from "./data.js";
 import { loadSongsFromUrl, parseSongsText, songsToCSV } from "./data.js";
 import {
   guessDanceInfo, canonicalDance, unknownDanceMessage, DANCE_ALIASES, BALLROOM_STYLES, BALLROOM_DANCE_NAMES,
+  setCustomDances, customDanceNames, newDanceProblem,
 } from "./dance-names.js";
 import { mergeImport, parseTagRules } from "./library-merge.js";
 import { LIBRARY_KEY } from "./settings.js";
@@ -69,6 +70,14 @@ const store = {
   },
 };
 
+/*
+ * Dances defined with "Define a new dance…": [{ name, style, spellings }], kept in this browser.
+ * Once a song carries one in songs.csv it is known from the library anyway.
+ */
+const CUSTOM_DANCES_KEY = "dpg.customDances.v1";
+let customDances = store.get(CUSTOM_DANCES_KEY, []);
+setCustomDances(customDances);
+
 const splitList = (text) => String(text ?? "").split(/[;|]/).map((x) => x.trim()).filter(Boolean);
 /** Dances typed by the user, in standard form ("American Rumba" -> "Rhythm Rumba"). */
 const danceList = (text) => [...new Set(splitList(text).map(canonicalDance))];
@@ -77,12 +86,101 @@ const errorBox = (message) => el("ul", { class: "msgs" }, el("li", { class: "err
 /** Names already in the library that are not standard ballroom names (e.g. "Salsa", custom ones). */
 const libraryDances = () => [...new Set(state.existing.flatMap((s) => s.dances || []))];
 
-/** Dance suggestions: the 19 ballroom names, other known dances, and whatever the library uses. */
+/** Dance suggestions: the 19 ballroom names, other known dances, your own dances, and whatever the library uses. */
 function knownDances() {
   const ballroomBases = new Set(Object.values(BALLROOM_STYLES).flatMap((s) => s.dances));
-  const set = new Set([...BALLROOM_DANCE_NAMES, ...Object.keys(DANCE_ALIASES).filter((d) => !ballroomBases.has(d)), ...libraryDances()]);
+  const set = new Set([
+    ...BALLROOM_DANCE_NAMES,
+    ...Object.keys(DANCE_ALIASES).filter((d) => !ballroomBases.has(d)),
+    ...customDanceNames(),
+    ...libraryDances(),
+  ]);
   return [...set].sort();
 }
+
+/* --------------------------------------------------------- your own dances */
+
+function saveCustomDances() {
+  store.set(CUSTOM_DANCES_KEY, customDances);
+  setCustomDances(customDances);
+  updateLists();
+  // Playlists that had no dance guessed yet may now match one of your dances.
+  if (state.playlists) {
+    for (const p of state.playlists) {
+      const c = state.choices.get(p.id);
+      if (c.dances.length || c.ambiguous.length) continue;
+      const { dances, ambiguous, checks } = guessDanceInfo(p.name, libraryDances());
+      Object.assign(c, { dances, ambiguous, checks, selected: c.selected || (dances.length > 0 && !ambiguous.length) });
+    }
+  }
+  renderPlaylists();
+  renderManual();
+}
+
+/** The "Define a new dance…" window: add your own dances, or remove ones you defined. */
+function openDanceDialog() {
+  const dialog = $("dance-dialog");
+  const name = el("input", { type: "text", placeholder: "e.g. Peabody", "aria-label": "Dance name", style: "flex:1 1 14em" });
+  const style = el("select", { "aria-label": "Ballroom style" },
+    el("option", { value: "" }, "None (not a competitive ballroom dance)"),
+    Object.entries(BALLROOM_STYLES).map(([st, s]) => el("option", { value: st }, `${st} (${s.family})`)));
+  const spellings = [];
+  const preview = el("p", { class: "help" });
+  const message = el("div", { "aria-live": "polite" });
+  const updatePreview = () => {
+    const n = name.value.trim();
+    preview.textContent = n
+      ? `It will be called “${style.value ? `${style.value} ${n}` : n}”` +
+        (style.value ? `, and a playlist named “${n}” or “${BALLROOM_STYLES[style.value].family} ${n}” will be guessed as this dance.` : ".")
+      : "";
+  };
+  name.addEventListener("input", updatePreview);
+  style.addEventListener("change", updatePreview);
+
+  const add = () => {
+    const entry = { name: name.value.trim(), style: style.value || null, spellings: [...spellings] };
+    const problem = newDanceProblem(entry, libraryDances());
+    if (problem) return fill(message, errorBox(problem));
+    customDances.push(entry);
+    saveCustomDances();
+    openDanceDialog(); // redraw with the new dance listed and an empty form
+  };
+
+  const list = customDances.length
+    ? el("ul", { class: "plain-list" }, customDances.map((d, i) =>
+        el("li", {},
+          el("strong", {}, d.style ? `${d.style} ${d.name}` : d.name),
+          d.spellings.length > 0 && el("span", { class: "muted" }, ` (also: ${d.spellings.join(", ")})`),
+          " ",
+          el("button", { type: "button", class: "small", onclick: () => {
+            if (!confirm(`Remove “${d.name}” from your dances? Songs already tagged with it keep the tag.`)) return;
+            customDances.splice(i, 1);
+            saveCustomDances();
+            openDanceDialog();
+          } }, "Remove"))))
+    : el("p", { class: "muted" }, "You have not defined any dances yet.");
+
+  fill(dialog,
+    el("h2", {}, "Your own dances"),
+    el("p", { class: "help" }, "Add a dance the app does not know yet. It becomes available in every dance box on this page " +
+      "and is remembered in this browser; once songs carry it in songs.csv it is part of your library for good."),
+    list,
+    el("h3", {}, "Define a new dance"),
+    el("div", { class: "inline-fields" }, "Name:", name),
+    el("div", { class: "inline-fields" }, "Ballroom style:", style),
+    el("div", {}, el("div", { class: "label" }, "Other spellings for guessing from playlist names (optional):"),
+      chipEditor(spellings, () => [], { placeholder: "e.g. peabodies", label: "Other spelling" })),
+    preview,
+    message,
+    el("div", { class: "actions" },
+      el("button", { type: "button", class: "primary", onclick: add }, "Add this dance"),
+      el("button", { type: "button", onclick: () => dialog.close() }, "Close")));
+  if (!dialog.open) dialog.showModal();
+  name.focus();
+}
+
+const defineDanceButton = () =>
+  el("button", { type: "button", class: "small", onclick: openDanceDialog }, "Define a new dance…");
 
 /**
  * Tag suggestions: tags in the library and the keyword rules, plus every tag typed anywhere on this
@@ -348,7 +446,8 @@ function renderPlaylists() {
     el("div", { class: "inline-fields" }, search,
       el("button", { type: "button", class: "small", onclick: () => setAll((c) => c.dances.length > 0) }, "Select all with a dance"),
       el("button", { type: "button", class: "small", onclick: () => setAll(() => false) }, "Select none"),
-      el("button", { type: "button", class: "small", onclick: loadPlaylists }, "Reload playlists")),
+      el("button", { type: "button", class: "small", onclick: loadPlaylists }, "Reload playlists"),
+      defineDanceButton()),
     el("div", { class: "table-wrap" },
       el("table", { class: "playlist" },
         el("thead", {}, el("tr", {}, ["Import?", "Playlist", "Songs", "Dance(s)", "Tags"].map((h) => el("th", { scope: "col" }, h)))),
@@ -602,7 +701,8 @@ function renderWorklist() {
       el("label", { class: "inline-fields" }, hide, "Hide songs already in the library"),
       el("button", { type: "button", class: "small", onclick: () => {
         if (confirm("Empty the worklist?")) { state.manual = []; renderManual(); }
-      } }, "Empty worklist")),
+      } }, "Empty worklist"),
+      defineDanceButton()),
     el("div", { class: "inline-fields" }, "For all ticked songs:",
       bulkDanceWrap, el("button", { type: "button", class: "small", onclick: () => addToTicked("dances", bulkDance, danceList) }, "Add dance"),
       bulkTagWrap, el("button", { type: "button", class: "small", onclick: () => addToTicked("tags", bulkTag, splitList) }, "Add tag")),

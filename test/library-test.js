@@ -3,7 +3,7 @@
  * Run with:   npm test   (runs this after test/test.js)
  */
 
-import { guessDanceInfo, canonicalDance } from "../js/dance-names.js";
+import { guessDanceInfo, canonicalDance, setCustomDances, newDanceProblem } from "../js/dance-names.js";
 import { mergeImport, parseTagRules } from "../js/library-merge.js";
 import { songsToCSV, parseSongsText } from "../js/data.js";
 import { buildSampleLibrary } from "../tools/sample-library.js";
@@ -111,6 +111,26 @@ check(byId.B.status === "unchanged" && same(byId.B.song.dances, ["Tango"]), "B u
 check(byId.C.status === "new" && same(byId.C.song.tags, ["Hollywood"]) && same(byId.C.guessed.tags, ["Hollywood"]), "C gets guessed Hollywood");
 check(same(byId.D.song.dances, ["Foxtrot"]), `D's title ("Cha Cha Cha…") does not add a dance: ${byId.D.song.dances}`);
 check(existing[0].dances.length === 1, "the existing library objects are not modified");
+
+console.log("=== Your own dances");
+setCustomDances([
+  { name: "Peabody", style: "Smooth", spellings: ["peabodies"] },
+  { name: "Lindy Bop", style: null, spellings: ["lbop"] },
+]);
+check(same(guessDanceInfo("Peabody favourites").dances, ["Smooth Peabody"]), `styled own dance: ${guessDanceInfo("Peabody favourites").dances}`);
+check(same(guessDanceInfo("American peabodies").dances, ["Smooth Peabody"]), "own spelling + family word");
+check(same(guessDanceInfo("LBOP mix").dances, ["Lindy Bop"]), "unstyled own dance via its spelling");
+check(same(guessDanceInfo("Lindy Bop and Waltz").dances, ["Lindy Bop", "Smooth Waltz", "Standard Waltz"]), "own dance wins over the shorter built-in 'Lindy'");
+check(canonicalDance("American Peabody") === "Smooth Peabody", `canonicalDance("American Peabody") = ${canonicalDance("American Peabody")}`);
+check(canonicalDance("lbop") === "Lindy Bop", "own spelling standardized to the dance name");
+check(newDanceProblem({ name: "Peabody", style: "Smooth" }) !== null, "duplicate own dance refused");
+check(newDanceProblem({ name: "WCS" }) !== null, "a built-in spelling refused");
+check(newDanceProblem({ name: "Smooth Thing" }) !== null, "style word inside the name refused");
+check(newDanceProblem({ name: "" }) !== null, "empty name refused");
+check(newDanceProblem({ name: "Balboa Swing", style: null }) === null, "a genuinely new name accepted");
+check(newDanceProblem({ name: "Salsa" }, ["Salsa"]) !== null, "a library dance refused");
+setCustomDances([]);
+check(same(guessDanceInfo("Peabody").dances, []), "removing own dances forgets them");
 
 console.log("=== Playlist links");
 const pid = "37i9dQZF1DXcBWIGoYBM5M";
