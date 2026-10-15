@@ -168,6 +168,8 @@ function openDanceDialog() {
     el("h3", {}, "Define a new dance"),
     el("div", { class: "inline-fields" }, "Name:", name),
     el("div", { class: "inline-fields" }, "Ballroom style:", style),
+    el("p", { class: "help" }, "Competitive ballroom styles are specially handled. If this dance is part of a non-ballroom " +
+      "category, e.g. WCS, use the “Categories and dances” function on the generator to create categories."),
     el("div", {}, el("div", { class: "label" }, "Other spellings for guessing from playlist names (optional):"),
       chipEditor(spellings, () => [], { placeholder: "e.g. peabodies", label: "Other spelling" })),
     preview,
