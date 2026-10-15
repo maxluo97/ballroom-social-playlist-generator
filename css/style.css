@@ -192,6 +192,12 @@ dialog.wide { width: min(72em, calc(100vw - 32px)); max-height: calc(100vh - 48p
 button.count-chip { border: none; cursor: pointer; padding: 2px 10px; }
 table.playlist tr.cannot-play td { color: var(--muted); }
 table.playlist tr.swapped td { background: var(--chip); }
+table.playlist tr.inserted td { background: var(--row-alt); }
+table.playlist tr.inserted td.type { color: var(--accent); font-weight: 600; }
+/* removed rows stay listed, smaller and faded, with a Restore button */
+table.playlist tr.removed td { font-size: 0.82em; padding-top: 1px; padding-bottom: 1px; color: var(--muted); }
+.row-actions { display: flex; flex-wrap: wrap; gap: 3px; }
+.row-actions button.small { padding: 1px 6px; font-size: 0.82em; }
 .swap-note { color: var(--accent); font-size: 0.85em; }
 .swap-warning { color: var(--warn); font-size: 0.85em; }
 table.playlist tr.not-allowed td { background: var(--warn-bg); }
