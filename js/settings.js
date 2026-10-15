@@ -6,14 +6,11 @@
  * The DEFAULT settings live in data/default-settings.json, in the same format as a user
  * settings file (see settingsFileText). To change the defaults: set things up on the page,
  * "Save user settings…", and replace data/default-settings.json with that file.
+ *
+ * Settings file format: { app, kind: "settings", name, savedAt, settings: { … } }.
  */
 
-import { normalizeFixedEvent } from "./generator.js";
-
 export const DEFAULTS_URL = "data/default-settings.json";
-
-/** Current settings format. Bump when saved settings need upgrading (see upgradeSettings). */
-export const SETTINGS_VERSION = 2;
 
 /** Theme used when the user switches a theme on (broad-theme share by default). */
 export const THEME_TEMPLATE = {
@@ -29,10 +26,7 @@ export const clone = (obj) => JSON.parse(JSON.stringify(obj));
 
 /* ------------------------------------------------------------ settings files */
 
-/**
- * Read a settings file's text. Accepts the app's file format ({ app, kind, name, settings })
- * or a bare settings object. Returns { name, settings }; throws a readable Error otherwise.
- */
+/** Read a settings file's text. Returns { name, settings }; throws a readable Error if it is not one. */
 export function parseSettingsFile(text) {
   let data;
   try {
@@ -40,11 +34,10 @@ export function parseSettingsFile(text) {
   } catch {
     throw new Error("This is not a settings file (it is not valid JSON).");
   }
-  const settings = data && data.settings && typeof data.settings === "object" ? data.settings : data;
-  if (!settings || !Array.isArray(settings.categories)) {
-    throw new Error("This file does not contain playlist settings (no categories found).");
+  if (!data || data.kind !== "settings" || !data.settings || !Array.isArray(data.settings.categories)) {
+    throw new Error("This file does not contain playlist settings.");
   }
-  return { name: (data && data.name) || "", settings };
+  return { name: data.name || "", settings: data.settings };
 }
 
 /** The text of a settings file (pretty-printed JSON, easy to read and edit). */
@@ -64,39 +57,14 @@ export async function loadDefaultSettings() {
   return parseSettingsFile(await res.text());
 }
 
-/**
- * Bring settings from any source (a file, this browser, an older version) up to date:
- * fills in missing sections from `defaults` and applies format upgrades.
- */
-export function upgradeSettings(saved, defaults) {
-  const d = clone(defaults);
-  if (!saved) return d;
-  const s = {
-    ...d,
-    ...clone(saved),
-    excursions: { ...d.excursions, ...saved.excursions },
-    opening: { ...d.opening, ...saved.opening },
-    closing: { ...d.closing, ...saved.closing },
-    seed: null,
-  };
-  // Fixed events list their dances in `dances` (older settings had a single `dance`).
-  s.fixedEvents = (s.fixedEvents || []).map(normalizeFixedEvent);
-  // Version 2: associations include their own name by default.
-  if (!(saved.version >= 2)) {
-    for (const a of s.associations || []) {
-      if (a.name && !a.dances.includes(a.name) && !a.name.includes("/")) a.dances.unshift(a.name);
-    }
-  }
-  s.version = SETTINGS_VERSION;
-  return s;
+/** A working copy of settings to use on the page (the defaults if there are none); never a fixed seed. */
+export function workingSettings(settings, defaults) {
+  return { ...clone(settings || defaults), seed: null };
 }
 
 /* -------------------------------------------------------- browser storage */
 
 const STORAGE_KEY = "dpg.lastSettings.v1";
-
-/** Browser storage key for a song library loaded from a file (or sent over by the library builder). */
-export const LIBRARY_KEY = "dpg.library.v1";
 
 /**
  * Last-used settings from this browser: { settings, label, modified }, or null. Never throws.
@@ -105,8 +73,7 @@ export const LIBRARY_KEY = "dpg.library.v1";
 export function loadLastSettings() {
   try {
     const raw = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (!raw) return null;
-    return raw.settings ? raw : { settings: raw, label: "", modified: true }; // older format: bare settings
+    return raw && raw.settings ? raw : null;
   } catch {
     return null;
   }

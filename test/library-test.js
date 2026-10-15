@@ -4,7 +4,7 @@
  */
 
 import { guessDanceInfo, canonicalDance, setCustomDances, newDanceProblem } from "../js/dance-names.js";
-import { mergeImport, parseTagRules, markPreviouslyRemoved, keptSongs, updatedBlacklist, blacklistChanged, blacklistRows } from "../js/library-merge.js";
+import { mergeImport, markPreviouslyRemoved, keptSongs, updatedBlacklist, blacklistChanged, blacklistRows } from "../js/library-merge.js";
 import { songsToCSV, parseSongsText, parseRemovedSongs, removedSongsToCSV } from "../js/data.js";
 import { buildSampleLibrary } from "../tools/sample-library.js";
 import { playlistIdFrom } from "../js/spotify.js";
@@ -95,7 +95,7 @@ const rows = mergeImport(existing, [
   { playlistName: "Foxtrot list", dances: ["Foxtrot"], tags: ["Club"], songs: [sp("A", "Old Waltz"), sp("D", "Cha Cha Cha de Amor")] },
   { playlistName: "Rumba list", dances: ["American Rumba"], tags: [], songs: [sp("E", "Both")] },
   { playlistName: "Cha-cha list", dances: ["Rhythm Cha-cha"], tags: [], songs: [sp("E", "Both")] },
-], { tagRules: parseTagRules("motion picture => Hollywood\n# comment\n") });
+], { tagRules: [{ keyword: "motion picture", tag: "Hollywood" }] });
 
 const byIdOf = (list) => Object.fromEntries(list.map((r) => [r.song.id, r]));
 const byId = byIdOf(rows);

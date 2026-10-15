@@ -21,7 +21,7 @@ import {
   setCustomDances, customDanceNames, newDanceProblem,
 } from "./dance-names.js";
 import {
-  mergeImport, parseTagRules, markPreviouslyRemoved, keptSongs, updatedBlacklist, blacklistChanged, blacklistRows,
+  mergeImport, markPreviouslyRemoved, keptSongs, updatedBlacklist, blacklistChanged, blacklistRows,
 } from "./library-merge.js";
 import { formatTime } from "./generator.js";
 
@@ -29,7 +29,6 @@ const PROJECT_URL = "data/songs.csv";
 const REMOVED_URL = "data/removed-songs.csv";
 const DATA_FOLDER_KEY = "dpg-data-folder"; // remembered folder for "Save to the data folder"
 const RULES_KEY = "dpg.tagRules.v2"; // [{ keyword, tag }]
-const OLD_RULES_KEY = "dpg.tagRules.v1"; // older text format, migrated once
 const DEFAULT_RULES = [
   { keyword: "soundtrack", tag: "Hollywood" },
   { keyword: "motion picture", tag: "Hollywood" },
@@ -300,9 +299,7 @@ function renderExisting(problems = []) {
 
 function loadRules() {
   const rules = store.get(RULES_KEY, null);
-  if (Array.isArray(rules)) return rules;
-  const old = store.get(OLD_RULES_KEY, null);
-  return old ? parseTagRules(old) : DEFAULT_RULES.map((r) => ({ ...r }));
+  return Array.isArray(rules) ? rules : DEFAULT_RULES.map((r) => ({ ...r }));
 }
 
 function renderRules() {
@@ -889,7 +886,8 @@ function renderReview() {
     state.failures.length > 0 && el("ul", { class: "msgs" }, state.failures.map((f) => el("li", { class: "error" }, f))),
     el("p", { class: "help" }, "Your whole library is listed here, plus anything imported. Use × to take a dance or tag off a song, " +
       "and the dropdown to add one. Highlighted tags came from keyword rules, so check them. " +
-      "Remove takes a song out of the library; the app remembers it, so a later import will not quietly bring it back."),
+      "Remove takes a song out of the library; the app remembers it, so a later import will not quietly bring it back. " +
+      "Click a column heading to sort the table by it (click again to reverse)."),
     availabilityBox(),
     el("div", { class: "inline-fields" }, ...filterButtons, search),
     el("div", { class: "actions" },

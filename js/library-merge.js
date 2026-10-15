@@ -81,17 +81,6 @@ export function blacklistRows(rows, blacklist) {
 /** Whether the rows change the blacklist at all (so it needs saving). */
 export const blacklistChanged = (rows) => rows.some((r) => r.removedNow || r.reimported);
 
-/** Parse tag rules written one per line as "keyword => Tag". Blank lines and # comments ignored. */
-export function parseTagRules(text) {
-  const rules = [];
-  for (const line of String(text ?? "").split(/\r?\n/)) {
-    const t = line.trim();
-    if (!t || t.startsWith("#")) continue;
-    const m = t.match(/^(.+?)\s*=>\s*(.+)$/);
-    if (m) rules.push({ keyword: m[1].trim().toLowerCase(), tag: m[2].trim() });
-  }
-  return rules;
-}
 
 /**
  * @param existing  current library songs ({ id, title, artist, lengthSec, dances, tags, album?, isrc? })

@@ -26,7 +26,7 @@
  *   minToRepeat          songs that must separate two songs of the same dance
  *   excursions           { intervalMinutes, jitterMinutes, pool: { dance: maxOccurrences } }
  *   fixedEvents          [{ name, dances: [...], count, at: 0..1, notAfter: [names or dances] }]
- *                        each of the `count` songs is one of `dances` (older files: `dance: "..."`)
+ *                        each of the `count` songs is one of `dances`
  *   theme                { name, dances, tags, fractionMin, fractionMax, guaranteedOpeners } or null
  *   opening              { earlyCount, blacklist: [dances] }
  *   closing              { finalDance }   (null = no designated last dance)
@@ -127,7 +127,8 @@ export function mergeSettings(user = {}) {
     ...user,
     associations: user.associations ?? d.associations,
     categories: user.categories ?? d.categories,
-    fixedEvents: (user.fixedEvents ?? d.fixedEvents).map(normalizeFixedEvent),
+    // An event without a name is called after its dances.
+    fixedEvents: (user.fixedEvents ?? d.fixedEvents).map((e) => ({ ...e, name: e.name || (e.dances || []).join(" / ") })),
     excursions: { ...d.excursions, ...(user.excursions || {}) },
     opening: { ...d.opening, ...(user.opening || {}) },
     closing: { ...d.closing, ...(user.closing || {}) },
@@ -135,16 +136,9 @@ export function mergeSettings(user = {}) {
   };
 }
 
-/** Fixed events list their dances in `dances`; older settings used a single `dance`. */
-export function normalizeFixedEvent(e) {
-  const { dance, ...rest } = e;
-  const dances = e.dances ?? (dance ? [dance] : []);
-  return { ...rest, dances, name: e.name || dances.join(" / ") };
-}
-
+/** Songs always have `dances`; `tags` may be left out. */
 function normalizeSong(sg) {
-  const dances = sg.dances ?? (sg.dance ? [sg.dance] : []);
-  return { ...sg, dances, tags: sg.tags ?? [] };
+  return { ...sg, dances: sg.dances || [], tags: sg.tags || [] };
 }
 
 /* ------------------------------------------------------------- associations */

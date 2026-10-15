@@ -56,8 +56,8 @@ const ballroomLatinBase = {
     pool: { Polka: 1, Hustle: 1, Bachata: 3, "West Coast Swing": 2, "Night Club Two Step": 1 },
   },
   fixedEvents: [
-    { name: "Line dance", dance: "Line dance", count: 3, at: 0.5 },
-    { name: "Paso Doble", dance: "Paso Doble", count: 1, at: 0.7, notAfter: ["Line dance"] },
+    { name: "Line dance", dances: ["Line dance"], count: 3, at: 0.5 },
+    { name: "Paso Doble", dances: ["Paso Doble"], count: 1, at: 0.7, notAfter: ["Line dance"] },
   ],
   theme: null,
   opening: { earlyCount: 6, blacklist: ["Mambo", "Quickstep"] },

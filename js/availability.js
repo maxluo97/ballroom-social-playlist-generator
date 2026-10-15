@@ -16,10 +16,7 @@ const KEY = "dpg.availability.v1";
 function load() {
   try {
     const data = JSON.parse(localStorage.getItem(KEY));
-    if (!data || !data.results) return {};
-    // Older saves had one date for everything.
-    for (const r of Object.values(data.results)) if (!r.checkedAt && data.checkedAt) r.checkedAt = data.checkedAt;
-    return data.results;
+    return (data && data.results) || {};
   } catch {
     return {};
   }

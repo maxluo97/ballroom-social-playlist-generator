@@ -7,17 +7,22 @@
  */
 
 import {
-  generatePlaylist, validateSettings, listDances, associationMap, withinLengthLimits, checkRules, computeStats, DEFAULT_SETTINGS,
+  generatePlaylist, validateSettings, listDances, associationMap, withinLengthLimits, DEFAULT_SETTINGS,
 } from "./generator.js";
 import {
-  THEME_TEMPLATE, LIBRARY_KEY, clone, loadLastSettings, saveLastSettings,
-  loadDefaultSettings, upgradeSettings, parseSettingsFile, settingsFileText,
+  THEME_TEMPLATE, clone, loadLastSettings, saveLastSettings,
+  loadDefaultSettings, workingSettings, parseSettingsFile, settingsFileText,
 } from "./settings.js";
 import { loadSongsFromUrl, playlistToCSV, spotifyLink, spotifyTrackId, parseLength } from "./data.js";
 import { handleLoginRedirect, isLoggedIn, login as spotifyLogin, createPlaylist, addTracksToPlaylist } from "./spotify.js";
 import { el, fill, $, comboInput, sortRows, sortHeader, chipEditor as sharedChipEditor } from "./dom.js";
 import { checkSongs, isUnavailable, unavailableReason, availabilityOf } from "./availability.js";
 import { DANCE_ALIASES, BALLROOM_DANCE_NAMES, canonicalDance, unknownDanceMessage } from "./dance-names.js";
+import {
+  activeItems, activeResult, hasEdits, prepareGenerated,
+  swapSong, resetSwap, insertSong, removeItem, restoreItem, resetAll,
+} from "./playlist-edit.js";
+import { checkAndReplace } from "./playlist-check.js";
 
 const PROJECT_URL = "data/songs.csv";
 const PROJECT_NAME = "Project library (data/songs.csv)";
@@ -641,7 +646,7 @@ const SETTINGS_PICKER = {
 
 /** Replace the current settings (from the defaults file or a user file). */
 function applySettings(settings, label) {
-  state.settings = upgradeSettings(settings, state.defaults);
+  state.settings = workingSettings(settings, state.defaults);
   state.settingsLabel = label;
   state.settingsModified = false;
   state.themeStash = null;
@@ -757,11 +762,6 @@ async function fetchProjectLibrary() {
 
 /** Startup: data/songs.csv, or nothing (with directions to the library builder). */
 async function loadStartingLibrary() {
-  try {
-    localStorage.removeItem(LIBRARY_KEY); // older versions kept a library copy in the browser
-  } catch {
-    /* ignore */
-  }
   const project = await fetchProjectLibrary();
   if (project) return setLibrary(project.songs, PROJECT_NAME, project.problems);
   setLibrary([], "", []);
@@ -883,7 +883,7 @@ function openLibraryView() {
       el("button", { type: "button", onclick: () => dialog.close() }, "Close")),
     el("p", { class: "help" },
       `${rows.length} songs. ` + (cannot ? `${cannot} cannot play with the current settings (marked below). ` : "") +
-        "To change or remove songs, use the library builder."),
+        "Click a column heading to sort by it (click again to reverse). To change or remove songs, use the library builder."),
     el("details", {},
       el("summary", {}, "Songs per dance (playable songs, after associations)"),
       el("div", { class: "chips" }, [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([d, n]) =>
@@ -902,21 +902,9 @@ function openLibraryView() {
 /* ----------------------------------------------------------------- results */
 
 /*
- * The generated playlist can be edited by hand. Each row of state.result.playlist may carry:
- *   swapped + original   the song was swapped; `original` = the generator's choice (for Reset)
- *   inserted             the row was added by hand (Remove deletes it)
- *   removed              a generator row taken out (kept, shown small, can be Restored)
- *   genIndex             its position when generated (the generator's warnings refer to these)
- * Times, numbering, stats, the rule check and every output (links, CSV, Spotify) use only the rows
- * that are not removed.
+ * The playlist can be edited by hand and is checked on Spotify; the logic for both lives in
+ * js/playlist-edit.js and js/playlist-check.js. This file shows the results and calls them.
  */
-
-/** Rows actually in the playlist (removed ones left out), in order. */
-const activeItems = (r) => r.playlist.filter((x) => !x.removed);
-const activeResult = (r) => ({ ...r, playlist: activeItems(r) });
-const hasEdits = (r) => !!r && r.playlist.some((x) => x.swapped || x.inserted || x.removed);
-/** A rule break tied to its song (not its position), so it survives insertions and removals. */
-const violationKey = (v, items) => `${v.rule}|${v.index >= 0 && items[v.index] ? items[v.index].song.id : "-"}`;
 
 function generate() {
   clearTimeout(validateTimer);
@@ -925,89 +913,29 @@ function generate() {
   if (hasEdits(state.result) && !confirm("Generate a new playlist? Your swaps, insertions and removals in the current one will be lost.")) return;
   // Always a fresh random playlist; songs known to be unavailable on Spotify are never picked.
   const r = generatePlaylist(state.songs, { ...state.settings, seed: null }, { songFilter: (sg) => !isUnavailable(sg.id) });
-  r.playlist.forEach((it) => (it.genIndex = it.index));
-  rebaseline(r);
-  state.result = r;
+  state.result = prepareGenerated(r, state.settings);
   state.stale = false;
   renderResults();
   // Check the new playlist's songs on Spotify (and replace unavailable ones), if logged in.
   if (isLoggedIn() && activeItems(r).some((it) => spotifyTrackId(it.song.id))) checkPlaylistOnSpotify(r);
 }
 
-/** Remember which rules are already relaxed, so later edits only report problems they cause. */
-function rebaseline(r) {
-  const items = activeItems(r);
-  r.baselineViolations = checkRules({ ...r, playlist: items }, state.settings).map((v) => violationKey(v, items));
-  r.editViolations = [];
-}
-
 /* ------------------------------------------- check the playlist on Spotify */
 
-/*
- * After generating (when logged in), every song of the playlist is looked up on Spotify. A song
- * that cannot be played is replaced by another song of the same dance that fits the settings and
- * is itself checked first. Replacements count as the generator's choices (the row says what was
- * replaced); a song with no available replacement stays, with a warning.
- */
+/** Check the playlist on Spotify (see js/playlist-check.js), showing progress, then redraw. */
 async function checkPlaylistOnSpotify(r) {
-  const items = activeItems(r).filter((it) => spotifyTrackId(it.song.id));
-  r.check = { running: true, done: 0, total: items.length };
+  r.check = { running: true, done: 0, total: activeItems(r).filter((it) => spotifyTrackId(it.song.id)).length };
   renderResults();
   const stillCurrent = () => state.result === r;
-  await checkSongs(items.map((it) => it.song.id), {
-    shouldStop: () => !stillCurrent(),
-    onProgress: (done, total) => {
-      r.check.done = done;
+  const done = await checkAndReplace(r, state.songs, state.settings, {
+    stillCurrent,
+    onProgress: (n, total) => {
+      r.check.done = n;
       const progress = $("check-progress");
-      if (progress) progress.textContent = `Checking songs on Spotify… ${done} of ${total}`;
+      if (progress) progress.textContent = `Checking songs on Spotify… ${n} of ${total}`;
     },
   });
-  if (!stillCurrent()) return;
-
-  let replaced = 0;
-  let unresolved = 0;
-  for (const it of activeItems(r)) {
-    if (!isUnavailable(it.song.id)) continue;
-    const old = it.song;
-    const sub = await availableReplacement(r, it);
-    if (!stillCurrent()) return;
-    if (!sub) {
-      unresolved++;
-      continue;
-    }
-    it.song = asPlaylistSong(sub);
-    it.isTheme = isThemeSong(it.song, it.dance, it.kind);
-    it.autoReplaced = { title: old.title, why: unavailableReason(old.id) };
-    replaced++;
-  }
-  const edited = hasEdits(r);
-  r.check = { running: false, total: items.length, replaced, unresolved };
-  recompute();
-  // Replacements in an untouched playlist are the generator's choices, not edits.
-  if (!edited) {
-    rebaseline(r);
-    renderResults();
-  }
-}
-
-/** Another song of the same dance that fits the settings, is not in the playlist, and plays on Spotify. */
-async function availableReplacement(r, it) {
-  const s = state.settings;
-  const m = associationMap(s.associations);
-  const inPlaylist = new Set(activeItems(r).map((x) => x.song.id));
-  const candidates = state.songs
-    .filter((sg) => spotifyTrackId(sg.id) && !inPlaylist.has(sg.id) && !isUnavailable(sg.id) &&
-      withinLengthLimits(sg, s) && sg.dances.some((d) => m(d) === it.dance))
-    .map((sg) => ({ sg, known: availabilityOf(sg.id), order: Math.random() }))
-    // Songs already known to play come first; then unchecked ones, in random order.
-    .sort((a, b) => (b.known ? 1 : 0) - (a.known ? 1 : 0) || a.order - b.order);
-  for (const { sg, known } of candidates.slice(0, 10)) {
-    if (known && known.status !== "error") return sg;
-    await checkSongs([sg.id]);
-    const now = availabilityOf(sg.id);
-    if (now && !isUnavailable(sg.id) && now.status !== "error") return sg;
-  }
-  return null;
+  if (done && stillCurrent()) renderResults();
 }
 
 /** Check one song a user swapped or inserted (no automatic replacement: the user chose it). */
@@ -1123,12 +1051,12 @@ function renderResults() {
       themed && el("td", { class: "theme-mark" }, it.isTheme ? "Yes" : ""),
       el("td", {}, el("div", { class: "row-actions" },
         small("Swap", `Choose a different song for ${name}`, () => openSongPicker({ item: it })),
-        it.swapped && undo("Reset", `Put back the generator's song (${it.original.song.title})`, () => resetSwap(it)),
+        it.swapped && undo("Reset", `Put back the generator's song (${it.original.song.title})`, () => doResetSwap(it)),
         small("Insert before…", `Insert a song before ${name}`, () => openSongPicker({ insertAt: r.playlist.indexOf(it) })),
         small("Insert after…", `Insert a song after ${name}`, () => openSongPicker({ insertAt: r.playlist.indexOf(it) + 1 })),
         it.inserted
-          ? undo("Remove", `Delete ${name} (added by you)`, () => removeItem(it))
-          : small("Remove", `Take ${name} out (it can be restored)`, () => removeItem(it)))));
+          ? undo("Remove", `Delete ${name} (added by you)`, () => doRemove(it))
+          : small("Remove", `Take ${name} out (it can be restored)`, () => doRemove(it)))));
   };
   const removedRow = (it) =>
     el("tr", { class: "removed" },
@@ -1140,7 +1068,7 @@ function renderResults() {
       el("td", { class: "num" }, hms(it.song.lengthSec)),
       themed && el("td", {}),
       el("td", {}, el("div", { class: "row-actions" },
-        undo("Restore", `Put ${it.song.title} back in the playlist`, () => restoreItem(it)))));
+        undo("Restore", `Put ${it.song.title} back in the playlist`, () => doRestore(it)))));
 
   fill(box,
     el("ul", { id: "stale", class: "msgs", hidden: !state.stale },
@@ -1175,7 +1103,7 @@ function renderResults() {
     el("div", { class: "edit-bar" },
       el("p", { class: "help" }, "Change the playlist with the buttons on each row. Every change can be undone: Reset puts back " +
         "the generator's song, and removed songs stay listed (small) so you can Restore them."),
-      hasEdits(r) && el("button", { type: "button", class: "undo", onclick: resetAll,
+      hasEdits(r) && el("button", { type: "button", class: "undo", onclick: doResetAll,
         title: "Undo every swap, insertion and removal: back to exactly the playlist the generator made" }, "Reset all")),
     el("div", { class: "table-wrap" },
       el("table", { class: "playlist" },
@@ -1188,105 +1116,25 @@ function renderResults() {
 
 /* ------------------------------------------------- edit the playlist by hand */
 
-/** A library song in the form the playlist uses (dances after associations). */
-function asPlaylistSong(song) {
-  const m = associationMap(state.settings.associations);
-  return { ...song, sourceDances: song.dances, dances: [...new Set(song.dances.map(m))] };
-}
-
-/** Whether a song counts toward the theme when played as `dance`. */
-function isThemeSong(song, dance, kind) {
-  const s = state.settings;
-  if (!s.theme || kind === "fixed") return false;
-  const m = associationMap(s.associations);
-  return new Set((s.theme.dances || []).map(m)).has(dance) || (song.tags || []).some((t) => (s.theme.tags || []).includes(t));
-}
-
-/** After any edit: renumber, retime, restat, and re-check the rules (reporting only new problems). */
-function recompute() {
-  const r = state.result;
-  let t = 0;
-  let n = 0;
-  for (const x of r.playlist) {
-    if (x.removed) {
-      x.index = -1;
-      continue;
-    }
-    x.index = n++;
-    x.startSec = t;
-    t += x.song.lengthSec;
-  }
-  r.totalSec = t;
-  r.overtimeSec = t - r.targetSec;
-  const ar = activeResult(r);
-  r.stats = computeStats(ar);
-  const before = new Set(r.baselineViolations || []);
-  r.editViolations = checkRules(ar, state.settings).filter((v) => !before.has(violationKey(v, ar.playlist)));
-  // The generator never repeats a song, so its rule check does not look for that; hand edits can.
-  const firstAt = new Map();
-  for (const x of ar.playlist) {
-    if (firstAt.has(x.song.id)) {
-      r.editViolations.push({ rule: "duplicate", index: x.index, message: `“${x.song.title}” is also #${firstAt.get(x.song.id) + 1}.` });
-    } else firstAt.set(x.song.id, x.index);
-  }
-  renderResults();
-}
-
-function swapSong(item, song, dance) {
-  if (!item.original) item.original = { song: item.song, dance: item.dance, isTheme: item.isTheme };
-  item.song = asPlaylistSong(song);
-  // A song of another dance changes what the slot is (the rule check then reports any breaks).
-  if (!item.song.dances.includes(item.dance)) item.dance = dance || item.song.dances[0] || item.dance;
-  item.isTheme = isThemeSong(item.song, item.dance, item.kind);
-  item.swapped = !item.inserted; // an inserted row just gets a different song
-  if (item.inserted) delete item.original;
-  recompute();
+// The editing itself is in js/playlist-edit.js; these apply it to the current playlist and redraw.
+const edited = () => renderResults();
+const doSwap = (item, song, dance) => {
+  swapSong(state.result, item, song, dance, state.settings);
+  edited();
   checkChosenSong(song);
-}
-
-function resetSwap(item) {
-  Object.assign(item, item.original);
-  delete item.original;
-  item.swapped = false;
-  recompute();
-}
-
-function insertSong(position, song, dance) {
-  const s = asPlaylistSong(song);
-  const d = dance && s.dances.includes(dance) ? dance : s.dances[0] || "";
-  const cat = d ? categoryOf(d) : null;
-  state.result.playlist.splice(position, 0, {
-    song: s, dance: d, kind: "inserted", category: cat ? cat.name : null, source: null,
-    isTheme: isThemeSong(s, d, "inserted"), inserted: true,
-  });
-  recompute();
+};
+const doInsert = (position, song, dance) => {
+  insertSong(state.result, position, song, dance, state.settings);
+  edited();
   checkChosenSong(song);
-}
-
-function removeItem(item) {
-  const r = state.result;
-  if (item.inserted) r.playlist.splice(r.playlist.indexOf(item), 1); // added by hand: delete
-  else item.removed = true; // from the generator: keep it, shown small, so it can be restored
-  recompute();
-}
-
-function restoreItem(item) {
-  item.removed = false;
-  recompute();
-}
-
-/** Undo every manual change: exactly the playlist the generator made. */
-function resetAll() {
+};
+const doResetSwap = (item) => (resetSwap(state.result, item, state.settings), edited());
+const doRemove = (item) => (removeItem(state.result, item, state.settings), edited());
+const doRestore = (item) => (restoreItem(state.result, item, state.settings), edited());
+function doResetAll() {
   if (!confirm("Undo all your changes and go back to the playlist exactly as the generator made it?")) return;
-  const r = state.result;
-  r.playlist = r.playlist.filter((x) => !x.inserted);
-  for (const x of r.playlist) {
-    if (x.original) Object.assign(x, x.original);
-    delete x.original;
-    x.swapped = false;
-    x.removed = false;
-  }
-  recompute();
+  resetAll(state.result, state.settings);
+  edited();
 }
 
 /**
@@ -1325,8 +1173,8 @@ function openSongPicker({ item = null, insertAt = null }) {
   const dialog = $("library-dialog");
   const pick = (sg) => {
     dialog.close();
-    if (swapping) swapSong(item, sg, dance);
-    else insertSong(insertAt, sg, dance);
+    if (swapping) doSwap(item, sg, dance);
+    else doInsert(insertAt, sg, dance);
   };
   const lengthNote = (sg) => {
     const d = sg.lengthSec - (current ? current.lengthSec : 0);
@@ -1496,7 +1344,7 @@ async function init() {
     state.defaults = clone(DEFAULT_SETTINGS);
   }
   const last = loadLastSettings();
-  state.settings = upgradeSettings(last && last.settings, state.defaults);
+  state.settings = workingSettings(last && last.settings, state.defaults);
   state.settingsLabel = (last && last.label) || DEFAULTS_LABEL;
   state.settingsModified = !!(last && last.modified);
 

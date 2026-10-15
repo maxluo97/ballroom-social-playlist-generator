@@ -72,27 +72,37 @@ Original README "future work": scrape Spotify playlists, create Spotify playlist
 
 ## 8. Current state of the code
 
-Folder layout (planned; ✔ = exists):
+Folder layout (✔ = exists):
 
 ```
-index.html        ✔   app page (GitHub Pages serves the root)
+index.html        ✔   generator page (GitHub Pages serves the root)
+library.html      ✔   library builder page
 css/style.css     ✔
-js/generator.js   ✔   pure rules logic (incl. associations)
-js/settings.js    ✔   settings files (parse/write/upgrade), last-used settings in localStorage
-data/default-settings.json ✔  THE default settings (same format as a user settings file)
-js/ui.js          ✔   settings form + results list
-js/data.js        ✔   loads songs from JSON/CSV, playlist -> CSV
-js/spotify.js         login + playlist creation
-data/sample-songs.json ✔  made-up competitive-style library (generated: `npm run sample`)
-data/songs.json       real master song database (not yet)
-presets/*.json        e.g. ballroom-social.json
+js/generator.js   ✔   pure rules logic (incl. associations, song length limits)
+js/playlist-edit.js ✔ editing a generated playlist (swap/insert/remove/restore/reset all), rule re-check
+js/playlist-check.js ✔ checking a playlist on Spotify and replacing unavailable songs
+js/availability.js ✔  Spotify availability results (shared by both pages, kept in the browser)
+js/settings.js    ✔   settings files (parse/write), defaults, last-used settings in localStorage
+js/ui.js          ✔   generator page (settings form, results, View library, song picker, Save to Spotify)
+js/library.js     ✔   library builder page
+js/library-merge.js ✔ merging imports into the library, blacklist (removed songs)
+js/dance-names.js ✔   dance name guessing, ballroom styles, your own dances
+js/data.js        ✔   song CSV read/write, removed-songs.csv, Spotify links
+js/spotify.js     ✔   login (PKCE) + Web API calls
+js/folders.js     ✔   saving files straight into the data folder (Chrome/Edge)
+js/dom.js         ✔   page helpers: el/fill, chip editor, combo box dropdown, sortable tables
+js/config.js      ✔   Spotify Client ID, redirect URI, scopes
+data/songs.csv    ✔   the song library (made with the library builder)
+data/removed-songs.csv ✔ removed songs (whole songs + date removed)
+data/default-settings.json ✔ THE default settings (same format as a user settings file)
+presets/          ✔   saved settings files
 tools/serve.js    ✔   local server: `npm start` -> http://127.0.0.1:8000/
-tools/sample-library.js, make-sample-songs.js ✔
-test/sample-data.js ✔ scenarios;  test/test.js ✔  run with `npm test`
-package.json      ✔   {"type": "module"}, scripts start/test/sample
+tools/sample-library.js ✔ made-up library for the tests
+test/*.js         ✔   `npm test`: test.js (generator), library-test.js, availability-test.js, playlist-test.js
+package.json      ✔   {"type": "module"}, scripts start/test, version 0.2.2
 ```
 
-**Song CSV format** (js/data.js): header row; columns id (Spotify track ID), title, artist (optional), length (`3:25` or seconds), dances (`;`-separated), tags (optional, `;`-separated). The page can load such a file ("Load CSV / JSON…"); it is remembered in the browser.
+**Song CSV format** (js/data.js): header row; columns id (Spotify track ID), title, artist, album, length (`3:25` or seconds), dances (`;`-separated), tags (`;`-separated), isrc. Written and read by the library builder; the generator only reads data/songs.csv.
 
 **Settings page (step 3, built Oct 2026, not yet checked in a browser by the developer):** collapsible sections for event basics, dance associations, categories, repetition, excursions, fixed events, theme, opening/closing. Live validation; Generate is disabled while there are errors. Results: summary, warnings, table, copy song list, download CSV. The UI always generates a fresh random playlist (no seed control; the developer does not need repeatability). The generator still accepts `seed`, which the tests use. Results mark theme songs in a "Theme?" column ("Yes"). Every chip field has its own suggestion dropdown that hides items already added. The last dance is a dropdown only. Category dance pickers are exclusive: a dance already in any category is not suggested and is refused if typed. The CSV format guide was removed from the page; the developer will write their own user guide. Renaming an association updates every reference to it.
 
@@ -161,13 +171,13 @@ Also in v0.2 (done): every "add a dance" box accepts only known dances (library 
 - ~~**Min / max song length**~~ (done): settings `minSongSec` / `maxSongSec` (null = no limit), set on the page under Event basics as m:ss. Songs outside the limits are removed before generation (`withinLengthLimits` in js/generator.js), so the end-of-night timing uses the shortest/longest *allowed* song. Validation reports how many songs are excluded, and names dances whose songs are all outside the limits; `checkRules` checks every played song. Test scenario: limits 2:45–3:45 on the sample library.
 - ~~**Remove songs from the library, with a blacklist**~~ (built, awaiting the developer's test): the library builder's step 5 now lists the whole library at once (before any import). Each row: Remove (row stays, small and faded, with Restore). Removed songs are remembered in `data/removed-songs.csv` (id, title, artist, removed date; loaded at start). An import of a previously removed song is left out and flagged "Warning: you removed this song from the library on <date>…" with Re-import (and "Undo re-import"); re-importing takes it off the list. Step 6 offers "Download removed-songs.csv" whenever the list changed. 4a shows "removed from the library on <date>" for such songs. Logic in js/library-merge.js (`markPreviouslyRemoved`, `keptSongs`, `updatedBlacklist`, `blacklistChanged`) and js/data.js (`parseRemovedSongs`, `removedSongsToCSV`); tested.
 
-**v0.2.2 (agreed Oct 2026; upkeep and usability):**
+**v0.2.2 (done Oct 2026, awaiting the developer's final check; upkeep and usability):**
 - ~~Save straight into the data folder~~ (built, awaiting test): library builder step 6 "Save to the data folder" (Chrome/Edge; js/folders.js: folder picked once and remembered in IndexedDB, permission re-asked when needed; warns if the folder has no default-settings.json); writes songs.csv (+ removed-songs.csv when changed), then reloads from them. Downloads remain under "Or download the files instead" (and are the only option in other browsers).
 - ~~"Which library am I using?"~~ (resolved by the developer's decision, Oct 2026): **the library is only ever the two files in data/** — `songs.csv` and `removed-songs.csv` — made and saved with the library builder. The generator always reads data/songs.csv (no browser copy, no "Load CSV / JSON…", no "Try it in the generator now"; an old browser copy is deleted on startup). Without data/songs.csv it points to the library builder (the sample songs were removed from the app at the developer's request; `data/sample-songs.json` and `tools/make-sample-songs.js` deleted; `tools/sample-library.js` remains for the tests). **Restoring from the blacklist:** removed-songs.csv stores the whole song (columns id, title, artist, removed, album, length, dances, tags, isrc; no support for the earlier 4-column format). In the library builder every blacklisted song gets a row (`blacklistRows` in js/library-merge.js), shown only under the "Removed earlier" filter, with Restore (and "Undo restore"); restored songs are saved with their dances and come off the blacklist. Restore uses the stored song as it was (no Spotify lookup). The library builder always saves BOTH files (removed-songs.csv may be empty). Its "Back to the generator" buttons (both) refuse to leave until both files exist in data/, and warn (confirm) if the library on the page differs from the saved files (compared by re-writing both in the same format); closing the tab with unsaved changes triggers the browser's warning.
 - ~~Sort the library on screen~~ (built, awaiting test; added to v0.2.2 by the developer): click a column heading to sort (again to reverse; ▲/▼ shown), in the library builder's review table and the generator's View library window. On-screen only; songs.csv order is unchanged. `sortRows` / `sortHeader` in js/dom.js (text case-insensitive with natural numbers, lengths numeric, empty values last); tested.
-- Remove all remaining backwards-compatibility code (fixed event `dance` → `dances`, settings "version 2" upgrade, tag rules v1 text format, deleting the old browser library copy, older saved-settings shapes, …) as part of the ui.js split: the current formats are the specification.
-- Update README.md to the current app (old setting names, blank "Theme" definition, broad-theme 25–40% → 50–70%); remove the outdated TODO.md. (The developer writes their own user guide / CSV guide.)
-- Split js/ui.js (~1,500 lines) into smaller modules (playlist editing, Spotify check, …) and add Node tests for playlist editing (swap/insert/remove/reset/reset all) and automatic replacement.
+- ~~Remove all backwards-compatibility code~~ (done): fixed events must use `dances`; settings files must have the wrapper format (`kind: "settings"`; no `version` field, no upgrades — `workingSettings` just copies); no tag-rule text format (`parseTagRules` removed); no old browser-library cleanup; no older availability/last-settings shapes. The current formats are the specification.
+- ~~Update README.md, remove TODO.md~~ (done): README keeps the developer's rules text, corrected to the page's setting names, adds Association/Theme definitions, "Using the app", files, roadmap. TODO.md deleted. package.json version 0.2.2.
+- ~~Split js/ui.js and test playlist editing~~ (done): pure logic moved to js/playlist-edit.js and js/playlist-check.js (ui.js ~1,500 → ~1,260 lines; it keeps thin wrappers doSwap/doInsert/… that call them and redraw). test/playlist-test.js covers swap/reset, insert/remove/restore, problems caused by edits, Reset all, and automatic replacement against a fake Spotify.
 
 **v0.2.3 (agreed Oct 2026):**
 - Put the app online with GitHub Pages; register the Pages address as a redirect URI in the Spotify dashboard and test login there.
