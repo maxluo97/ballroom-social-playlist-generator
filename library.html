@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Library Builder</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script type="module" src="js/library.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <h1>Library builder</h1>
+    <p class="tagline">Build the song library (data/songs.csv) from your single-dance Spotify playlists. <a href="./">Back to the generator</a></p>
+  </header>
+
+  <main class="steps">
+    <section class="panel step">
+      <h2>1. Spotify</h2>
+      <div id="spotify"></div>
+    </section>
+
+    <section class="panel step">
+      <h2>2. Starting library</h2>
+      <div id="existing"></div>
+    </section>
+
+    <section class="panel step">
+      <h2>3. Choose playlists and their dances</h2>
+      <div id="playlists"></div>
+    </section>
+
+    <section class="panel step">
+      <h2>4. Guessing rules</h2>
+      <div id="rules"></div>
+    </section>
+
+    <section class="panel step">
+      <h2>5. Review</h2>
+      <div id="review"><p class="muted">Import playlists in step 3 to see the result here.</p></div>
+    </section>
+
+    <section class="panel step">
+      <h2>6. Save</h2>
+      <div id="output"><p class="muted">Nothing to save yet.</p></div>
+    </section>
+  </main>
+
+  <datalist id="dl-known"></datalist>
+</body>
+</html>

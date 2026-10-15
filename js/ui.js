@@ -7,13 +7,15 @@
  */
 
 import { generatePlaylist, validateSettings, listDances, associationMap } from "./generator.js";
-import { APP_DEFAULTS, THEME_TEMPLATE, clone, loadLastSettings, saveLastSettings } from "./settings.js";
+import { APP_DEFAULTS, THEME_TEMPLATE, LIBRARY_KEY, clone, loadLastSettings, saveLastSettings } from "./settings.js";
 import { loadSongsFromUrl, parseSongsText, playlistToCSV, spotifyLink } from "./data.js";
 import { handleLoginRedirect } from "./spotify.js";
+import { el, fill, $ } from "./dom.js";
 
 const SAMPLE_URL = "data/sample-songs.json";
 const SAMPLE_NAME = "Sample library (made-up songs)";
-const LIBRARY_KEY = "dpg.library.v1";
+const PROJECT_URL = "data/songs.csv";
+const PROJECT_NAME = "Project library (data/songs.csv)";
 
 /** Fill in any fields missing from settings saved by an older version of the app. */
 function withDefaults(saved) {
@@ -40,29 +42,7 @@ const state = {
   openSections: new Set(["Event basics", "Categories and dances"]),
 };
 
-const $ = (id) => document.getElementById(id);
-
 /* ------------------------------------------------------------ DOM helpers */
-
-/** Keep only real children: drops null/undefined/false, which `cond && el(...)` produces. */
-const realChildren = (children) => children.flat().filter((c) => c != null && c !== false);
-
-/** Replace a node's contents (use this, not replaceChildren, which would print "false"). */
-const fill = (node, ...children) => node.replaceChildren(...realChildren(children));
-
-/** el("tag", {props}, ...children). Props starting with "on" become event listeners. */
-function el(tag, props = {}, ...children) {
-  const node = document.createElement(tag);
-  for (const [k, v] of Object.entries(props)) {
-    if (v == null || v === false) continue;
-    if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
-    else if (k === "class") node.className = v;
-    else if (k in node && k !== "list") node[k] = v;
-    else node.setAttribute(k, v === true ? "" : v);
-  }
-  node.append(...realChildren(children));
-  return node;
-}
 
 const hms = (sec) => {
   const neg = sec < 0;
@@ -606,6 +586,21 @@ function loadSavedLibrary() {
   }
 }
 
+/** The project library (data/songs.csv), or null if it does not exist yet. */
+async function fetchProjectLibrary() {
+  try {
+    return await loadSongsFromUrl(PROJECT_URL);
+  } catch {
+    return null;
+  }
+}
+
+async function useProject() {
+  const lib = await fetchProjectLibrary();
+  if (lib && lib.songs.length) setLibrary(lib.songs, PROJECT_NAME, lib.problems, false);
+  else alert("data/songs.csv was not found or has no songs.");
+}
+
 async function useSample() {
   try {
     const { songs, problems } = await loadSongsFromUrl(SAMPLE_URL);
@@ -617,6 +612,15 @@ async function useSample() {
           "If you opened index.html directly from disk, run “npm start” and use http://127.0.0.1:8000/ instead."))
     );
   }
+}
+
+/** Startup: a library loaded earlier in this browser, else data/songs.csv, else the sample. */
+async function loadStartingLibrary() {
+  const saved = loadSavedLibrary();
+  if (saved && Array.isArray(saved.songs) && saved.songs.length) return setLibrary(saved.songs, saved.name, [], true);
+  const lib = await fetchProjectLibrary();
+  if (lib && lib.songs.length) return setLibrary(lib.songs, PROJECT_NAME, lib.problems, false);
+  await useSample();
 }
 
 function renderLibrary() {
@@ -637,7 +641,9 @@ function renderLibrary() {
     el("div", { class: "library-line" },
       el("span", {}, "Song library: ", el("strong", {}, name), ` — ${state.songs.length} songs, ${rawDances().length} dances`),
       el("button", { type: "button", class: "small", onclick: () => fileInput.click() }, "Load CSV / JSON…"),
+      name !== PROJECT_NAME && el("button", { type: "button", class: "small", onclick: useProject }, "Use data/songs.csv"),
       name !== SAMPLE_NAME && el("button", { type: "button", class: "small", onclick: useSample }, "Use sample library"),
+      el("a", { href: "library.html", class: "small" }, "Library builder"),
       fileInput),
     problems.length > 0 &&
       el("details", {},
@@ -767,9 +773,7 @@ async function init() {
     changed(true);
   });
   renderForm();
-  const saved = loadSavedLibrary();
-  if (saved && Array.isArray(saved.songs) && saved.songs.length) setLibrary(saved.songs, saved.name, [], true);
-  else await useSample();
+  await loadStartingLibrary();
 }
 
 init();

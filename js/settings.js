@@ -56,6 +56,9 @@ export const clone = (obj) => JSON.parse(JSON.stringify(obj));
 
 const STORAGE_KEY = "dpg.lastSettings.v1";
 
+/** Browser storage key for a song library loaded from a file (or sent over by the library builder). */
+export const LIBRARY_KEY = "dpg.library.v1";
+
 /** Last-used settings from this browser, or null. Never throws. */
 export function loadLastSettings() {
   try {
