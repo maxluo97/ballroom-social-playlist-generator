@@ -8,7 +8,7 @@
 
 import { generatePlaylist, validateSettings, listDances, associationMap } from "./generator.js";
 import { APP_DEFAULTS, THEME_TEMPLATE, clone, loadLastSettings, saveLastSettings } from "./settings.js";
-import { loadSongsFromUrl, parseSongsText, playlistToCSV } from "./data.js";
+import { loadSongsFromUrl, parseSongsText, playlistToCSV, spotifyLink } from "./data.js";
 
 const SAMPLE_URL = "data/sample-songs.json";
 const SAMPLE_NAME = "Sample library (made-up songs)";
@@ -667,18 +667,32 @@ function renderResults() {
   const themed = Boolean(s.theme && (s.theme.dances.length || (s.theme.tags || []).length));
   const diff = r.totalSec - r.targetSec;
 
-  const copyBtn = el("button", { type: "button", onclick: async () => {
-    const text = r.playlist
-      .map((it, i) => `${i + 1}. ${it.song.title}${it.song.artist ? ` – ${it.song.artist}` : ""} (${it.dance})`)
-      .join("\n");
-    try {
-      await navigator.clipboard.writeText(text);
-      copyBtn.textContent = "Copied!";
-      setTimeout(() => (copyBtn.textContent = "Copy song list"), 1500);
-    } catch {
-      alert("Copying failed in this browser. Use “Download CSV” instead.");
-    }
-  } }, "Copy song list");
+  /** A button that copies text to the clipboard and briefly confirms. */
+  const copyButton = (label, getText, done = "Copied!") => {
+    const btn = el("button", { type: "button", onclick: async () => {
+      try {
+        await navigator.clipboard.writeText(getText());
+        btn.textContent = done;
+        setTimeout(() => (btn.textContent = label), 2000);
+      } catch {
+        alert("Copying failed in this browser. Use “Download CSV” instead.");
+      }
+    } }, label);
+    return btn;
+  };
+
+  const copyList = copyButton("Copy song list", () =>
+    r.playlist.map((it, i) => `${i + 1}. ${it.song.title}${it.song.artist ? ` – ${it.song.artist}` : ""} (${it.dance})`).join("\n"));
+
+  // Spotify links, in playlist order. Songs without a real Spotify ID are left out (and reported).
+  const links = r.playlist.map((it) => spotifyLink(it.song.id));
+  const linkCount = links.filter(Boolean).length;
+  const missingLinks = r.playlist.filter((it, i) => !links[i]);
+  const copyLinks = copyButton("Copy Spotify links", () => links.filter(Boolean).join("\n"), `Copied ${linkCount} links!`);
+  if (!linkCount) {
+    copyLinks.disabled = true;
+    copyLinks.title = "No song in this playlist has a Spotify track ID.";
+  }
 
   const download = () => {
     const blob = new Blob([playlistToCSV(r)], { type: "text/csv" });
@@ -702,8 +716,19 @@ function renderResults() {
       themed && el("span", {}, "Theme share: ", el("b", {}, pct(r.stats.themeFraction)))),
     el("div", { class: "result-actions" },
       el("button", { type: "button", class: "primary", onclick: generate, disabled: state.errors.length > 0 }, "Generate another"),
-      copyBtn,
+      copyLinks,
+      copyList,
       el("button", { type: "button", onclick: download }, "Download CSV")),
+    linkCount > 0 &&
+      el("p", { class: "help" },
+        "To build the playlist by hand: copy the Spotify links, open an empty playlist in the Spotify desktop app, " +
+          "click in its track list and paste (Ctrl+V)."),
+    missingLinks.length > 0 &&
+      el("ul", { class: "msgs" }, el("li", { class: "warning" },
+        linkCount
+          ? `${missingLinks.length} song(s) have no Spotify track ID and are left out of the links: ` +
+              missingLinks.map((it) => `#${it.index + 1} ${it.song.title}`).join(", ") + "."
+          : "This song library has no Spotify track IDs, so there are no Spotify links to copy.")),
     r.warnings.length > 0 &&
       el("ul", { class: "msgs" },
         r.warnings.map((w) => el("li", { class: "warning" }, (w.index >= 0 ? `#${w.index + 1}: ` : "") + w.message))),

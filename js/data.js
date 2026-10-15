@@ -57,7 +57,8 @@ function fromRecords(records, noun, firstNumber = 1) {
     if (!r.title) return problems.push(`${where}: no title.`);
     if (!(lengthSec > 0)) return problems.push(`${where} ("${r.title}"): length missing or not understood.`);
     if (!dances.length) return problems.push(`${where} ("${r.title}"): no dances.`);
-    let id = String(r.id || "").trim() || `row${i + firstNumber}`;
+    const rawId = String(r.id || "").trim();
+    let id = spotifyTrackId(rawId) ?? (rawId || `row${i + firstNumber}`);
     if (ids.has(id)) {
       problems.push(`${where} ("${r.title}"): duplicate id ${id}; kept both.`);
       id = `${id}#${i}`;
@@ -118,14 +119,30 @@ export function parseCSV(text) {
   return rows.filter((r) => r.some((f) => f.trim() !== ""));
 }
 
+/**
+ * The 22-character Spotify track ID from a bare ID, a "spotify:track:..." URI, or an
+ * open.spotify.com track link (with or without "?si=..." or a locale segment). Otherwise null.
+ */
+export function spotifyTrackId(value) {
+  const s = String(value ?? "").trim();
+  const m = s.match(/^(?:spotify:track:|https?:\/\/open\.spotify\.com\/(?:intl-[a-z-]+\/)?track\/)?([A-Za-z0-9]{22})(?:[?#].*)?$/);
+  return m ? m[1] : null;
+}
+
+/** Shareable link for a track ID, or null if the ID is not a real Spotify ID. */
+export function spotifyLink(id) {
+  const t = spotifyTrackId(id);
+  return t ? `https://open.spotify.com/track/${t}` : null;
+}
+
 /** Playlist -> CSV text (for download). */
 export function playlistToCSV(result) {
   const esc = (v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
-  const lines = [["#", "start", "dance", "type", "title", "artist", "length", "spotify id"].join(",")];
+  const lines = [["#", "start", "dance", "type", "title", "artist", "length", "spotify id", "spotify link"].join(",")];
   for (const it of result.playlist) {
     const fmt = (sec) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, "0")}`;
     lines.push(
-      [it.index + 1, fmt(it.startSec), it.dance, it.category ?? it.source ?? it.kind, it.song.title, it.song.artist ?? "", fmt(it.song.lengthSec), it.song.id]
+      [it.index + 1, fmt(it.startSec), it.dance, it.category ?? it.source ?? it.kind, it.song.title, it.song.artist ?? "", fmt(it.song.lengthSec), it.song.id, spotifyLink(it.song.id) ?? ""]
         .map(esc)
         .join(",")
     );

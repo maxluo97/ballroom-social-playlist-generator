@@ -132,17 +132,35 @@ Settings shape (see header comment in `generator.js` for details):
 Remaining design assumptions (not specified by the README):
 - Excursion timer fires at `nextExcAt += interval`; the first excursion is at one interval in.
 - Theme share is steered by feedback (force theme below `fractionMin`, avoid above `fractionMax`, otherwise a coin flip at the midpoint). Share can end slightly below the minimum (~5-15% of runs land at 24%).
-- Fixed-event songs skip spacing rules. A fixed event may directly follow an excursion.
+- Fixed-event songs skip spacing rules (intended for line dances; themed blocks will not, see roadmap). A fixed event may directly follow an excursion.
 - Openers come from categories only (excursions do not fire in the first songs).
 
-## 9. Suggested next steps
+## 9. Roadmap
 
-1. ~~package.json, sample data, test harness~~ (done)
-2. ~~Fix bugs the tests expose; check determinism~~ (done)
-3. ~~Build the settings UI page~~ (built; developer to try it and report issues)
-4. Add presets: `localStorage` plus JSON export/import, then URL-encoded settings, then per-user tag overrides.
-5. Add Spotify: PKCE login, then profile, then create playlist, then add tracks. Verify against current docs at each step.
-6. Deploy to GitHub Pages and add the live URL as a redirect URI in the Spotify dashboard.
+**v0.1 (released, tagged by the developer):** generator, tests, settings page, associations, CSV/JSON song loading.
+
+**v0.2 goals** (agreed Oct 2026):
+1. ~~Spotify link export~~ (done): "Copy Spotify links" (one `https://open.spotify.com/track/<id>` per line, playlist order) and a link column in the CSV. Fallback if automatic playlist creation fails: paste the links into an empty playlist in the Spotify desktop app. Song IDs may be bare IDs, `spotify:track:` URIs, or open.spotify.com links; `spotifyTrackId()` in js/data.js normalizes them. Songs without a real ID are left out and listed.
+2. Spotify setup: developer app (owner's account is Premium; Development Mode), Client ID in the code, redirect URI `http://127.0.0.1:8000/`. The app serves only the developer's own account.
+3. `js/spotify.js` + throwaway test page: PKCE login -> `GET /me` -> `GET /me/playlists` -> `GET /playlists/{id}/items`.
+4. Library builder page: pick own single-dance playlists, guess each playlist's dance from its name (user confirms), read tracks, songs in several dance playlists get several dances, suggest tags from editable keyword rules (e.g. album "Soundtrack" -> Hollywood), review table, merge into and download `data/songs.csv`. **`data/songs.csv` in the repo is the master database** (editable as a spreadsheet; the repo may be public, which is acceptable).
+5. "Save to Spotify" button: `POST /me/playlists`, then `POST /playlists/{id}/items` (max 100 per call).
+6. Optional: availability check of library songs (one `GET /tracks/{id}` per song; batch endpoint removed).
+7. Possibly: manual swap of a song in a generated playlist (alternatives of the same dance; re-run `checkRules` and warn).
+
+**v0.3 candidates:**
+- **Covers:** a `work` key per song (normalized title, overridable via a `work` CSV column); option "no two versions of the same work in one night". Spotify has no composition ID; MusicBrainz is a later fallback.
+- **Themed blocks** (specified by the developer): `{ tag, count, fixedEvent: bool, placement }`.
+  - `fixedEvent: true`: behaves like a fixed event (does not take turns between categories; any dance with the tag; counts for the "no two fixed events back to back" rule).
+  - `fixedEvent: false`: still obeys category turns; songs come from the category whose turn it is, restricted to the tag.
+  - Placement is the user's choice: fixed point (`at`), random point, or random within a window (e.g. 30-60%).
+  - Themed blocks **keep the spacing rule** even as fixed events. Only line-dance-style fixed events may break spacing.
+  - Block songs that match the overall theme count toward the overall theme share.
+  - Not enough tagged songs: the block **shrinks**, with a warning.
+- Presets: `localStorage` plus JSON export/import, then URL-encoded settings.
+- Deploy to GitHub Pages; add the live URL as a redirect URI in the Spotify dashboard.
+
+**Spotify facts (Feb 2026 Development Mode, checked Oct 2026):** playlist contents can only be read for playlists the user owns or collaborates on (copy others' playlists into your own first). `/playlists/{id}/tracks` is renamed `/items` (response `tracks` -> `items`, `track` -> `item`). Batch `GET /tracks` removed. Search limit max 10. `popularity` removed; `external_ids` (ISRC) removal was reverted. Some developers report 403s on write endpoints in Development Mode.
 
 ## 10. Working preferences
 
