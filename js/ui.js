@@ -413,7 +413,15 @@ function excursionsSection(s) {
       numberInput(() => ex.intervalMinutes, (v) => (ex.intervalMinutes = v), { min: 0, max: 240 }), "minutes"),
       "0 turns excursions off."),
     field("Random variation", el("span", { class: "inline-fields" },
-      "±", numberInput(() => ex.jitterMinutes ?? 0, (v) => (ex.jitterMinutes = v), { min: 0, max: 60 }), "minutes")),
+      "±", numberInput(() => ex.jitterMinutes ?? 0, (v) => (ex.jitterMinutes = v), { min: 0, max: 60 }), "minutes"),
+      // Same range the generator uses: interval ± variation, never under 1 minute.
+      live(() => {
+        const every = ex.intervalMinutes;
+        const jitter = ex.jitterMinutes || 0;
+        if (!(every > 0)) return "Excursions are off.";
+        if (!jitter) return `Every ${every} minutes`;
+        return `Every ${Math.max(1, every - jitter)} to ${every + jitter} minutes`;
+      }, "span", "")),
     rows.length
       ? el("table", { class: "pool-table" },
           el("thead", {}, el("tr", {}, el("th", {}, "Dance"), el("th", {}, "Max count"), el("th", {}))),
