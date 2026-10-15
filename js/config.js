@@ -9,10 +9,22 @@ export const SPOTIFY_CLIENT_ID = "84ccfc2c3949414ebb92a941b1f76a9d";
 
 /**
  * Where Spotify sends the browser back after login: the app's root folder.
- * Locally that is http://127.0.0.1:8000/ ; on GitHub Pages it will be https://<user>.github.io/<repo>/ .
+ * Locally that is http://127.0.0.1:8000/ ; online (GitHub Pages) it is
+ * https://maxluo97.github.io/ballroom-social-playlist-generator/ .
  * Each of these must be registered exactly in the Spotify dashboard (Settings -> Redirect URIs).
  */
 export const SPOTIFY_REDIRECT_URI = new URL("../", import.meta.url).href;
+
+/** The online address of the app (GitHub Pages). */
+export const ONLINE_URL = "https://maxluo97.github.io/ballroom-social-playlist-generator/";
+
+/**
+ * True when the app runs on this computer (`npm start`), false when it runs online. The library
+ * builder only works on the computer: it saves into the project's data folder, and the online site
+ * only sees those files once they are committed and pushed.
+ */
+export const RUNNING_LOCALLY =
+  typeof location === "undefined" || ["127.0.0.1", "localhost"].includes(location.hostname);
 
 /** Permissions requested at login. Read playlists (library builder) and create playlists (save). */
 export const SPOTIFY_SCOPES = [

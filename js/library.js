@@ -12,8 +12,11 @@ import {
   login, logout, isLoggedIn, handleLoginRedirect, getMyPlaylists, getPlaylistTracks,
   getTrack, searchTracks, playlistIdFrom,
 } from "./spotify.js";
-import { availabilityOf, isUnavailable, unavailableReason, reloadAvailability, checkSongs } from "./availability.js";
+import {
+  availabilityOf, isUnavailable, unavailableReason, reloadAvailability, checkSongs, isChecked, checkFailed,
+} from "./availability.js";
 import { canSaveToFolder, getFolder, folderHasFile, writeTextFile, rememberedFolderName } from "./folders.js";
+import { RUNNING_LOCALLY } from "./config.js";
 import { spotifyTrackId } from "./data.js";
 import { loadSongsFromUrl, parseSongsText, songsToCSV, parseRemovedSongs, removedSongsToCSV } from "./data.js";
 import {
@@ -770,6 +773,7 @@ function availabilityNote(id) {
   if (!a || a.status === "ok") return null;
   if (isUnavailable(id)) return el("div", { class: "swap-warning" }, `Warning: ${unavailableReason(id)}. Consider removing it.`);
   if (a.status === "relinked") return el("div", { class: "muted", style: "font-size:0.85em" }, `Spotify plays a different version: ${a.playsAs}.`);
+  if (checkFailed(id)) return el("div", { class: "muted", style: "font-size:0.85em" }, "Could not be checked on Spotify last time.");
   return null;
 }
 
@@ -783,11 +787,11 @@ async function recheckCheckedSongs(ids) {
   if (!confirm(
     `Recheck ${ids.length} songs on Spotify?\n\n` +
       `This sends one request per song and may take ${ids.length > 120 ? `around ${minutes} minutes` : "a minute"}. ` +
-      "With many songs, Spotify may also start limiting requests for a while (the app then waits and carries on, " +
-      "which makes it slower). You can stop at any time; results so far are kept.\n\nContinue?")) return;
+      "With many songs, Spotify may also start limiting requests for a while; the recheck then stops and says " +
+      "how long to wait. You can stop at any time; results so far are kept.\n\nContinue?")) return;
   recheck = { done: 0, total: ids.length, stop: false };
   renderReview();
-  await checkSongs(ids, {
+  const { rateLimited } = await checkSongs(ids, {
     shouldStop: () => recheck.stop,
     onProgress: (done, total) => {
       recheck.done = done;
@@ -799,14 +803,17 @@ async function recheckCheckedSongs(ids) {
   const done = recheck.done;
   recheck = null;
   renderReview();
-  if (stopped) alert(`Stopped after ${done} of ${ids.length} songs. Those results are kept.`);
+  if (rateLimited) {
+    const wait = rateLimited.retryAfter ? `about ${Math.ceil(rateLimited.retryAfter / 60)} minute(s)` : "a while";
+    alert(`Spotify is limiting requests, so the recheck stopped after ${done} of ${ids.length} songs (those results are kept). Try again in ${wait}.`);
+  } else if (stopped) alert(`Stopped after ${done} of ${ids.length} songs. Those results are kept.`);
 }
 
 /** The "Spotify availability" box at the top of step 5: what has been learned so far. */
 function availabilityBox() {
   reloadAvailability(); // the generator page may have checked songs since this page opened
   const inLibrary = state.rows.filter((r) => !r.removedNow && !r.blocked);
-  const checked = inLibrary.filter((r) => availabilityOf(r.song.id));
+  const checked = inLibrary.filter((r) => isChecked(r.song.id));
   const bad = inLibrary.filter((r) => isUnavailable(r.song.id)).length;
   return el("div", { class: "subbox" },
     el("div", { class: "subbox-title" }, "Spotify availability"),
@@ -1146,7 +1153,22 @@ function renderOutput() {
 
 /* -------------------------------------------------------------------- init */
 
+/** Online, the library builder is not used: it works on the project's files on your computer. */
+function showComputerOnly() {
+  fill(document.querySelector("main.steps"),
+    el("section", { class: "panel step" },
+      el("h2", {}, "The library builder runs on your computer"),
+      el("p", {}, "It saves the library into the project's data folder on your computer, so it cannot be used on the online site."),
+      el("ol", { class: "help" },
+        el("li", {}, "On your computer, open a terminal in the project folder and run “npm start”."),
+        el("li", {}, "Open ", el("a", { href: "http://127.0.0.1:8000/library.html" }, "http://127.0.0.1:8000/library.html"),
+          ", build or change the library, and save it to the data folder."),
+        el("li", {}, "Commit and push data/songs.csv and data/removed-songs.csv. The online site uses them a few minutes later.")),
+      el("p", {}, el("a", { class: "button-link", href: "./" }, "← Back to the generator"))));
+}
+
 async function init() {
+  if (!RUNNING_LOCALLY) return showComputerOnly();
   const result = await handleLoginRedirect();
   if (result.handled && !result.error) return;
   renderSpotify(result.error);

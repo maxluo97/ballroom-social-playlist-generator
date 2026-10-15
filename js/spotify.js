@@ -198,8 +198,11 @@ export async function api(path, { method = "GET", body } = {}) {
       continue;
     }
     if (res.status === 429) {
+      // Too many requests. A short wait is waited out; a long one (Spotify's quota is used up for a
+      // while) is reported at once, so callers can stop instead of making it worse.
       const wait = Number(res.headers.get("Retry-After")) || 2;
-      await sleep(Math.min(wait, 30) * 1000);
+      if (wait > 30) throw new SpotifyError(`Spotify is limiting requests; try again in about ${Math.ceil(wait / 60)} minute(s).`, 429, { retryAfter: wait });
+      await sleep(wait * 1000);
       continue;
     }
     const data = res.status === 204 ? null : await res.json().catch(() => null);
@@ -209,7 +212,7 @@ export async function api(path, { method = "GET", body } = {}) {
     }
     return data;
   }
-  throw new SpotifyError(`Spotify ${method} ${path} failed after several retries.`, 0);
+  throw new SpotifyError(`Spotify ${method} ${path} failed after several retries (Spotify may be limiting requests).`, 429);
 }
 
 /** Follow `next` links until every page is read. `onPage(count, total)` reports progress. */
@@ -288,12 +291,14 @@ export async function getPlaylistTracks(playlistId, onPage) {
 export async function checkTrackAvailability(trackId) {
   try {
     const t = await api(`/tracks/${encodeURIComponent(trackId)}?market=from_token`);
+    // Only a real track answer counts; anything else is "could not be checked", never "fine".
+    if (!t || !t.id) return { status: "error", message: "Spotify did not send the track." };
     if (t.is_playable === false) return { status: "unplayable", reason: (t.restrictions && t.restrictions.reason) || "" };
-    if (t.id && t.id !== trackId) return { status: "relinked", playsAs: `${t.name} – ${(t.artists || []).map((a) => a.name).join(", ")}` };
+    if (t.id !== trackId) return { status: "relinked", playsAs: `${t.name} – ${(t.artists || []).map((a) => a.name).join(", ")}` };
     return { status: "ok" };
   } catch (err) {
     if (err.status === 404 || err.status === 400) return { status: "missing" };
-    return { status: "error", message: err.message };
+    return { status: "error", message: err.message, rateLimited: err.status === 429, retryAfter: (err.details && err.details.retryAfter) || 0 };
   }
 }
 

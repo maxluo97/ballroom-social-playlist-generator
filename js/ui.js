@@ -16,7 +16,7 @@ import {
 import { loadSongsFromUrl, playlistToCSV, spotifyLink, spotifyTrackId, parseLength } from "./data.js";
 import { handleLoginRedirect, isLoggedIn, login as spotifyLogin, createPlaylist, addTracksToPlaylist } from "./spotify.js";
 import { el, fill, $, comboInput, sortRows, sortHeader, chipEditor as sharedChipEditor } from "./dom.js";
-import { checkSongs, isUnavailable, unavailableReason, availabilityOf } from "./availability.js";
+import { checkSongs, isUnavailable, unavailableReason, isChecked, checkFailed } from "./availability.js";
 import { DANCE_ALIASES, BALLROOM_DANCE_NAMES, canonicalDance, unknownDanceMessage } from "./dance-names.js";
 import {
   activeItems, activeResult, hasEdits, prepareGenerated,
@@ -923,12 +923,13 @@ function generate() {
 /* ------------------------------------------- check the playlist on Spotify */
 
 /** Check the playlist on Spotify (see js/playlist-check.js), showing progress, then redraw. */
-async function checkPlaylistOnSpotify(r) {
+async function checkPlaylistOnSpotify(r, force = false) {
   r.check = { running: true, done: 0, total: activeItems(r).filter((it) => spotifyTrackId(it.song.id)).length };
   renderResults();
   const stillCurrent = () => state.result === r;
   const done = await checkAndReplace(r, state.songs, state.settings, {
     stillCurrent,
+    force, // "Check again" looks up every song; after generating, recently checked songs are skipped
     onProgress: (n, total) => {
       r.check.done = n;
       const progress = $("check-progress");
@@ -941,7 +942,7 @@ async function checkPlaylistOnSpotify(r) {
 /** Check one song a user swapped or inserted (no automatic replacement: the user chose it). */
 function checkChosenSong(song) {
   const r = state.result;
-  if (!isLoggedIn() || !spotifyTrackId(song.id) || availabilityOf(song.id)) return;
+  if (!isLoggedIn() || !spotifyTrackId(song.id) || isChecked(song.id)) return;
   checkSongs([song.id]).then(() => state.result === r && renderResults());
 }
 
@@ -952,7 +953,7 @@ function spotifyCheckLine(r) {
   const c = r.check;
   if (c && c.running) return el("p", { class: "muted", id: "check-progress" }, `Checking songs on Spotify… ${c.done} of ${c.total}`);
   const again = (label) => el("button", { type: "button", class: "small", onclick: () => {
-    if (isLoggedIn()) return checkPlaylistOnSpotify(r);
+    if (isLoggedIn()) return checkPlaylistOnSpotify(r, true);
     r.checkAfterLogin = true;
     try {
       sessionStorage.setItem(PENDING_RESULT_KEY, JSON.stringify(r));
@@ -965,11 +966,19 @@ function spotifyCheckLine(r) {
     return el("p", { class: "inline-fields muted" }, "These songs have not been checked on Spotify yet.",
       again(isLoggedIn() ? "Check on Spotify" : "Log in and check on Spotify"));
   }
+  const unchecked = c.unchecked || 0;
   const parts = [`Checked on Spotify: ${c.total} songs.`];
-  if (!c.replaced && !c.unresolved) parts.push("All of them can be played.");
+  if (!c.replaced && !c.unresolved && !unchecked) parts.push("All of them can be played.");
   if (c.replaced) parts.push(`${c.replaced} unavailable song(s) were replaced with available ones of the same dance (marked below).`);
-  if (c.unresolved) parts.push(`${c.unresolved} could not be replaced (marked below); swap or remove them.`);
-  return el("p", { class: "inline-fields muted" }, parts.join(" "), again("Check again"));
+  if (c.unresolved) parts.push(`${c.unresolved} unavailable song(s) could not be replaced (marked below); swap or remove them.`);
+  if (!unchecked) return el("p", { class: "inline-fields muted" }, parts.join(" "), again("Check again"));
+  // Songs Spotify did not answer for are NOT known to be playable: say so clearly.
+  const wait = c.rateLimited && c.rateLimited.retryAfter ? ` in about ${Math.ceil(c.rateLimited.retryAfter / 60)} minute(s)` : " later";
+  return el("ul", { class: "msgs" }, el("li", { class: "warning" },
+    `${parts.join(" ")} ${unchecked} song(s) could not be checked` +
+      (c.rateLimited ? " because Spotify is limiting requests right now" : "") +
+      ` (marked below), so they may not play. Try “Check again”${wait}. `,
+    again("Check again")));
 }
 
 function renderResults() {
@@ -1046,7 +1055,8 @@ function renderResults() {
         it.swapped && el("span", { class: "swap-note", title: `The generator chose: ${it.original.song.title}` }, " (swapped)"),
         it.autoReplaced && !it.swapped && el("div", { class: "muted", style: "font-size:0.85em" },
           `Replaced “${it.autoReplaced.title}” (${it.autoReplaced.why}).`),
-        isUnavailable(it.song.id) && el("div", { class: "swap-warning" }, `Warning: ${unavailableReason(it.song.id)}.`)),
+        isUnavailable(it.song.id) && el("div", { class: "swap-warning" }, `Warning: ${unavailableReason(it.song.id)}.`),
+        checkFailed(it.song.id) && el("div", { class: "swap-warning" }, "Warning: could not be checked on Spotify, so it may not play.")),
       el("td", { class: "num" }, hms(it.song.lengthSec)),
       themed && el("td", { class: "theme-mark" }, it.isTheme ? "Yes" : ""),
       el("td", {}, el("div", { class: "row-actions" },

@@ -12,8 +12,13 @@ globalThis.localStorage = {
   removeItem: (k) => delete memory[k],
 };
 const gone = new Set(); // track IDs the fake Spotify reports as missing
+const limited = new Set(); // track IDs for which the fake Spotify says "too many requests, wait an hour"
 globalThis.fetch = async (url) => {
   const id = String(url).match(/tracks\/([^?]+)/)[1];
+  if (limited.has(id)) {
+    return { ok: false, status: 429, headers: { get: (h) => (h === "Retry-After" ? "3600" : null) },
+      json: async () => ({ error: { status: 429, message: "quota exceeded" } }) };
+  }
   const missing = gone.has(id);
   return {
     ok: !missing, status: missing ? 404 : 200, headers: { get: () => null },
@@ -135,6 +140,20 @@ console.log("=== Spotify check replaces unavailable songs");
   check(r.editViolations.length === 0 && timesConsistent(r), "no reported problems after replacing");
   check(checkRules(edit.activeResult(r), settings).every((v) => r.baselineViolations.includes(edit.violationKey(v, edit.activeItems(r)))),
     "the replaced playlist still follows the rules it followed when generated");
+}
+
+console.log("=== Spotify limiting requests: songs are reported as unchecked, not as playable");
+{
+  // A different night, so its songs have not all been checked already.
+  const r = edit.prepareGenerated(generatePlaylist(songs, { ...settings, seed: 99 }), settings);
+  for (const it of edit.activeItems(r).slice(0, 3)) limited.add(it.song.id);
+  const result = await checkAndReplace(r, songs, settings, { force: true });
+  check(result.rateLimited && result.rateLimited.retryAfter === 3600, `the limit is reported: ${JSON.stringify(result.rateLimited)}`);
+  check(result.unchecked > 0, `songs Spotify did not answer for are counted as unchecked: ${result.unchecked}`);
+  check(result.replaced === 0, "nothing is replaced because of a song that merely could not be checked");
+  limited.clear();
+  const again = await checkAndReplace(r, songs, settings, { force: true });
+  check(!again.rateLimited && again.unchecked === 0, `"Check again" after the limit has passed checks everything: ${JSON.stringify(again)}`);
 }
 
 console.log(failures ? `\nFAILED: ${failures} check(s).` : "\nPASSED: playlist editing checks.");

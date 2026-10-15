@@ -8,7 +8,7 @@
  */
 
 import { activeItems, hasEdits, asPlaylistSong, isThemeSong, recompute, rebaseline } from "./playlist-edit.js";
-import { checkSongs, isUnavailable, unavailableReason, availabilityOf } from "./availability.js";
+import { checkSongs, isUnavailable, unavailableReason, isChecked, RECHECK_AFTER_DAYS } from "./availability.js";
 import { associationMap, withinLengthLimits } from "./generator.js";
 import { spotifyTrackId } from "./data.js";
 
@@ -19,32 +19,37 @@ export async function availableReplacement(r, item, songs, settings, random = Ma
   const candidates = songs
     .filter((sg) => spotifyTrackId(sg.id) && !inPlaylist.has(sg.id) && !isUnavailable(sg.id) &&
       withinLengthLimits(sg, settings) && sg.dances.some((d) => m(d) === item.dance))
-    .map((sg) => ({ sg, known: availabilityOf(sg.id), order: random() }))
+    .map((sg) => ({ sg, known: isChecked(sg.id), order: random() }))
     // Songs already known to play come first; then unchecked ones, in random order.
     .sort((a, b) => (b.known ? 1 : 0) - (a.known ? 1 : 0) || a.order - b.order);
   for (const { sg, known } of candidates.slice(0, 10)) {
-    if (known && known.status !== "error") return sg;
-    await checkSongs([sg.id]);
-    const now = availabilityOf(sg.id);
-    if (now && !isUnavailable(sg.id) && now.status !== "error") return sg;
+    if (known) return sg;
+    const { rateLimited } = await checkSongs([sg.id]);
+    if (isChecked(sg.id) && !isUnavailable(sg.id)) return sg;
+    if (rateLimited) return null; // Spotify wants a break: stop looking
   }
   return null;
 }
 
 /**
- * Check the playlist's songs and replace unavailable ones. `stillCurrent()` returning false (e.g. a
- * new playlist was generated meanwhile) stops it; then it returns null. Otherwise sets and returns
- * r.check = { running: false, total, replaced, unresolved }.
+ * Check the playlist's songs and replace unavailable ones. Songs checked in the last
+ * RECHECK_AFTER_DAYS days are not looked up again unless `force`. `stillCurrent()` returning false
+ * (e.g. a new playlist was generated meanwhile) stops it; then it returns null. Otherwise sets and
+ * returns r.check = { running: false, total, replaced, unresolved, unchecked, rateLimited }, where
+ * `unchecked` counts songs Spotify did not answer for (they are NOT known to be playable).
  */
-export async function checkAndReplace(r, songs, settings, { onProgress = () => {}, stillCurrent = () => true } = {}) {
+export async function checkAndReplace(r, songs, settings, { onProgress = () => {}, stillCurrent = () => true, force = false } = {}) {
   const items = activeItems(r).filter((it) => spotifyTrackId(it.song.id));
-  await checkSongs(items.map((it) => it.song.id), { shouldStop: () => !stillCurrent(), onProgress });
+  const first = await checkSongs(items.map((it) => it.song.id), {
+    shouldStop: () => !stillCurrent(), onProgress, maxAgeDays: force ? 0 : RECHECK_AFTER_DAYS,
+  });
   if (!stillCurrent()) return null;
+  let rateLimited = first.rateLimited;
 
   let replaced = 0;
   let unresolved = 0;
   for (const it of activeItems(r)) {
-    if (!isUnavailable(it.song.id)) continue;
+    if (rateLimited || !isUnavailable(it.song.id)) continue;
     const old = it.song;
     const sub = await availableReplacement(r, it, songs, settings);
     if (!stillCurrent()) return null;
@@ -57,8 +62,11 @@ export async function checkAndReplace(r, songs, settings, { onProgress = () => {
     it.autoReplaced = { title: old.title, why: unavailableReason(old.id) };
     replaced++;
   }
+  // Songs still unavailable (the replacing stopped early because of the limit) also need attention.
+  if (rateLimited) unresolved = activeItems(r).filter((it) => isUnavailable(it.song.id)).length;
+  const unchecked = items.filter((it) => !isChecked(it.song.id)).length;
   const edited = hasEdits(r);
-  r.check = { running: false, total: items.length, replaced, unresolved };
+  r.check = { running: false, total: items.length, replaced, unresolved, unchecked, rateLimited };
   recompute(r, settings);
   // Replacements in an untouched playlist are the generator's choices, not edits.
   if (!edited) rebaseline(r, settings);
