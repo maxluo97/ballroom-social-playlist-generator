@@ -9,6 +9,7 @@
 import { generatePlaylist, validateSettings, listDances, associationMap } from "./generator.js";
 import { APP_DEFAULTS, THEME_TEMPLATE, clone, loadLastSettings, saveLastSettings } from "./settings.js";
 import { loadSongsFromUrl, parseSongsText, playlistToCSV, spotifyLink } from "./data.js";
+import { handleLoginRedirect } from "./spotify.js";
 
 const SAMPLE_URL = "data/sample-songs.json";
 const SAMPLE_NAME = "Sample library (made-up songs)";
@@ -753,6 +754,11 @@ function renderResults() {
 /* -------------------------------------------------------------------- init */
 
 async function init() {
+  // Spotify sends the browser back to this page after login; finish it (this may leave the page).
+  const login = await handleLoginRedirect();
+  if (login.handled && !login.error) return;
+  if (login.error) alert(login.error);
+
   $("generate").addEventListener("click", generate);
   $("reset").addEventListener("click", () => {
     if (!confirm("Reset all settings to the defaults?")) return;

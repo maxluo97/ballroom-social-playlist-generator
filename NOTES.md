@@ -141,8 +141,8 @@ Remaining design assumptions (not specified by the README):
 
 **v0.2 goals** (agreed Oct 2026):
 1. ~~Spotify link export~~ (done): "Copy Spotify links" (one `https://open.spotify.com/track/<id>` per line, playlist order) and a link column in the CSV. Fallback if automatic playlist creation fails: paste the links into an empty playlist in the Spotify desktop app. Song IDs may be bare IDs, `spotify:track:` URIs, or open.spotify.com links; `spotifyTrackId()` in js/data.js normalizes them. Songs without a real ID are left out and listed.
-2. Spotify setup: developer app (owner's account is Premium; Development Mode), Client ID in the code, redirect URI `http://127.0.0.1:8000/`. The app serves only the developer's own account.
-3. `js/spotify.js` + throwaway test page: PKCE login -> `GET /me` -> `GET /me/playlists` -> `GET /playlists/{id}/items`.
+2. ~~Spotify setup~~ (done): developer app exists (owner's account is Premium; Development Mode). Client ID in `js/config.js`. Redirect URI = app root (`http://127.0.0.1:8000/` locally). The app serves only the developer's own account.
+3. `js/spotify.js` + `spotify-test.html` (written, awaiting the developer's first real test): PKCE login -> `GET /me` -> `GET /me/playlists` -> `GET /playlists/{id}/items`. Login always returns to the root page; `handleLoginRedirect()` (called by every page at startup, incl. js/ui.js) finishes it and goes back to the page that started it. Tokens in localStorage (`dpg.spotify.tokens.v1`); auto-refresh; waits on 429.
 4. Library builder page: pick own single-dance playlists, guess each playlist's dance from its name (user confirms), read tracks, songs in several dance playlists get several dances, suggest tags from editable keyword rules (e.g. album "Soundtrack" -> Hollywood), review table, merge into and download `data/songs.csv`. **`data/songs.csv` in the repo is the master database** (editable as a spreadsheet; the repo may be public, which is acceptable).
 5. "Save to Spotify" button: `POST /me/playlists`, then `POST /playlists/{id}/items` (max 100 per call).
 6. Optional: availability check of library songs (one `GET /tracks/{id}` per song; batch endpoint removed).
