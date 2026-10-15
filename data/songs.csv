@@ -139,7 +139,7 @@ id,title,artist,album,length,dances,tags,isrc
 3UPOaZ64ov0tKaidsTTlc0,Fever,Madonna,Erotica (PA Version),5:01,Hustle,,USWB19200059
 4SiHxC6ibW3g7r4MwGyw52,Boogie Shoes,D'Macy,17 Again! Workout Mix Vol. 2 (60 Min Non-Stop Workout Mix [128 BPM]),3:45,Hustle,,USCBK0910787
 7iuT6GbzCKoyNVhbLaendu,Never Too Much,Luther Vandross,The Best Of The 80's,3:46,Hustle,,USSM18100539
-6JV2JOEocMgcZxYSZelKcc,"CAN'T STOP THE FEELING! (from DreamWorks Animation's ""TROLLS"")",Justin Timberlake,"CAN'T STOP THE FEELING! (from DreamWorks Animation's ""TROLLS"")",3:56,Hustle,,USRC11600876
+6JV2JOEocMgcZxYSZelKcc,"CAN'T STOP THE FEELING! (from DreamWorks Animation's ""TROLLS"")",Justin Timberlake,"CAN'T STOP THE FEELING! (from DreamWorks Animation's ""TROLLS"")",3:56,Hustle,Hollywood,USRC11600876
 6iEFcZI1KxxPaAGlnOVn3y,Got to Be Real,Cheryl Lynn,Cheryl Lynn,5:07,Hustle,,USSM19914468
 2pDq8Bt5wWk7NTh2IQmxoP,Brand New Moves,Hey Violet,Brand New Moves,3:48,Hustle,,USUG11600533
 1ZMCV2gvlyUjZZYpVPjEJD,Strike It Up,Black Box,Dreamland,4:59,Hustle,,GBCMX0609009
@@ -151,7 +151,7 @@ id,title,artist,album,length,dances,tags,isrc
 37KbGqup15xKA0OdIbNUoo,Somebody to Love Me,Tryon,Somebody to Love Me,3:39,Rhythm Swing; Latin Jive,,US22H1511171
 4XrPJpNI1pzcrpZyQjLpzK,I Got All You Need,Joe Bonamassa,Driving Towards The Daylight,3:03,Rhythm Swing,,USMH51200220
 17tDv8WA8IhqE8qzuQn707,My First Kiss (feat. Ke$ha),"3OH!3, Kesha",Streets Of Gold,3:12,Rhythm Swing,,USAT21000648
-27mRuNDEh0NV6fcgMcm6CF,Hell To The No (Glee Cast Version),Glee Cast,Hell To The No (Glee Cast Version),3:05,Rhythm Swing,,USQX91100289
+27mRuNDEh0NV6fcgMcm6CF,Hell To The No (Glee Cast Version),Glee Cast,Hell To The No (Glee Cast Version),3:05,Rhythm Swing,Hollywood,USQX91100289
 38iU2jg98IZZEIJPrP7aWD,Till the World Ends,Britney Spears,Femme Fatale (Deluxe Version),3:58,Rhythm Swing,,USJI11100074
 1gilYs9AY8a75q275GTkiY,Seal It with a Kiss,Britney Spears,Femme Fatale (Deluxe Version),3:26,Rhythm Swing; Rhythm Rumba,,USJI11100098
 0np18egt1HHY438ffFUCdt,On Fire,"JJ Grey & Mofro, Mofro",Orange Blossoms,4:27,West Coast Swing,,USARL0892507
@@ -284,6 +284,12 @@ id,title,artist,album,length,dances,tags,isrc
 4Fh82TdxhB4XOFx61lOlVY,Garden Of Eden,Govi,Seventh Heaven,2:57,Smooth Waltz; Standard Waltz,,USGM30000009
 4GTQfE880WqBoI03pD9TDR,On Altı Kasım,Burak Canözer,Ufka Doğru,3:31,Smooth Waltz; Standard Waltz,,TR0040900032
 1LoaJu2RO5i68qjLSRVr8f,My Heart Cries For You,Brenna Whitaker,Brenna Whitaker,3:16,Smooth Waltz; Standard Waltz,,USUM71512290
+1MDPeKSLcaYFum70R28Jin,La Peregrinacion,Sexteto Mayor,Paris Otonal,3:21,Smooth Tango; Standard Tango,,FRY510778838
+2yNUTH4kxix9ac2tfLGAAZ,La Mariposa,Empress Orchestra,Always & Forever,2:16,Smooth Tango; Standard Tango,,GBQQG0900012
+5fJCyiwt1XudKH419MRkOT,The Other Tango,Brent Thomas Mills,Music-4-Movement,2:56,Smooth Tango; Standard Tango,,USQY51221001
+7z9vdGqrDq06D9vzYmqUmk,Tango de Manzana,Kevin MacLeod,Latinesque,3:02,Smooth Tango; Standard Tango,,USUAN1100404
+5bBZaxZ4Q9MbGeOuIvuI19,Historia de un Amor,Cantovano and His Orchestra,Bailes de Salón : Bolero - Los Mejores Bailes (Ballroom Dancing),2:46,Smooth Tango; Standard Tango,,FR6V80356116
+1A9DYyFtMlzHfxuiw6qYWa,Tango Till They’re Sore,Madeleine Peyroux,Secular Hymns,3:24,Smooth Tango; Standard Tango,,FRUM71601143
 2KhqJxDQdKqg8ZTuorqS2l,La Luna,"Danny White, Mark Reilly, Basia Trzetrzelewska, Matt Bianco",Matt's Mood,4:05,Rhythm Mambo,,GBFWU0400034
 712eoDx2LC8WyL8hypevZf,Quizas Quizas Quizas,Versaillesstation,Funny Dance Party : Bolero & Rumba,2:39,Latin Rumba; Rhythm Bolero,,FR81E0100220
 2JqnpexlO9dmvjUMCaLCLJ,Love Someone,Lukas Graham,Love Someone,3:25,Latin Rumba; Rhythm Bolero,,USWB11801903
@@ -346,14 +352,11 @@ id,title,artist,album,length,dances,tags,isrc
 3sICyTPASesVzpfGc1nM2t,Moon River,Carla Bruni,French Touch,3:14,Smooth Waltz; Standard Waltz,,FR35O1780010
 5JM77YeKlmxo5N4WTas8wM,Moon River,Royal Philharmonic Orchestra,Themes For Lovers,2:40,Smooth Waltz; Standard Waltz,,GBLGL1267857
 3p8Je0xlzCMYXMWE4RrId0,Edelweiss - Waltz,"Tony Evans and His Orchestra, Tony Evans",It Had To Be You,2:31,Smooth Waltz; Standard Waltz,,GBBFY0610337
-2yNUTH4kxix9ac2tfLGAAZ,La Mariposa,Empress Orchestra,Always & Forever,2:16,Smooth Tango; Standard Tango,,GBQQG0900012
-5fJCyiwt1XudKH419MRkOT,The Other Tango,Brent Thomas Mills,Music-4-Movement,2:56,Smooth Tango; Standard Tango,,USQY51221001
 0Iv26pP8pnjVaWMQ94dgbg,Schwarze Augen,The Magic Orchestra,The Magic Orchestra Plays Tango,2:57,Smooth Tango; Standard Tango,,DEH980600950
 78lQnstmHTDKHxI80FPTJ1,Tangoneon,Paolo Vivaldi,Lost in Buenos Aires (Falling in Love with the Tango),2:41,Smooth Tango; Standard Tango,,IT7151391682
 4bxZsKJrl0AJRhSi3eJV2G,Tanguera,Fabio Hager Sexteto,Encanto Rojo,2:33,Smooth Tango; Standard Tango,,ARA230800002
 3vDSoSBT4jHl4XAr6mJfAU,Essa,Otros Aires,Tricota,2:50,Smooth Tango; Standard Tango,,ARG721000017
 3nQtNzOXuQLyVRKXr6RCk3,El Tango Rojo,WCPM Ballroom Dance Orchestra,This Is Ballroom! Sensual Argentine Tangos,2:02,Smooth Tango; Standard Tango,,US4R31231194
-7z9vdGqrDq06D9vzYmqUmk,Tango de Manzana,Kevin MacLeod,Latinesque,3:02,Smooth Tango; Standard Tango,,USUAN1100404
 5SW68jSKOyJvQsdcmI8yqo,Habanera,Amerimambo,The Ultimate Ballroom Collection - Tango,4:35,Smooth Tango; Standard Tango,,US4R30926124
 7l6MTSjgSqqv8QSsSujD2t,Tango Escrita,Brent Thomas Mills,Music-4-Movement,2:34,Smooth Tango; Standard Tango,,USQY51221000
 7fu73T52keF5yQ1WFXOnD2,Tango Bell Ritmo,The Magic Orchestra,The Magic Orchestra Plays Tango,4:06,Smooth Tango; Standard Tango,,DEH980600960
@@ -361,7 +364,6 @@ id,title,artist,album,length,dances,tags,isrc
 0Ri65zUIQIXcKw28QlishS,La Felicidad - Tango Remix,D & G,La Felicidad,4:05,Smooth Tango; Standard Tango,,FR6V81055040
 74j8xmjWDNjvp8y9JJH3EB,Calle Corrientes - Calle Corrientes,Colucci E-Tango,Colucci E-Tango,3:16,Smooth Tango; Standard Tango,,USA2P1132574
 6NZbPAQyDul1vt6FqMiMkV,Back to Buenos Aires,Cafe Roma Ensemble,Art of Tango: Traditional and Contemporary Tango Music,2:25,Smooth Tango; Standard Tango,,US4R31345429
-1MDPeKSLcaYFum70R28Jin,La Peregrinacion,Sexteto Mayor,Paris Otonal,3:21,Smooth Tango; Standard Tango,,FRY510778838
 64Ewtoromuo076iLFd9bME,Buscando Camorra,Tanghetto,The Best of Tanghetto (Deluxe Edition),4:00,Smooth Tango; Standard Tango,,TCABC1178745
 2WpwxciOelCPl6vhb0oBlL,Spanish Fire - Tango,Tony Evans and His Orchestra,The Blackpool International Dance Festival 2001,2:13,Smooth Tango; Standard Tango,,GBBFY0610800
 0YjSnTu3bcVoOz5UJqCvdt,Ole Guapa - tango,The Strings Of Paris,Ballroom Dance Festival,2:56,Smooth Tango; Standard Tango,,NLEM80817257
@@ -769,7 +771,7 @@ id,title,artist,album,length,dances,tags,isrc
 4ynNQBzSRFVRwJoMRZnpDo,Do My Thing (feat. Janelle Monáe),"Estelle, Janelle Monáe",All Of Me,3:28,Rhythm Swing; Latin Jive,,USAT21200093
 16C4Q0gfmkdVWhhHpHddQc,Something About the Sunshine (Solo),Anna Margaret,StarStruck,3:06,Rhythm Swing; Latin Jive,,USWD10937510
 3QC38Gk48kjN8xHEL1kNSS,Looking Up,Elton John,Looking Up,4:07,Rhythm Swing; Latin Jive,,GBUM71506185
-3myg6Gpulo6fD0EOnz5dOQ,Shut Up And Dance (feat. Victoria Justice),"Victorious Cast, Victoria Justice",Victorious 2.0: More Music From The Hit TV Show (feat. Victoria Justice),2:57,Rhythm Swing; Latin Jive,,USSM11202272
+3myg6Gpulo6fD0EOnz5dOQ,Shut Up And Dance (feat. Victoria Justice),"Victorious Cast, Victoria Justice",Victorious 2.0: More Music From The Hit TV Show (feat. Victoria Justice),2:57,Rhythm Swing; Latin Jive,Hollywood,USSM11202272
 409HuLPy1EqCnosLbZZaGu,Shake the Room,Gamu,Shake the Room,2:50,Rhythm Swing; Latin Jive,,USTB11300079
 5yVnJq7vmGnvQdOXC7CdUG,HER,Block B,HER,2:59,Rhythm Swing; Latin Jive,,KRA491401408
 7DCmHP3gX1PvlQNm0ia8Cf,Mom (feat. Kelli Trainor),"Meghan Trainor, Kelli Trainor",Thank You (Deluxe),3:15,Rhythm Swing; Latin Jive,,USSM11601187

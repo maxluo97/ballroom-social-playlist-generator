@@ -11,8 +11,8 @@ import {
   THEME_TEMPLATE, LIBRARY_KEY, clone, loadLastSettings, saveLastSettings,
   loadDefaultSettings, upgradeSettings, parseSettingsFile, settingsFileText,
 } from "./settings.js";
-import { loadSongsFromUrl, parseSongsText, playlistToCSV, spotifyLink } from "./data.js";
-import { handleLoginRedirect } from "./spotify.js";
+import { loadSongsFromUrl, parseSongsText, playlistToCSV, spotifyLink, spotifyTrackId } from "./data.js";
+import { handleLoginRedirect, isLoggedIn, login as spotifyLogin, createPlaylist, addTracksToPlaylist } from "./spotify.js";
 import { el, fill, $, comboInput, chipEditor as sharedChipEditor } from "./dom.js";
 import { DANCE_ALIASES, BALLROOM_DANCE_NAMES, canonicalDance, unknownDanceMessage } from "./dance-names.js";
 
@@ -833,6 +833,7 @@ function renderResults() {
       copyLinks,
       copyList,
       el("button", { type: "button", onclick: download }, "Download CSV")),
+    linkCount > 0 && saveToSpotifyBox(r, links.filter(Boolean).map(spotifyTrackId)),
     linkCount > 0 &&
       el("p", { class: "help" },
         "To build the playlist by hand: copy the Spotify links, open an empty playlist in the Spotify desktop app, " +
@@ -864,6 +865,90 @@ function renderResults() {
   );
 }
 
+/* --------------------------------------------------------- save to Spotify */
+
+const PENDING_RESULT_KEY = "dpg.pendingResult.v1";
+
+/**
+ * The "Save to Spotify" box: creates a playlist in the logged-in account with the generated songs,
+ * in order. If not logged in, offers to log in first (the playlist is kept across the login trip).
+ * Copy Spotify links remains the fallback if Spotify refuses.
+ */
+function saveToSpotifyBox(r, trackIds) {
+  if (!isLoggedIn()) {
+    return el("div", { class: "subbox" },
+      el("div", { class: "subbox-title" }, "Save to Spotify"),
+      el("p", { class: "help" }, "Log in to Spotify to create this playlist in your account. This playlist is kept while you log in."),
+      el("div", {}, el("button", { type: "button", onclick: () => {
+        try {
+          sessionStorage.setItem(PENDING_RESULT_KEY, JSON.stringify(r));
+        } catch {
+          /* too large or unavailable: the playlist will need generating again */
+        }
+        spotifyLogin();
+      } }, "Log in with Spotify")));
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const name = el("input", { type: "text", value: `Dance social ${today}`, "aria-label": "Playlist name", style: "flex:1 1 16em" });
+  const isPublic = el("input", { type: "checkbox" });
+  const status = el("div", { "aria-live": "polite" });
+  const create = el("button", { type: "button", class: "primary" }, `Create playlist (${trackIds.length} songs)`);
+  const say = (kind, ...content) => fill(status, el("ul", { class: "msgs" }, el("li", { class: kind }, ...content)));
+  const openLink = (url) => url && el("a", { href: url, target: "_blank", rel: "noopener" }, "Open in Spotify");
+  const fallback = " You can still use “Copy Spotify links” and paste them into a playlist by hand.";
+
+  create.addEventListener("click", async () => {
+    const title = name.value.trim();
+    if (!title) return name.focus();
+    create.disabled = true;
+    fill(status, el("p", { class: "muted" }, "Creating the playlist…"));
+    let playlist;
+    try {
+      playlist = await createPlaylist({
+        name: title,
+        isPublic: isPublic.checked,
+        description: `Made with Dance Playlist Generator on ${today}: ${trackIds.length} songs, ${hms(r.totalSec)}.`,
+      });
+    } catch (err) {
+      create.disabled = false;
+      const hint = err.status === 403
+        ? " Spotify refused (403). Check that your account is listed under User Management in the Spotify developer dashboard, then log out and in again."
+        : "";
+      return say("error", `Could not create the playlist: ${err.message}.${hint}${fallback}`);
+    }
+    try {
+      await addTracksToPlaylist(playlist.id, trackIds, (n, total) => fill(status, el("p", { class: "muted" }, `Adding songs… ${n} of ${total}`)));
+    } catch (err) {
+      return say("error", `The playlist “${title}” was created, but adding its songs failed: ${err.message}.${fallback} `, openLink(playlist.url));
+    }
+    say("ok", `Created “${title}” in your Spotify account with ${trackIds.length} songs, in order. `, openLink(playlist.url));
+  });
+
+  return el("div", { class: "subbox" },
+    el("div", { class: "subbox-title" }, "Save to Spotify"),
+    el("div", { class: "inline-fields" }, "Name:", name),
+    el("label", { class: "inline-fields" }, isPublic, "Public (shows on your Spotify profile); otherwise private"),
+    el("div", {}, create),
+    status);
+}
+
+/** After a login trip started from "Save to Spotify", bring the generated playlist back. */
+function restorePendingResult() {
+  let saved = null;
+  try {
+    saved = JSON.parse(sessionStorage.getItem(PENDING_RESULT_KEY));
+    sessionStorage.removeItem(PENDING_RESULT_KEY);
+  } catch {
+    /* nothing to restore */
+  }
+  if (saved && Array.isArray(saved.playlist)) {
+    state.result = saved;
+    state.stale = false;
+    renderResults();
+  }
+}
+
 /* -------------------------------------------------------------------- init */
 
 async function init() {
@@ -889,6 +974,7 @@ async function init() {
   renderSettingsBar();
   renderForm();
   await loadStartingLibrary();
+  restorePendingResult();
 }
 
 init();

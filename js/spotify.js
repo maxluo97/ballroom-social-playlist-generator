@@ -295,6 +295,31 @@ export async function searchTracks(query, offset = 0) {
   return { songs, total: page.total, nextOffset: page.next ? offset + page.items.length : null };
 }
 
+/**
+ * Create a playlist in the logged-in user's account (`POST /me/playlists`).
+ * Spotify makes playlists public unless told otherwise; this defaults to private.
+ * Returns { id, url }.
+ */
+export async function createPlaylist({ name, description = "", isPublic = false }) {
+  const p = await api("/me/playlists", { method: "POST", body: { name, description, public: isPublic } });
+  return { id: p.id, url: p.external_urls ? p.external_urls.spotify : null };
+}
+
+/**
+ * Append tracks to a playlist, in order (`POST /playlists/{id}/items`, at most 100 per request).
+ * `onProgress(added, total)` reports progress. Returns the number added.
+ */
+export async function addTracksToPlaylist(playlistId, trackIds, onProgress) {
+  let added = 0;
+  for (let i = 0; i < trackIds.length; i += 100) {
+    const uris = trackIds.slice(i, i + 100).map((id) => `spotify:track:${id}`);
+    await api(`/playlists/${encodeURIComponent(playlistId)}/items`, { method: "POST", body: { uris } });
+    added += uris.length;
+    if (onProgress) onProgress(added, trackIds.length);
+  }
+  return added;
+}
+
 /** The playlist ID from a playlist link, a "spotify:playlist:..." URI, or a bare ID; else null. */
 export function playlistIdFrom(text) {
   const m = String(text ?? "").trim().match(/^(?:spotify:playlist:|https?:\/\/open\.spotify\.com\/(?:intl-[a-z-]+\/)?playlist\/)?([A-Za-z0-9]{22})(?:[?#].*)?$/);
