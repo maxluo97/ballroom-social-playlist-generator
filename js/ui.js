@@ -13,7 +13,7 @@ import {
   THEME_TEMPLATE, LIBRARY_KEY, clone, loadLastSettings, saveLastSettings,
   loadDefaultSettings, upgradeSettings, parseSettingsFile, settingsFileText,
 } from "./settings.js";
-import { loadSongsFromUrl, parseSongsText, playlistToCSV, spotifyLink, spotifyTrackId, parseLength } from "./data.js";
+import { loadSongsFromUrl, playlistToCSV, spotifyLink, spotifyTrackId, parseLength } from "./data.js";
 import { handleLoginRedirect, isLoggedIn, login as spotifyLogin, createPlaylist, addTracksToPlaylist } from "./spotify.js";
 import { el, fill, $, comboInput, chipEditor as sharedChipEditor } from "./dom.js";
 import { checkSongs, isUnavailable, unavailableReason, availabilityOf } from "./availability.js";
@@ -733,43 +733,19 @@ function renderSettingsBar() {
 
 /* ----------------------------------------------------------------- library */
 
-/**
- * Use a song library. `persist` = keep a copy in this browser (a loaded file, or the library builder's
- * "Try it in the generator now"); such a copy is used instead of data/songs.csv until replaced.
+/*
+ * The song library is always data/songs.csv, made and saved with the library builder. Nothing is
+ * kept in the browser, so there is never any doubt which library is in use. Until data/songs.csv
+ * exists, the page points to the library builder (and offers made-up sample songs to look around).
  */
-function setLibrary(songs, name, problems, persist) {
+
+function setLibrary(songs, name, problems) {
   state.songs = songs;
-  state.library = { name, problems, browserCopy: persist };
-  state.libraryNotice = null;
+  state.library = { name, problems };
   state.result = null;
-  try {
-    if (persist) localStorage.setItem(LIBRARY_KEY, JSON.stringify({ name, songs }));
-    else localStorage.removeItem(LIBRARY_KEY);
-  } catch {
-    /* storage full or unavailable: the library just won't be remembered */
-  }
   renderLibrary();
   renderResults();
   refresh();
-}
-
-/** Remember which version of data/songs.csv was current when a browser copy was (first) used. */
-function rememberProjectVersion(hash) {
-  try {
-    const saved = loadSavedLibrary();
-    if (saved) localStorage.setItem(LIBRARY_KEY, JSON.stringify({ ...saved, projectHash: hash }));
-  } catch {
-    /* ignore */
-  }
-}
-
-function loadSavedLibrary() {
-  try {
-    const raw = localStorage.getItem(LIBRARY_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
 }
 
 /** The project library (data/songs.csv), or null if it does not exist yet. */
@@ -781,80 +757,47 @@ async function fetchProjectLibrary() {
   }
 }
 
-async function useProject() {
-  const lib = await fetchProjectLibrary();
-  if (lib && lib.songs.length) setLibrary(lib.songs, PROJECT_NAME, lib.problems, false);
-  else alert("data/songs.csv was not found or has no songs.");
-}
-
 async function useSample() {
   try {
     const { songs, problems } = await loadSongsFromUrl(SAMPLE_URL);
-    setLibrary(songs, SAMPLE_NAME, problems, false);
+    setLibrary(songs, SAMPLE_NAME, problems);
   } catch (err) {
-    $("library").replaceChildren(
-      el("ul", { class: "msgs" }, el("li", { class: "error" },
-        `Could not load the sample library: ${err.message} ` +
-          "If you opened index.html directly from disk, run “npm start” and use http://127.0.0.1:8000/ instead."))
-    );
+    alert(`Could not load the sample songs: ${err.message}`);
   }
 }
 
-/** Startup: a library loaded earlier in this browser, else data/songs.csv, else the sample. */
+/** Startup: data/songs.csv, or nothing (with directions to the library builder). */
 async function loadStartingLibrary() {
-  const saved = loadSavedLibrary();
-  const project = await fetchProjectLibrary();
-  if (saved && Array.isArray(saved.songs) && saved.songs.length) {
-    setLibrary(saved.songs, saved.name, [], true);
-    // The browser copy hides data/songs.csv. If that file changed since, say so and offer to switch.
-    if (project && project.songs.length) {
-      if (!saved.projectHash) rememberProjectVersion(project.hash);
-      else if (saved.projectHash !== project.hash) {
-        state.libraryNotice = { projectHash: project.hash };
-        renderLibrary();
-      }
-    }
-    return;
+  try {
+    localStorage.removeItem(LIBRARY_KEY); // older versions kept a library copy in the browser
+  } catch {
+    /* ignore */
   }
-  if (project && project.songs.length) return setLibrary(project.songs, PROJECT_NAME, project.problems, false);
-  await useSample();
+  const project = await fetchProjectLibrary();
+  if (project) return setLibrary(project.songs, PROJECT_NAME, project.problems);
+  setLibrary([], "", []);
 }
 
 function renderLibrary() {
-  const fileInput = el("input", { type: "file", accept: ".csv,.json,text/csv,application/json", hidden: true });
-  fileInput.addEventListener("change", async () => {
-    const file = fileInput.files[0];
-    if (!file) return;
-    try {
-      const { songs, problems } = parseSongsText(await file.text(), file.name);
-      if (!songs.length) throw new Error(problems[0] || "No songs found.");
-      setLibrary(songs, file.name, problems, true);
-    } catch (err) {
-      alert(`Could not read ${file.name}: ${err.message}`);
-    }
-  });
   const { name, problems } = state.library;
+  const builder = el("a", { href: "library.html", class: "button-link small" }, "Library builder");
+  if (!name) {
+    // No data/songs.csv yet: the library has to be built (and saved) in the library builder first.
+    return fill($("library"),
+      el("ul", { class: "msgs" }, el("li", { class: "warning" },
+        "No song library yet: data/songs.csv was not found. Build your library from your Spotify playlists in the " +
+          "library builder and save it there; the generator then uses it automatically.")),
+      el("div", { class: "library-line" }, builder,
+        el("button", { type: "button", class: "small", onclick: useSample }, "Look around with made-up sample songs")));
+  }
   fill($("library"),
     el("div", { class: "library-line" },
       el("span", {}, "Song library: ", el("strong", {}, name), ` — ${state.songs.length} songs, ${rawDances().length} dances`),
       el("button", { type: "button", class: "small", onclick: openLibraryView, disabled: !state.songs.length }, "View library"),
-      el("button", { type: "button", class: "small", onclick: () => fileInput.click() }, "Load CSV / JSON…"),
-      name !== PROJECT_NAME && el("button", { type: "button", class: "small", onclick: useProject }, "Use data/songs.csv"),
-      name !== SAMPLE_NAME && el("button", { type: "button", class: "small", onclick: useSample }, "Use sample library"),
-      el("a", { href: "library.html", class: "button-link small" }, "Library builder"),
-      fileInput),
-    state.library.browserCopy &&
-      el("p", { class: "help" }, "This library is a copy kept in this browser, so data/songs.csv is not being used. " +
-        "Press “Use data/songs.csv” to switch back to the project's library."),
-    state.libraryNotice &&
-      el("ul", { class: "msgs" }, el("li", { class: "warning" },
-        "data/songs.csv has changed since this browser copy was made. ",
-        el("button", { type: "button", class: "small", onclick: useProject }, "Use data/songs.csv"), " ",
-        el("button", { type: "button", class: "small", onclick: () => {
-          rememberProjectVersion(state.libraryNotice.projectHash); // don't ask again for this version
-          state.libraryNotice = null;
-          renderLibrary();
-        } }, "Keep browser copy"))),
+      builder),
+    name === SAMPLE_NAME &&
+      el("p", { class: "help" }, "These are made-up songs for trying the app; they have no real Spotify songs. " +
+        "Reload the page to leave them, and build your own library in the library builder."),
     problems.length > 0 &&
       el("details", {},
         el("summary", {}, `${problems.length} row(s) skipped or changed while loading`),

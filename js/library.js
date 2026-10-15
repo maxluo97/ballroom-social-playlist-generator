@@ -23,7 +23,6 @@ import {
 import {
   mergeImport, parseTagRules, markPreviouslyRemoved, keptSongs, updatedBlacklist, blacklistChanged,
 } from "./library-merge.js";
-import { LIBRARY_KEY } from "./settings.js";
 import { formatTime } from "./generator.js";
 
 const PROJECT_URL = "data/songs.csv";
@@ -242,8 +241,13 @@ async function loadProject() {
   try {
     const { songs, problems } = await loadSongsFromUrl(PROJECT_URL);
     setExisting(songs, "data/songs.csv", problems);
+    // What is saved right now: changes are measured against this.
+    state.savedKey = filesKey(currentFiles());
+    state.downloadedKey = null;
+    renderOutput();
   } catch {
     setExisting([], "", []);
+    state.savedKey = null;
   }
 }
 
@@ -956,10 +960,81 @@ function reviewRow(r) {
 
 /* ------------------------------------------------------------------- 6. Save */
 
+/*
+ * Saving: the library always lives in two files in the project's data folder, songs.csv and
+ * removed-songs.csv (the songs you took out; may be empty). Both are always saved together, and the
+ * generator only ever reads data/songs.csv, so unsaved changes here are lost on leaving.
+ */
+
+/** The two files' contents for the library as it is on this page now. */
+function currentFiles() {
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    songs: songsToCSV(keptSongs(state.rows || [])),
+    removed: removedSongsToCSV(updatedBlacklist(state.blacklist, state.rows || [], today)),
+  };
+}
+const filesKey = (f) => `${f.songs}\u0000${f.removed}`;
+
+/** Quick check (no file access): has the library changed since it was loaded, saved or downloaded? */
+function looksUnsaved() {
+  if (!state.rows) return false;
+  const now = filesKey(currentFiles());
+  return now !== state.savedKey && now !== state.downloadedKey;
+}
+
+/**
+ * "Back to the generator": only once both files are in the data folder, and with a warning if the
+ * library on this page differs from what is saved there (checked against the actual files).
+ */
+async function backToGenerator(event) {
+  event.preventDefault();
+  if (!state.rows) return goToGenerator();
+  const read = async (url) => {
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      return res.ok ? await res.text() : null;
+    } catch {
+      return null;
+    }
+  };
+  const [songsText, removedText] = await Promise.all([read(PROJECT_URL), read(REMOVED_URL)]);
+  const missing = [songsText === null && "songs.csv", removedText === null && "removed-songs.csv"].filter(Boolean);
+  if (missing.length) {
+    alert(`Save your library before going back to the generator: ${missing.join(" and ")} ` +
+      `${missing.length > 1 ? "are" : "is"} not in the data folder yet.\n\n` +
+      "Use “Save to the data folder” in step 6 (or download both files and put them in the data folder).");
+    $("output").scrollIntoView({ behavior: "smooth" });
+    return;
+  }
+  // Compare the saved files with the library here (both written the same way, so equal means saved).
+  const saved = {
+    songs: songsToCSV(parseSongsText(songsText, "songs.csv").songs),
+    removed: removedSongsToCSV([...parseRemovedSongs(removedText).values()]),
+  };
+  if (filesKey(saved) !== filesKey(currentFiles()) &&
+    !confirm("Your changes to the library are not saved in the data folder. If you go back to the generator now, they will be lost.\n\nLeave without saving?")) {
+    $("output").scrollIntoView({ behavior: "smooth" });
+    return;
+  }
+  goToGenerator();
+}
+
+function goToGenerator() {
+  state.leaving = true; // no second "unsaved changes" warning from the browser
+  location.href = "./";
+}
+
 function renderOutput() {
   if (!state.rows || !state.rows.length) return fill($("output"), el("p", { class: "muted" }, "Nothing to save yet."));
-  const songs = () => keptSongs(state.rows);
-  const saveFile = (name, text) => {
+  const files = currentFiles();
+  const count = keptSongs(state.rows).length;
+  const removedNow = state.rows.filter((r) => r.removedNow).length;
+  const blocked = state.rows.filter((r) => r.blocked).length;
+  const noDance = keptSongs(state.rows).filter((s) => !s.dances.length).length;
+  const unsaved = looksUnsaved();
+
+  const download = (name, text) => {
     const blob = new Blob([text], { type: "text/csv" });
     const a = el("a", { href: URL.createObjectURL(blob), download: name });
     document.body.append(a);
@@ -967,23 +1042,14 @@ function renderOutput() {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
-  const download = () => saveFile("songs.csv", songsToCSV(songs()));
-  const today = new Date().toISOString().slice(0, 10);
-  const listChanged = blacklistChanged(state.rows);
-  const downloadRemoved = () => saveFile("removed-songs.csv", removedSongsToCSV(updatedBlacklist(state.blacklist, state.rows, today)));
-  const removedNow = state.rows.filter((r) => r.removedNow).length;
-  const blocked = state.rows.filter((r) => r.blocked).length;
-  const useNow = () => {
-    try {
-      localStorage.setItem(LIBRARY_KEY, JSON.stringify({ name: "Library builder result (not yet saved as data/songs.csv)", songs: songs().filter((s) => s.dances.length) }));
-      location.href = "./";
-    } catch (err) {
-      alert(`Could not hand the library to the generator: ${err.message}`);
-    }
+  const downloadBoth = () => {
+    download("songs.csv", files.songs);
+    download("removed-songs.csv", files.removed);
+    state.downloadedKey = filesKey(files);
+    renderOutput();
   };
-  const noDance = songs().filter((s) => !s.dances.length).length;
 
-  // Chrome / Edge: write the files straight into the project's data folder (picked once, then remembered).
+  // Chrome / Edge: write both files straight into the project's data folder (picked once, then remembered).
   const saveToFolder = async (choose) => {
     let folder;
     try {
@@ -996,10 +1062,9 @@ function renderOutput() {
       return alert(`Could not open the folder: ${err.message}`);
     }
     if (!folder) return;
-    const count = songs().length;
     try {
-      await writeTextFile(folder, "songs.csv", songsToCSV(songs()));
-      if (listChanged) await writeTextFile(folder, "removed-songs.csv", removedSongsToCSV(updatedBlacklist(state.blacklist, state.rows, today)));
+      await writeTextFile(folder, "songs.csv", files.songs);
+      await writeTextFile(folder, "removed-songs.csv", files.removed);
     } catch (err) {
       return alert(`Could not save: ${err.message}`);
     }
@@ -1007,43 +1072,39 @@ function renderOutput() {
     // Start again from the files just saved.
     await loadRemoved();
     await loadProject();
-    state.saveMessage = `Saved ${count} songs to ${folder.name}/songs.csv` + (listChanged ? " and the removed songs to removed-songs.csv" : "") +
-      ` at ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}. Reload the generator page to use it.`;
+    state.saveMessage = `Saved ${count} songs to ${folder.name}/songs.csv and the removed songs to removed-songs.csv ` +
+      `at ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`;
     renderOutput();
   };
 
-  const downloads = [
-    el("button", { type: "button", onclick: download }, "Download songs.csv"),
-    listChanged && el("button", { type: "button", onclick: downloadRemoved }, "Download removed-songs.csv"),
-  ];
   fill($("output"),
-    el("p", {}, `The library will have ${songs().length} songs.` +
+    el("p", {}, `The library will have ${count} songs.` +
       (removedNow ? ` ${removedNow} removed now.` : "") +
       (blocked ? ` ${blocked} previously removed song(s) from the import left out.` : "")),
     noDance > 0 && el("ul", { class: "msgs" }, el("li", { class: "warning" },
       `${noDance} song(s) have no dance. They are kept in songs.csv, but the generator skips them until they get one (filter “No dance” above).`)),
-    state.saveMessage && el("ul", { class: "msgs" }, el("li", { class: "ok" }, state.saveMessage)),
+    unsaved
+      ? el("ul", { class: "msgs" }, el("li", { class: "warning" }, "You have changes that are not saved yet. Unsaved changes are lost when you leave this page."))
+      : state.saveMessage && el("ul", { class: "msgs" }, el("li", { class: "ok" }, state.saveMessage)),
+    el("p", { class: "help" }, "The library is saved as two files in the project's data folder: songs.csv (your songs) and " +
+      "removed-songs.csv (songs you took out, so imports do not bring them back; it may be empty). The generator reads them from there."),
     canSaveToFolder()
       ? [
           el("div", { class: "actions" },
             el("button", { type: "button", class: "primary", onclick: () => saveToFolder(false) }, "Save to the data folder"),
-            state.dataFolderName && el("button", { type: "button", class: "small", onclick: () => saveToFolder(true) }, "Choose a different folder…"),
-            el("button", { type: "button", onclick: useNow }, "Try it in the generator now")),
+            state.dataFolderName && el("button", { type: "button", class: "small", onclick: () => saveToFolder(true) }, "Choose a different folder…")),
           el("p", { class: "help" },
             (state.dataFolderName
-              ? `Saves songs.csv${listChanged ? " and removed-songs.csv" : ""} into the folder “${state.dataFolderName}”, replacing the old file${listChanged ? "s" : ""}. `
-              : `The first time, choose the “data” folder inside the project; it is remembered after that. `) +
+              ? `Saves both files into the folder “${state.dataFolderName}”, replacing the old ones. `
+              : "The first time, choose the “data” folder inside the project; it is remembered after that. ") +
               "Your browser may ask to allow editing files there."),
-          el("details", {}, el("summary", { class: "muted" }, "Or download the files instead"), el("div", { class: "actions" }, ...downloads)),
+          el("details", {}, el("summary", { class: "muted" }, "Or download the files instead"),
+            el("div", { class: "actions" }, el("button", { type: "button", onclick: downloadBoth }, "Download both files")),
+            el("p", { class: "help" }, "Then put both files in the project's data folder, replacing the old ones.")),
         ]
       : [
-          el("div", { class: "actions" }, ...downloads.map((b) => b && (b.classList.add("primary"), b)),
-            el("button", { type: "button", onclick: useNow }, "Try it in the generator now")),
-          el("ol", { class: "help" },
-            el("li", {}, "Download songs.csv and save it in the project's data folder, replacing the old one."),
-            listChanged && el("li", {}, "Also download removed-songs.csv and save it in the data folder too. " +
-              "It is how the app remembers the songs you removed."),
-            el("li", {}, "Reload the generator page. If it still shows an older library, press “Use data/songs.csv”.")),
+          el("div", { class: "actions" }, el("button", { type: "button", class: "primary", onclick: downloadBoth }, "Download both files")),
+          el("p", { class: "help" }, "Put both files (songs.csv and removed-songs.csv) in the project's data folder, replacing the old ones."),
         ]);
 }
 
@@ -1056,6 +1117,15 @@ async function init() {
   renderRules();
   renderPlaylists();
   renderManual();
+  // Both "Back to the generator" buttons check that the library is saved first.
+  for (const link of document.querySelectorAll("a.back-to-generator")) link.addEventListener("click", backToGenerator);
+  // Closing the tab or leaving another way with unsaved changes: the browser's own warning.
+  window.addEventListener("beforeunload", (e) => {
+    if (!state.leaving && looksUnsaved()) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+  });
   state.dataFolderName = await rememberedFolderName(DATA_FOLDER_KEY);
   await loadRemoved();
   await loadProject();
