@@ -16,6 +16,7 @@ import {
 import { loadSongsFromUrl, parseSongsText, playlistToCSV, spotifyLink, spotifyTrackId, parseLength } from "./data.js";
 import { handleLoginRedirect, isLoggedIn, login as spotifyLogin, createPlaylist, addTracksToPlaylist } from "./spotify.js";
 import { el, fill, $, comboInput, chipEditor as sharedChipEditor } from "./dom.js";
+import { checkSongs, isUnavailable, unavailableReason, availabilityOf } from "./availability.js";
 import { DANCE_ALIASES, BALLROOM_DANCE_NAMES, canonicalDance, unknownDanceMessage } from "./dance-names.js";
 
 const SAMPLE_URL = "data/sample-songs.json";
@@ -840,6 +841,7 @@ function openLibraryView() {
   const problem = (sg) => {
     if (s.minSongSec > 0 && sg.lengthSec < s.minSongSec) return "shorter than the shortest allowed";
     if (s.maxSongSec > 0 && sg.lengthSec > s.maxSongSec) return "longer than the longest allowed";
+    if (isUnavailable(sg.id)) return unavailableReason(sg.id);
     if (!sg.dances.some((d) => used.has(m(d)))) return "its dances are not used by the settings";
     return "";
   };
@@ -936,14 +938,125 @@ function generate() {
   renderValidation();
   if (state.errors.length) return;
   if (hasEdits(state.result) && !confirm("Generate a new playlist? Your swaps, insertions and removals in the current one will be lost.")) return;
-  const r = generatePlaylist(state.songs, { ...state.settings, seed: null }); // always a fresh random playlist
+  // Always a fresh random playlist; songs known to be unavailable on Spotify are never picked.
+  const r = generatePlaylist(state.songs, { ...state.settings, seed: null }, { songFilter: (sg) => !isUnavailable(sg.id) });
   r.playlist.forEach((it) => (it.genIndex = it.index));
-  // Remember which rules were already relaxed, so edits only report problems they cause.
-  r.baselineViolations = checkRules(r, state.settings).map((v) => violationKey(v, r.playlist));
-  r.editViolations = [];
+  rebaseline(r);
   state.result = r;
   state.stale = false;
   renderResults();
+  // Check the new playlist's songs on Spotify (and replace unavailable ones), if logged in.
+  if (isLoggedIn() && activeItems(r).some((it) => spotifyTrackId(it.song.id))) checkPlaylistOnSpotify(r);
+}
+
+/** Remember which rules are already relaxed, so later edits only report problems they cause. */
+function rebaseline(r) {
+  const items = activeItems(r);
+  r.baselineViolations = checkRules({ ...r, playlist: items }, state.settings).map((v) => violationKey(v, items));
+  r.editViolations = [];
+}
+
+/* ------------------------------------------- check the playlist on Spotify */
+
+/*
+ * After generating (when logged in), every song of the playlist is looked up on Spotify. A song
+ * that cannot be played is replaced by another song of the same dance that fits the settings and
+ * is itself checked first. Replacements count as the generator's choices (the row says what was
+ * replaced); a song with no available replacement stays, with a warning.
+ */
+async function checkPlaylistOnSpotify(r) {
+  const items = activeItems(r).filter((it) => spotifyTrackId(it.song.id));
+  r.check = { running: true, done: 0, total: items.length };
+  renderResults();
+  const stillCurrent = () => state.result === r;
+  await checkSongs(items.map((it) => it.song.id), {
+    shouldStop: () => !stillCurrent(),
+    onProgress: (done, total) => {
+      r.check.done = done;
+      const progress = $("check-progress");
+      if (progress) progress.textContent = `Checking songs on Spotify… ${done} of ${total}`;
+    },
+  });
+  if (!stillCurrent()) return;
+
+  let replaced = 0;
+  let unresolved = 0;
+  for (const it of activeItems(r)) {
+    if (!isUnavailable(it.song.id)) continue;
+    const old = it.song;
+    const sub = await availableReplacement(r, it);
+    if (!stillCurrent()) return;
+    if (!sub) {
+      unresolved++;
+      continue;
+    }
+    it.song = asPlaylistSong(sub);
+    it.isTheme = isThemeSong(it.song, it.dance, it.kind);
+    it.autoReplaced = { title: old.title, why: unavailableReason(old.id) };
+    replaced++;
+  }
+  const edited = hasEdits(r);
+  r.check = { running: false, total: items.length, replaced, unresolved };
+  recompute();
+  // Replacements in an untouched playlist are the generator's choices, not edits.
+  if (!edited) {
+    rebaseline(r);
+    renderResults();
+  }
+}
+
+/** Another song of the same dance that fits the settings, is not in the playlist, and plays on Spotify. */
+async function availableReplacement(r, it) {
+  const s = state.settings;
+  const m = associationMap(s.associations);
+  const inPlaylist = new Set(activeItems(r).map((x) => x.song.id));
+  const candidates = state.songs
+    .filter((sg) => spotifyTrackId(sg.id) && !inPlaylist.has(sg.id) && !isUnavailable(sg.id) &&
+      withinLengthLimits(sg, s) && sg.dances.some((d) => m(d) === it.dance))
+    .map((sg) => ({ sg, known: availabilityOf(sg.id), order: Math.random() }))
+    // Songs already known to play come first; then unchecked ones, in random order.
+    .sort((a, b) => (b.known ? 1 : 0) - (a.known ? 1 : 0) || a.order - b.order);
+  for (const { sg, known } of candidates.slice(0, 10)) {
+    if (known && known.status !== "error") return sg;
+    await checkSongs([sg.id]);
+    const now = availabilityOf(sg.id);
+    if (now && !isUnavailable(sg.id) && now.status !== "error") return sg;
+  }
+  return null;
+}
+
+/** Check one song a user swapped or inserted (no automatic replacement: the user chose it). */
+function checkChosenSong(song) {
+  const r = state.result;
+  if (!isLoggedIn() || !spotifyTrackId(song.id) || availabilityOf(song.id)) return;
+  checkSongs([song.id]).then(() => state.result === r && renderResults());
+}
+
+/** The "checked on Spotify" line under the playlist summary. */
+function spotifyCheckLine(r) {
+  const withIds = activeItems(r).filter((it) => spotifyTrackId(it.song.id));
+  if (!withIds.length) return null;
+  const c = r.check;
+  if (c && c.running) return el("p", { class: "muted", id: "check-progress" }, `Checking songs on Spotify… ${c.done} of ${c.total}`);
+  const again = (label) => el("button", { type: "button", class: "small", onclick: () => {
+    if (isLoggedIn()) return checkPlaylistOnSpotify(r);
+    r.checkAfterLogin = true;
+    try {
+      sessionStorage.setItem(PENDING_RESULT_KEY, JSON.stringify(r));
+    } catch {
+      /* too large or unavailable */
+    }
+    spotifyLogin();
+  } }, label);
+  if (!c) {
+    return el("p", { class: "inline-fields muted" }, "These songs have not been checked on Spotify yet.",
+      again(isLoggedIn() ? "Check on Spotify" : "Log in and check on Spotify"));
+  }
+  const parts = [`Checked on Spotify: ${c.total} songs.`];
+  if (!c.replaced && !c.unresolved) parts.push("All of them can be played.");
+  if (c.replaced) parts.push(`${c.replaced} unavailable song(s) were replaced with available ones of the same dance (marked below).`);
+  if (c.unresolved) parts.push(`${c.unresolved} could not be replaced (marked below); swap or remove them.`);
+  return el("p", { class: "inline-fields muted" }, parts.join(" "), again("Check again"));
 }
 
 function renderResults() {
@@ -1017,7 +1130,10 @@ function renderResults() {
       el("td", { title: it.song.sourceDances ? `Tagged: ${it.song.sourceDances.join(", ")}` : null }, it.dance),
       el("td", { class: "type" }, kindLabel(it)),
       el("td", {}, it.song.title, it.song.artist && el("span", { class: "muted" }, ` – ${it.song.artist}`),
-        it.swapped && el("span", { class: "swap-note", title: `The generator chose: ${it.original.song.title}` }, " (swapped)")),
+        it.swapped && el("span", { class: "swap-note", title: `The generator chose: ${it.original.song.title}` }, " (swapped)"),
+        it.autoReplaced && !it.swapped && el("div", { class: "muted", style: "font-size:0.85em" },
+          `Replaced “${it.autoReplaced.title}” (${it.autoReplaced.why}).`),
+        isUnavailable(it.song.id) && el("div", { class: "swap-warning" }, `Warning: ${unavailableReason(it.song.id)}.`)),
       el("td", { class: "num" }, hms(it.song.lengthSec)),
       themed && el("td", { class: "theme-mark" }, it.isTheme ? "Yes" : ""),
       el("td", {}, el("div", { class: "row-actions" },
@@ -1048,6 +1164,7 @@ function renderResults() {
       el("span", {}, "Songs: ", el("b", {}, String(active.length)), removedCount ? ` (${removedCount} removed)` : ""),
       el("span", {}, "Length: ", el("b", {}, hms(r.totalSec)), ` (target ${hms(r.targetSec)}, ${diff >= 0 ? "+" : ""}${hms(diff)})`),
       themed && el("span", {}, "Theme share: ", el("b", {}, pct(r.stats.themeFraction)))),
+    spotifyCheckLine(r),
     el("div", { class: "result-actions" },
       el("button", { type: "button", class: "primary", onclick: generate, disabled: state.errors.length > 0 }, "Generate another"),
       copyLinks,
@@ -1139,6 +1256,7 @@ function swapSong(item, song, dance) {
   item.swapped = !item.inserted; // an inserted row just gets a different song
   if (item.inserted) delete item.original;
   recompute();
+  checkChosenSong(song);
 }
 
 function resetSwap(item) {
@@ -1157,6 +1275,7 @@ function insertSong(position, song, dance) {
     isTheme: isThemeSong(s, d, "inserted"), inserted: true,
   });
   recompute();
+  checkChosenSong(song);
 }
 
 function removeItem(item) {
@@ -1209,6 +1328,7 @@ function openSongPicker({ item = null, insertAt = null }) {
     if (swapping && !merged(sg).includes(item.dance)) out.push(`a different dance (${merged(sg).join(", ") || "none"})`);
     if (position.has(sg.id)) out.push(`already in this playlist (#${position.get(sg.id) + 1})`);
     if (!withinLengthLimits(sg, s)) out.push("outside the song length limits");
+    if (isUnavailable(sg.id)) out.push(unavailableReason(sg.id));
     return out;
   };
   const closeness = (sg) => (current ? Math.abs(sg.lengthSec - current.lengthSec) : 0);
@@ -1347,7 +1467,10 @@ function saveToSpotifyBox(r, trackIds) {
     status);
 }
 
-/** After a login trip started from "Save to Spotify", bring the generated playlist back. */
+/**
+ * After a login trip started from the results ("Save to Spotify" or "Log in and check"), bring the
+ * generated playlist back, and check its songs on Spotify if that has not happened yet.
+ */
 function restorePendingResult() {
   let saved = null;
   try {
@@ -1357,9 +1480,12 @@ function restorePendingResult() {
     /* nothing to restore */
   }
   if (saved && Array.isArray(saved.playlist)) {
+    if (saved.check && saved.check.running) delete saved.check; // a check cut short by the login trip
+    delete saved.checkAfterLogin;
     state.result = saved;
     state.stale = false;
     renderResults();
+    if (isLoggedIn() && !saved.check) checkPlaylistOnSpotify(saved);
   }
 }
 

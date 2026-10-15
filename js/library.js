@@ -12,6 +12,7 @@ import {
   login, logout, isLoggedIn, handleLoginRedirect, getMyPlaylists, getPlaylistTracks,
   getTrack, searchTracks, playlistIdFrom,
 } from "./spotify.js";
+import { availabilityOf, isUnavailable, unavailableReason, reloadAvailability } from "./availability.js";
 import { spotifyTrackId } from "./data.js";
 import { loadSongsFromUrl, parseSongsText, songsToCSV, parseRemovedSongs, removedSongsToCSV } from "./data.js";
 import {
@@ -749,6 +750,40 @@ function renderWorklist() {
 
 /* ----------------------------------------------------------------- 5. Review */
 
+/* ------------------------------------------------- Spotify availability */
+/*
+ * Songs are checked on Spotify by the generator (each playlist it makes), see js/availability.js.
+ * Here the results so far are shown, so dead songs can be removed from the library for good.
+ */
+
+const notAvailable = (id) => isUnavailable(id);
+
+/** What to show under a song's title about its availability (null = nothing to say). */
+function availabilityNote(id) {
+  const a = availabilityOf(id);
+  if (!a || a.status === "ok") return null;
+  if (isUnavailable(id)) return el("div", { class: "swap-warning" }, `Warning: ${unavailableReason(id)}. Consider removing it.`);
+  if (a.status === "relinked") return el("div", { class: "muted", style: "font-size:0.85em" }, `Spotify plays a different version: ${a.playsAs}.`);
+  return null;
+}
+
+/** The "Spotify availability" box at the top of step 5: what the generator has learned so far. */
+function availabilityBox() {
+  reloadAvailability(); // the generator page may have checked songs since this page opened
+  const inLibrary = state.rows.filter((r) => !r.removedNow && !r.blocked);
+  const checked = inLibrary.filter((r) => availabilityOf(r.song.id));
+  const bad = inLibrary.filter((r) => isUnavailable(r.song.id)).length;
+  return el("div", { class: "subbox" },
+    el("div", { class: "subbox-title" }, "Spotify availability"),
+    el("p", { class: "help" },
+      "Each time the generator makes a playlist (while logged in to Spotify), it checks those songs and replaces any that " +
+        "cannot be played. What it has found is shown here. " +
+        (checked.length
+          ? `${checked.length} of ${inLibrary.length} songs checked so far; ${bad} not available` +
+            (bad ? " (filter “Not available on Spotify” below; consider removing them)." : ".")
+          : "No songs have been checked yet.")));
+}
+
 const FILTERS = {
   all: ["All", () => true],
   new: ["New", (r) => r.status === "new"],
@@ -757,6 +792,7 @@ const FILTERS = {
   guessed: ["Keyword tags", (r) => r.guessed.tags.length],
   nodance: ["No dance", (r) => !r.song.dances.length],
   unchanged: ["Unchanged", (r) => r.status === "unchanged"],
+  unavailable: ["Not available on Spotify", (r) => notAvailable(r.song.id)],
   removed: ["Removed", (r) => r.removedNow],
   blocked: ["Removed before", (r) => r.blocked || r.reimported],
 };
@@ -789,6 +825,7 @@ function renderReview() {
     el("p", { class: "help" }, "Your whole library is listed here, plus anything imported. Use × to take a dance or tag off a song, " +
       "and the dropdown to add one. Highlighted tags came from keyword rules, so check them. " +
       "Remove takes a song out of the library; the app remembers it, so a later import will not quietly bring it back."),
+    availabilityBox(),
     el("div", { class: "inline-fields" }, ...filterButtons, search),
     el("div", { class: "actions" },
       (state.imports || state.manual.length > 0) && el("button", { type: "button", class: "small", onclick: () => {
@@ -860,7 +897,7 @@ function reviewRow(r) {
   row = el("tr", { class: !s.dances.length ? "nodance" : null },
     el("td", {}, r.reimported ? "Re-imported"
       : r.status === "new" ? "New" : r.status === "updated" ? `+ ${[...r.added.dances, ...r.added.tags].join(", ")}` : ""),
-    el("td", {}, s.title),
+    el("td", {}, s.title, availabilityNote(s.id)),
     el("td", {}, s.artist),
     el("td", {}, s.album || ""),
     el("td", { class: "num" }, formatTime(s.lengthSec)),

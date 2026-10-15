@@ -278,6 +278,25 @@ export async function getPlaylistTracks(playlistId, onPage) {
   return songs;
 }
 
+/**
+ * Whether a track can still be played in the user's country (`GET /tracks/{id}?market=from_token`).
+ * With a market, Spotify reports `is_playable`, and may "relink" an unavailable track to another
+ * version, which then comes back under a different ID. Spotify asks apps to keep using the original
+ * ID (it substitutes the other version itself), so a relink is information, not something to fix.
+ * Returns { status: "ok" | "relinked" | "unplayable" | "missing" | "error", reason?, playsAs?, message? }.
+ */
+export async function checkTrackAvailability(trackId) {
+  try {
+    const t = await api(`/tracks/${encodeURIComponent(trackId)}?market=from_token`);
+    if (t.is_playable === false) return { status: "unplayable", reason: (t.restrictions && t.restrictions.reason) || "" };
+    if (t.id && t.id !== trackId) return { status: "relinked", playsAs: `${t.name} – ${(t.artists || []).map((a) => a.name).join(", ")}` };
+    return { status: "ok" };
+  } catch (err) {
+    if (err.status === 404 || err.status === 400) return { status: "missing" };
+    return { status: "error", message: err.message };
+  }
+}
+
 /** One song by its track ID (`GET /tracks/{id}`; the several-at-once endpoint was removed). */
 export async function getTrack(trackId) {
   return trackToSong(await api(`/tracks/${encodeURIComponent(trackId)}`));
