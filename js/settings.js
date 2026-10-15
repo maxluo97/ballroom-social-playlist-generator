@@ -8,6 +8,8 @@
  * "Save user settings…", and replace data/default-settings.json with that file.
  */
 
+import { normalizeFixedEvent } from "./generator.js";
+
 export const DEFAULTS_URL = "data/default-settings.json";
 
 /** Current settings format. Bump when saved settings need upgrading (see upgradeSettings). */
@@ -77,6 +79,8 @@ export function upgradeSettings(saved, defaults) {
     closing: { ...d.closing, ...saved.closing },
     seed: null,
   };
+  // Fixed events list their dances in `dances` (older settings had a single `dance`).
+  s.fixedEvents = (s.fixedEvents || []).map(normalizeFixedEvent);
   // Version 2: associations include their own name by default.
   if (!(saved.version >= 2)) {
     for (const a of s.associations || []) {

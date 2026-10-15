@@ -121,11 +121,9 @@
       "intervalMinutes": 25,
       "jitterMinutes": 3,
       "pool": {
-        "Polka": 0,
         "Hustle": 2,
         "Bachata": 3,
-        "West Coast Swing": 2,
-        "Night Club Two Step": 0
+        "West Coast Swing": 2
       }
     },
     "fixedEvents": [

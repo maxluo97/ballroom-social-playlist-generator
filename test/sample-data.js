@@ -72,6 +72,17 @@ export const SCENARIOS = [
     settings: APP_DEFAULTS,
   },
   {
+    name: "App defaults + a fixed event with several dances (Latin showcase)",
+    songs: buildSampleLibrary(),
+    settings: {
+      ...APP_DEFAULTS,
+      fixedEvents: [
+        ...APP_DEFAULTS.fixedEvents,
+        { name: "Latin showcase", dances: ["Latin Samba", "Latin Jive", "Latin Paso Doble"], count: 3, at: 0.3 },
+      ],
+    },
+  },
+  {
     name: "Sample library, NO associations: Smooth and Standard as separate categories",
     songs: buildSampleLibrary(),
     settings: {

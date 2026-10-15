@@ -24,7 +24,8 @@
  *   maxInARow            longest block of one category in a row (blocks are 1..maxInARow)
  *   minToRepeat          songs that must separate two songs of the same dance
  *   excursions           { intervalMinutes, jitterMinutes, pool: { dance: maxOccurrences } }
- *   fixedEvents          [{ name, dance, count, at: 0..1, notAfter: [names or dances] }]
+ *   fixedEvents          [{ name, dances: [...], count, at: 0..1, notAfter: [names or dances] }]
+ *                        each of the `count` songs is one of `dances` (older files: `dance: "..."`)
  *   theme                { name, dances, tags, fractionMin, fractionMax, guaranteedOpeners } or null
  *   opening              { earlyCount, blacklist: [dances] }
  *   closing              { finalDance }   (null = no designated last dance)
@@ -53,6 +54,11 @@
  * If a rule set cannot be satisfied (e.g. too few songs), rules are relaxed in a fixed order
  * (see LEVELS) and a warning is recorded, instead of failing.
  */
+
+import { DANCE_ALIASES, BALLROOM_DANCE_NAMES } from "./dance-names.js";
+
+/** Dance names the app knows (plain and ballroom-styled), for spotting typos. */
+const KNOWN_DANCE_NAMES = new Set([...Object.keys(DANCE_ALIASES), ...BALLROOM_DANCE_NAMES]);
 
 export const DEFAULT_SETTINGS = {
   eventLengthMinutes: 180,
@@ -118,12 +124,19 @@ export function mergeSettings(user = {}) {
     ...user,
     associations: user.associations ?? d.associations,
     categories: user.categories ?? d.categories,
-    fixedEvents: user.fixedEvents ?? d.fixedEvents,
+    fixedEvents: (user.fixedEvents ?? d.fixedEvents).map(normalizeFixedEvent),
     excursions: { ...d.excursions, ...(user.excursions || {}) },
     opening: { ...d.opening, ...(user.opening || {}) },
     closing: { ...d.closing, ...(user.closing || {}) },
     theme: user.theme ? { ...THEME_DEFAULTS, ...user.theme } : null,
   };
+}
+
+/** Fixed events list their dances in `dances`; older settings used a single `dance`. */
+export function normalizeFixedEvent(e) {
+  const { dance, ...rest } = e;
+  const dances = e.dances ?? (dance ? [dance] : []);
+  return { ...rest, dances, name: e.name || dances.join(" / ") };
 }
 
 function normalizeSong(sg) {
@@ -153,7 +166,7 @@ function resolveSettings(userSettings) {
     ...s,
     categories: s.categories.map((c) => ({ ...c, dances: mapUnique(c.dances, m) })),
     excursions: { ...s.excursions, pool },
-    fixedEvents: s.fixedEvents.map((e) => ({ ...e, dance: m(e.dance), notAfter: mapUnique(e.notAfter, m) })),
+    fixedEvents: s.fixedEvents.map((e) => ({ ...e, dances: mapUnique(e.dances, m), notAfter: mapUnique(e.notAfter, m) })),
     theme: s.theme ? { ...s.theme, dances: mapUnique(s.theme.dances, m) } : null,
     opening: { ...s.opening, blacklist: mapUnique(s.opening.blacklist, m) },
     closing: { ...s.closing, finalDance: s.closing.finalDance ? m(s.closing.finalDance) : null },
@@ -191,8 +204,11 @@ function validateAssociations(s, rawDances, errors, warnings) {
     for (const d of a.dances || []) {
       if (owner.has(d)) errors.push(`Dance "${d}" is in both associations "${owner.get(d)}" and "${a.name}".`);
       owner.set(d, a.name);
-      // An association lists its own name by default; that one needs no songs of its own.
-      if (!rawDances.has(d) && d !== a.name) warnings.push(`Association "${a.name}": no songs are tagged "${d}".`);
+      // Members without songs are harmless (the association's own name, or a dance the library may
+      // gain later, e.g. plain "Jive"); only unrecognized names are reported, as likely typos.
+      if (!rawDances.has(d) && d !== a.name && !KNOWN_DANCE_NAMES.has(d)) {
+        warnings.push(`Association "${a.name}": no songs are tagged "${d}" (typo?).`);
+      }
     }
   }
   for (const n of names) {
@@ -316,8 +332,12 @@ export function validateSettings(rawSongs, userSettings) {
     if (w > 0 && countFor(d) === 0) warnings.push(`No songs are tagged "${d}" (excursion).`);
   }
   for (const ev of s.fixedEvents) {
-    if (!(ev.at >= 0 && ev.at <= 1)) errors.push(`Fixed event "${ev.name ?? ev.dance}": 'at' must be between 0 and 1.`);
-    if (countFor(ev.dance) < (ev.count ?? 1)) warnings.push(`Fixed event "${ev.name ?? ev.dance}" needs ${ev.count ?? 1} song(s) tagged "${ev.dance}".`);
+    if (!(ev.at >= 0 && ev.at <= 1)) errors.push(`Fixed event "${ev.name}": 'at' must be between 0 and 1.`);
+    if (!ev.dances.length) errors.push(`Fixed event "${ev.name}" has no dances.`);
+    const available = songs.filter((sg) => sg.dances.some((d) => ev.dances.includes(d))).length;
+    if (ev.dances.length && available < (ev.count ?? 1)) {
+      warnings.push(`Fixed event "${ev.name}" needs ${ev.count ?? 1} song(s) tagged ${ev.dances.map((d) => `"${d}"`).join(" or ")}; only ${available} found.`);
+    }
   }
   if (s.closing.finalDance && countFor(s.closing.finalDance) === 0) {
     warnings.push(`No songs are tagged "${s.closing.finalDance}" (final dance).`);
@@ -582,7 +602,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
 
   /* ---- fixed events ---- */
   const fixed = s.fixedEvents
-    .map((e) => ({ ...e, name: e.name ?? e.dance, count: e.count ?? 1, notAfter: e.notAfter ?? [], triggered: false }))
+    .map((e) => ({ ...e, count: e.count ?? 1, notAfter: e.notAfter ?? [], triggered: false }))
     .sort((a, b) => a.at - b.at);
   const queue = [];
 
@@ -618,8 +638,15 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     }
     if (queue.length) {
       const ev = queue.shift();
-      const song = pickSong(ev.dance, false) ?? pickSong(ev.dance, true);
-      if (song) push(ev.dance, song, "fixed", null, ev.name);
+      // Any of the event's dances; vary them within the event when there is a choice.
+      const prev = playlist.length ? playlist[playlist.length - 1] : null;
+      const withSongs = (reuse) => ev.dances.filter((d) => hasSong(d, reuse));
+      const reuse = withSongs(false).length === 0;
+      let options = withSongs(reuse);
+      if (prev && prev.source === ev.name && options.length > 1) options = options.filter((d) => d !== prev.dance);
+      const dance = options.length ? choice(options) : null;
+      const song = dance && pickSong(dance, reuse);
+      if (song) push(dance, song, "fixed", null, ev.name);
       else warn(playlist.length, `No song available for fixed event "${ev.name}".`);
       continue;
     }
@@ -752,9 +779,12 @@ export function checkRules(result, userSettings) {
 
   // 6. fixed events: right count, not before their time, never back to back with another event
   for (const ev of s.fixedEvents) {
-    const name = ev.name ?? ev.dance;
+    const name = ev.name;
     const items = pl.filter((it) => it.kind === "fixed" && it.source === name);
     if (items.length !== (ev.count ?? 1)) v.push({ rule: "fixedEvent", index: -1, message: `"${name}" appeared ${items.length}x, expected ${ev.count ?? 1}.` });
+    for (const it of items) {
+      if (!ev.dances.includes(it.dance)) v.push({ rule: "fixedEventDance", index: it.index, message: `"${name}" played ${it.dance}, which is not one of its dances.` });
+    }
     if (items.length && result.targetSec && items[0].startSec < ev.at * result.targetSec) {
       v.push({ rule: "fixedEventTime", index: items[0].index, message: `"${name}" started before ${(ev.at * 100).toFixed(0)}% of the night.` });
     }

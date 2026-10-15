@@ -14,6 +14,7 @@ import {
 import { loadSongsFromUrl, parseSongsText, playlistToCSV, spotifyLink } from "./data.js";
 import { handleLoginRedirect } from "./spotify.js";
 import { el, fill, $ } from "./dom.js";
+import { DANCE_ALIASES } from "./dance-names.js";
 
 const SAMPLE_URL = "data/sample-songs.json";
 const SAMPLE_NAME = "Sample library (made-up songs)";
@@ -108,10 +109,26 @@ function referencedDances() {
   const out = new Set();
   s.categories.forEach((c) => c.dances.forEach((d) => out.add(m(d))));
   Object.keys(s.excursions.pool).forEach((d) => out.add(m(d)));
-  s.fixedEvents.forEach((e) => out.add(m(e.dance)));
+  s.fixedEvents.forEach((e) => e.dances.forEach((d) => out.add(m(d))));
   if (s.closing.finalDance) out.add(m(s.closing.finalDance));
   return out;
 }
+
+/** The association already holding this (library) dance, or null. */
+const associationOf = (dance) => state.settings.associations.find((a) => a.dances.includes(dance)) ?? null;
+
+/** Suggestions for association editors: each dance can be in only one association. */
+const dancesNotInAnAssociation = () => rawDances().filter((d) => !associationOf(d));
+
+/** Suggestions for the excursion pool: dances not already excursions or in a category. */
+const dancesForExcursions = () =>
+  resolvedDances().filter((d) => !(d in state.settings.excursions.pool) && !categoryOf(d));
+
+/** Suggested association names: common dance names not yet used as an association name. */
+const associationNameIdeas = () => {
+  const used = new Set(state.settings.associations.map((a) => a.name));
+  return Object.keys(DANCE_ALIASES).filter((d) => !used.has(d));
+};
 
 /** When an association is renamed, update every place that used the old name. */
 function renameEverywhere(oldName, newName) {
@@ -122,7 +139,7 @@ function renameEverywhere(oldName, newName) {
     s.excursions.pool = Object.fromEntries(Object.entries(s.excursions.pool).map(([d, w]) => [d === oldName ? newName : d, w]));
   }
   s.fixedEvents.forEach((e) => {
-    if (e.dance === oldName) e.dance = newName;
+    swap(e.dances);
     swap(e.notAfter);
   });
   if (s.theme) swap(s.theme.dances);
@@ -148,9 +165,14 @@ function numberInput(get, set, { min, max, step = 1 } = {}) {
   return input;
 }
 
-/** Text input. Updates on every keystroke unless `commitOnly` (then on Enter / leaving the box). */
-function textInput(get, set, { placeholder, list, commitOnly = false, onCommit } = {}) {
-  const input = el("input", { type: "text", value: get() ?? "", placeholder, list });
+/**
+ * Text input. Updates on every keystroke unless `commitOnly` (then on Enter / leaving the box).
+ * `suggest`: a function returning suggestions for this box's own dropdown (refreshed on focus).
+ */
+function textInput(get, set, { placeholder, list, suggest, commitOnly = false, onCommit } = {}) {
+  const ownList = suggest ? el("datalist", { id: `dl-auto-${++autoListId}` }) : null;
+  const input = el("input", { type: "text", value: get() ?? "", placeholder, list: ownList ? ownList.id : list });
+  if (ownList) input.addEventListener("focus", () => ownList.replaceChildren(...suggest().map((v) => el("option", { value: v }))));
   if (!commitOnly) {
     input.addEventListener("input", () => {
       set(input.value);
@@ -164,7 +186,7 @@ function textInput(get, set, { placeholder, list, commitOnly = false, onCommit }
       changed();
     }
   });
-  return input;
+  return ownList ? el("span", { class: "contents" }, input, ownList) : input;
 }
 
 /** Slider + number box for a 0..1 fraction shown as a percentage. */
@@ -290,6 +312,7 @@ function associationsSection(s) {
       el("div", { class: "row-head" },
         textInput(() => a.name, (v) => (a.name = v.trim()), {
           placeholder: "Merged name, e.g. Waltz",
+          suggest: associationNameIdeas,
           commitOnly: true,
           onCommit: (v) => {
             const old = a.name;
@@ -308,7 +331,14 @@ function associationsSection(s) {
           s.associations.splice(i, 1);
           changed(true);
         })),
-      chipEditor(a.dances, "dl-raw", { placeholder: "add a dance…", label: `Add a dance to ${a.name}` }))
+      chipEditor(a.dances, dancesNotInAnAssociation, {
+        placeholder: "add a dance…",
+        label: `Add a dance to ${a.name}`,
+        check: (v) => {
+          const owner = associationOf(v);
+          return owner && owner !== a ? `${v} is already in the association “${owner.name}”.` : null;
+        },
+      }))
   );
   return section(
     "Dance associations",
@@ -392,7 +422,10 @@ function repetitionSection(s) {
 
 function excursionsSection(s) {
   const ex = s.excursions;
-  const addBox = el("input", { type: "text", list: "dl-dances", placeholder: "dance to add…", "aria-label": "Excursion dance to add" });
+  // Suggestions leave out dances that are already excursions or belong to a category.
+  const addList = el("datalist", { id: `dl-auto-${++autoListId}` });
+  const addBox = el("input", { type: "text", list: addList.id, placeholder: "dance to add…", "aria-label": "Excursion dance to add" });
+  addBox.addEventListener("focus", () => addList.replaceChildren(...dancesForExcursions().map((v) => el("option", { value: v }))));
   const addDance = () => {
     const d = addBox.value.trim();
     if (d && !(d in ex.pool)) {
@@ -401,6 +434,10 @@ function excursionsSection(s) {
     }
   };
   addBox.addEventListener("keydown", (e) => e.key === "Enter" && (e.preventDefault(), addDance()));
+  addBox.addEventListener("input", (e) => {
+    // Picking an entry from the suggestion list adds it straight away.
+    if ((e.inputType === undefined || e.inputType === "insertReplacementText") && [...addList.options].some((o) => o.value === addBox.value)) addDance();
+  });
   const rows = Object.keys(ex.pool).map((d) =>
     el("tr", {},
       el("td", {}, d),
@@ -426,7 +463,7 @@ function excursionsSection(s) {
           el("thead", {}, el("tr", {}, el("th", {}, "Dance"), el("th", {}, "Max count"), el("th", {}))),
           el("tbody", {}, rows))
       : el("p", { class: "muted" }, "No excursion dances yet."),
-    el("div", { class: "inline-fields" }, addBox, el("button", { type: "button", class: "small", onclick: addDance }, "+ Add"))
+    el("div", { class: "inline-fields" }, addBox, addList, el("button", { type: "button", class: "small", onclick: addDance }, "+ Add"))
   );
 }
 
@@ -440,22 +477,24 @@ function fixedSection(s) {
           s.fixedEvents.splice(i, 1);
           changed(true);
         })),
+      el("div", { class: "inline-fields" }, "Dance(s):",
+        chipEditor(e.dances, resolvedDances, { placeholder: "add a dance…", label: `Add a dance to ${e.name}` })),
       el("div", { class: "inline-fields" },
-        el("label", {}, "Dance", textInput(() => e.dance, (v) => (e.dance = v.trim()), { list: "dl-dances" })),
         el("label", {}, "Songs", numberInput(() => e.count ?? 1, (v) => (e.count = v), { min: 1, max: 10 }))),
       el("div", { class: "inline-fields" }, "At", percentSlider(() => e.at, (v) => (e.at = v)), "of the night"),
       el("div", { class: "inline-fields" }, "Never directly after:",
-        chipEditor(e.notAfter, "dl-dances", { placeholder: "dance or event…", label: `Never directly after (${e.name})` })));
+        chipEditor(e.notAfter, () => [...s.fixedEvents.filter((x) => x !== e).map((x) => x.name), ...resolvedDances()],
+          { placeholder: "dance or event…", label: `Never directly after (${e.name})` })));
   });
   return section(
     "Fixed events",
     live(() => `${s.fixedEvents.length} event(s)`, "span", "summary-note"),
     el("p", { class: "help" },
       "Dances placed at a set point in the night, e.g. a line-dance break at 50% or one Paso Doble at 70%. " +
-        "Two fixed events never play back to back."),
+        "With several dances, each song of the event is one of them. Two fixed events never play back to back."),
     el("div", { class: "rows" }, rows),
     el("div", {}, el("button", { type: "button", class: "small", onclick: () => {
-      s.fixedEvents.push({ name: "New event", dance: "", count: 1, at: 0.5, notAfter: [] });
+      s.fixedEvents.push({ name: "New event", dances: [], count: 1, at: 0.5, notAfter: [] });
       changed(true);
     } }, "+ Add fixed event"))
   );
