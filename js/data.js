@@ -30,10 +30,22 @@ const HEADER_ALIASES = {
 /** Column order used when writing the song library (see songsToCSV). */
 const LIBRARY_COLUMNS = ["id", "title", "artist", "album", "length", "dances", "tags", "isrc"];
 
+/** Returns { songs, problems, hash } — `hash` fingerprints the file's text, to notice when it changes. */
 export async function loadSongsFromUrl(url) {
-  const res = await fetch(url);
+  const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`Could not load ${url} (HTTP ${res.status}).`);
-  return parseSongsText(await res.text(), url);
+  const text = await res.text();
+  return { ...parseSongsText(text, url), hash: textHash(text) };
+}
+
+/** A short fingerprint of a text (FNV-1a, 32-bit): equal texts give equal fingerprints. */
+export function textHash(text) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
 }
 
 /** Parse a JSON or CSV file's text. Returns { songs, problems }. */

@@ -13,6 +13,7 @@ import {
   getTrack, searchTracks, playlistIdFrom,
 } from "./spotify.js";
 import { availabilityOf, isUnavailable, unavailableReason, reloadAvailability, checkSongs } from "./availability.js";
+import { canSaveToFolder, getFolder, folderHasFile, writeTextFile, rememberedFolderName } from "./folders.js";
 import { spotifyTrackId } from "./data.js";
 import { loadSongsFromUrl, parseSongsText, songsToCSV, parseRemovedSongs, removedSongsToCSV } from "./data.js";
 import {
@@ -27,6 +28,7 @@ import { formatTime } from "./generator.js";
 
 const PROJECT_URL = "data/songs.csv";
 const REMOVED_URL = "data/removed-songs.csv";
+const DATA_FOLDER_KEY = "dpg-data-folder"; // remembered folder for "Save to the data folder"
 const RULES_KEY = "dpg.tagRules.v2"; // [{ keyword, tag }]
 const OLD_RULES_KEY = "dpg.tagRules.v1"; // older text format, migrated once
 const DEFAULT_RULES = [
@@ -980,21 +982,69 @@ function renderOutput() {
     }
   };
   const noDance = songs().filter((s) => !s.dances.length).length;
+
+  // Chrome / Edge: write the files straight into the project's data folder (picked once, then remembered).
+  const saveToFolder = async (choose) => {
+    let folder;
+    try {
+      folder = await getFolder(DATA_FOLDER_KEY, {
+        choose,
+        check: async (h) => ((await folderHasFile(h, "default-settings.json")) ? null
+          : `The folder “${h.name}” does not look like the project's data folder (it has no default-settings.json).`),
+      });
+    } catch (err) {
+      return alert(`Could not open the folder: ${err.message}`);
+    }
+    if (!folder) return;
+    const count = songs().length;
+    try {
+      await writeTextFile(folder, "songs.csv", songsToCSV(songs()));
+      if (listChanged) await writeTextFile(folder, "removed-songs.csv", removedSongsToCSV(updatedBlacklist(state.blacklist, state.rows, today)));
+    } catch (err) {
+      return alert(`Could not save: ${err.message}`);
+    }
+    state.dataFolderName = folder.name;
+    // Start again from the files just saved.
+    await loadRemoved();
+    await loadProject();
+    state.saveMessage = `Saved ${count} songs to ${folder.name}/songs.csv` + (listChanged ? " and the removed songs to removed-songs.csv" : "") +
+      ` at ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}. Reload the generator page to use it.`;
+    renderOutput();
+  };
+
+  const downloads = [
+    el("button", { type: "button", onclick: download }, "Download songs.csv"),
+    listChanged && el("button", { type: "button", onclick: downloadRemoved }, "Download removed-songs.csv"),
+  ];
   fill($("output"),
     el("p", {}, `The library will have ${songs().length} songs.` +
       (removedNow ? ` ${removedNow} removed now.` : "") +
       (blocked ? ` ${blocked} previously removed song(s) from the import left out.` : "")),
     noDance > 0 && el("ul", { class: "msgs" }, el("li", { class: "warning" },
       `${noDance} song(s) have no dance. They are kept in songs.csv, but the generator skips them until they get one (filter “No dance” above).`)),
-    el("div", { class: "actions" },
-      el("button", { type: "button", class: "primary", onclick: download }, "Download songs.csv"),
-      listChanged && el("button", { type: "button", class: "primary", onclick: downloadRemoved }, "Download removed-songs.csv"),
-      el("button", { type: "button", onclick: useNow }, "Try it in the generator now")),
-    el("ol", { class: "help" },
-      el("li", {}, "Download songs.csv and save it in the project's data folder, replacing the old one."),
-      listChanged && el("li", {}, "Also download removed-songs.csv and save it in the data folder too. " +
-        "It is how the app remembers the songs you removed."),
-      el("li", {}, "Reload the generator page. If it still shows an older library, press “Use data/songs.csv”.")));
+    state.saveMessage && el("ul", { class: "msgs" }, el("li", { class: "ok" }, state.saveMessage)),
+    canSaveToFolder()
+      ? [
+          el("div", { class: "actions" },
+            el("button", { type: "button", class: "primary", onclick: () => saveToFolder(false) }, "Save to the data folder"),
+            state.dataFolderName && el("button", { type: "button", class: "small", onclick: () => saveToFolder(true) }, "Choose a different folder…"),
+            el("button", { type: "button", onclick: useNow }, "Try it in the generator now")),
+          el("p", { class: "help" },
+            (state.dataFolderName
+              ? `Saves songs.csv${listChanged ? " and removed-songs.csv" : ""} into the folder “${state.dataFolderName}”, replacing the old file${listChanged ? "s" : ""}. `
+              : `The first time, choose the “data” folder inside the project; it is remembered after that. `) +
+              "Your browser may ask to allow editing files there."),
+          el("details", {}, el("summary", { class: "muted" }, "Or download the files instead"), el("div", { class: "actions" }, ...downloads)),
+        ]
+      : [
+          el("div", { class: "actions" }, ...downloads.map((b) => b && (b.classList.add("primary"), b)),
+            el("button", { type: "button", onclick: useNow }, "Try it in the generator now")),
+          el("ol", { class: "help" },
+            el("li", {}, "Download songs.csv and save it in the project's data folder, replacing the old one."),
+            listChanged && el("li", {}, "Also download removed-songs.csv and save it in the data folder too. " +
+              "It is how the app remembers the songs you removed."),
+            el("li", {}, "Reload the generator page. If it still shows an older library, press “Use data/songs.csv”.")),
+        ]);
 }
 
 /* -------------------------------------------------------------------- init */
@@ -1006,6 +1056,7 @@ async function init() {
   renderRules();
   renderPlaylists();
   renderManual();
+  state.dataFolderName = await rememberedFolderName(DATA_FOLDER_KEY);
   await loadRemoved();
   await loadProject();
 }

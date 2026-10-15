@@ -733,9 +733,14 @@ function renderSettingsBar() {
 
 /* ----------------------------------------------------------------- library */
 
+/**
+ * Use a song library. `persist` = keep a copy in this browser (a loaded file, or the library builder's
+ * "Try it in the generator now"); such a copy is used instead of data/songs.csv until replaced.
+ */
 function setLibrary(songs, name, problems, persist) {
   state.songs = songs;
-  state.library = { name, problems };
+  state.library = { name, problems, browserCopy: persist };
+  state.libraryNotice = null;
   state.result = null;
   try {
     if (persist) localStorage.setItem(LIBRARY_KEY, JSON.stringify({ name, songs }));
@@ -746,6 +751,16 @@ function setLibrary(songs, name, problems, persist) {
   renderLibrary();
   renderResults();
   refresh();
+}
+
+/** Remember which version of data/songs.csv was current when a browser copy was (first) used. */
+function rememberProjectVersion(hash) {
+  try {
+    const saved = loadSavedLibrary();
+    if (saved) localStorage.setItem(LIBRARY_KEY, JSON.stringify({ ...saved, projectHash: hash }));
+  } catch {
+    /* ignore */
+  }
 }
 
 function loadSavedLibrary() {
@@ -788,9 +803,20 @@ async function useSample() {
 /** Startup: a library loaded earlier in this browser, else data/songs.csv, else the sample. */
 async function loadStartingLibrary() {
   const saved = loadSavedLibrary();
-  if (saved && Array.isArray(saved.songs) && saved.songs.length) return setLibrary(saved.songs, saved.name, [], true);
-  const lib = await fetchProjectLibrary();
-  if (lib && lib.songs.length) return setLibrary(lib.songs, PROJECT_NAME, lib.problems, false);
+  const project = await fetchProjectLibrary();
+  if (saved && Array.isArray(saved.songs) && saved.songs.length) {
+    setLibrary(saved.songs, saved.name, [], true);
+    // The browser copy hides data/songs.csv. If that file changed since, say so and offer to switch.
+    if (project && project.songs.length) {
+      if (!saved.projectHash) rememberProjectVersion(project.hash);
+      else if (saved.projectHash !== project.hash) {
+        state.libraryNotice = { projectHash: project.hash };
+        renderLibrary();
+      }
+    }
+    return;
+  }
+  if (project && project.songs.length) return setLibrary(project.songs, PROJECT_NAME, project.problems, false);
   await useSample();
 }
 
@@ -817,6 +843,18 @@ function renderLibrary() {
       name !== SAMPLE_NAME && el("button", { type: "button", class: "small", onclick: useSample }, "Use sample library"),
       el("a", { href: "library.html", class: "button-link small" }, "Library builder"),
       fileInput),
+    state.library.browserCopy &&
+      el("p", { class: "help" }, "This library is a copy kept in this browser, so data/songs.csv is not being used. " +
+        "Press “Use data/songs.csv” to switch back to the project's library."),
+    state.libraryNotice &&
+      el("ul", { class: "msgs" }, el("li", { class: "warning" },
+        "data/songs.csv has changed since this browser copy was made. ",
+        el("button", { type: "button", class: "small", onclick: useProject }, "Use data/songs.csv"), " ",
+        el("button", { type: "button", class: "small", onclick: () => {
+          rememberProjectVersion(state.libraryNotice.projectHash); // don't ask again for this version
+          state.libraryNotice = null;
+          renderLibrary();
+        } }, "Keep browser copy"))),
     problems.length > 0 &&
       el("details", {},
         el("summary", {}, `${problems.length} row(s) skipped or changed while loading`),
