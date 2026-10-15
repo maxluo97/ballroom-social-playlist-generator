@@ -15,7 +15,7 @@ import {
 } from "./settings.js";
 import { loadSongsFromUrl, playlistToCSV, spotifyLink, spotifyTrackId, parseLength } from "./data.js";
 import { handleLoginRedirect, isLoggedIn, login as spotifyLogin, createPlaylist, addTracksToPlaylist } from "./spotify.js";
-import { el, fill, $, comboInput, chipEditor as sharedChipEditor } from "./dom.js";
+import { el, fill, $, comboInput, sortRows, sortHeader, chipEditor as sharedChipEditor } from "./dom.js";
 import { checkSongs, isUnavailable, unavailableReason, availabilityOf } from "./availability.js";
 import { DANCE_ALIASES, BALLROOM_DANCE_NAMES, canonicalDance, unknownDanceMessage } from "./dance-names.js";
 
@@ -829,13 +829,31 @@ function openLibraryView() {
   const summary = el("p", { class: "muted" });
   const tbody = el("tbody");
 
+  // Sortable columns (heading -> value to sort by); clicking a heading sorts, clicking again reverses.
+  const columns = {
+    "Title": (r) => r.sg.title,
+    "Artist": (r) => r.sg.artist,
+    "Length": (r) => r.sg.lengthSec,
+    "Dances": (r) => r.sg.dances.join(", "),
+    "Tags": (r) => (r.sg.tags || []).join(", "),
+    "Cannot play because": (r) => r.why,
+  };
+  view.sort = { key: null, dir: 1 };
+  const headerRow = el("tr");
+  const drawHeader = () => fill(headerRow, Object.keys(columns).map((label) =>
+    sortHeader(label, label, view.sort, (sort) => {
+      view.sort = sort;
+      drawHeader();
+      draw();
+    })));
+
   const draw = () => {
     const q = view.search.toLowerCase();
-    const shown = rows.filter((r) =>
+    const shown = sortRows(rows.filter((r) =>
       (!view.dance || r.merged.includes(view.dance)) &&
       (view.only !== "can" || !r.why) &&
       (view.only !== "cannot" || r.why) &&
-      `${r.sg.title} ${r.sg.artist || ""} ${(r.sg.tags || []).join(" ")}`.toLowerCase().includes(q));
+      `${r.sg.title} ${r.sg.artist || ""} ${(r.sg.tags || []).join(" ")}`.toLowerCase().includes(q)), view.sort, columns);
     summary.textContent = `Showing ${Math.min(shown.length, 1000)} of ${shown.length} matching songs (${rows.length} in the library).`;
     fill(tbody, shown.slice(0, 1000).map((r) =>
       el("tr", { class: r.why ? "cannot-play" : null },
@@ -855,6 +873,7 @@ function openLibraryView() {
   };
   onlyCan.addEventListener("change", () => setOnly(onlyCan, onlyCannot, "can"));
   onlyCannot.addEventListener("change", () => setOnly(onlyCannot, onlyCan, "cannot"));
+  drawHeader();
   draw();
 
   const cannot = rows.filter((r) => r.why).length;
@@ -875,7 +894,7 @@ function openLibraryView() {
     summary,
     el("div", { class: "table-wrap" },
       el("table", { class: "playlist" },
-        el("thead", {}, el("tr", {}, ["Title", "Artist", "Length", "Dances", "Tags", "Cannot play because"].map((h) => el("th", { scope: "col" }, h)))),
+        el("thead", {}, headerRow),
         tbody)));
   dialog.showModal();
 }

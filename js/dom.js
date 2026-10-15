@@ -24,6 +24,37 @@ export function el(tag, props = {}, ...children) {
 
 export const $ = (id) => document.getElementById(id);
 
+/* ------------------------------------------------------------ sortable tables */
+
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+/**
+ * A sorted copy of `rows`. `sort` = { key, dir } (dir 1 = ascending, -1 = descending; key null = as
+ * given); `columns[key]` is a function row -> value (number or text). Empty values always go last.
+ */
+export function sortRows(rows, sort, columns) {
+  if (!sort || !sort.key || !columns[sort.key]) return rows;
+  const value = columns[sort.key];
+  const empty = (v) => v == null || v === "" || (typeof v === "number" && !Number.isFinite(v));
+  return rows
+    .map((row, i) => ({ row, i, v: value(row) }))
+    .sort((a, b) => {
+      if (empty(a.v) || empty(b.v)) return empty(a.v) - empty(b.v) || a.i - b.i;
+      const c = typeof a.v === "number" && typeof b.v === "number" ? a.v - b.v : collator.compare(String(a.v), String(b.v));
+      return c * sort.dir || a.i - b.i; // ties keep their original order
+    })
+    .map((x) => x.row);
+}
+
+/** A column heading that sorts by its column when clicked (click again to reverse). */
+export function sortHeader(label, key, sort, onSort) {
+  const active = sort.key === key;
+  return el("th", { scope: "col", "aria-sort": active ? (sort.dir > 0 ? "ascending" : "descending") : "none" },
+    el("button", { type: "button", class: "sort-button", title: `Sort by ${label.toLowerCase()}`,
+      onclick: () => onSort(active ? { key, dir: -sort.dir } : { key, dir: 1 }) },
+      label, el("span", { class: "sort-mark", "aria-hidden": "true" }, active ? (sort.dir > 0 ? " ▲" : " ▼") : "")));
+}
+
 /** A fresh id for a list that belongs to one input. */
 let listCounter = 0;
 export const nextListId = () => `dl-auto-${++listCounter}`;

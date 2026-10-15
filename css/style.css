@@ -264,6 +264,10 @@ table.playlist tr.excursion td.type { color: var(--excursion); font-weight: 600;
 table.playlist tr.fixed td.type { color: var(--fixed); font-weight: 600; }
 table.playlist tr.final td.type { color: var(--final); font-weight: 600; }
 .theme-mark { color: var(--accent); }
+/* sortable column headings */
+th .sort-button { background: none; border: none; padding: 0; font: inherit; font-weight: 600; color: inherit; cursor: pointer; text-align: left; }
+th .sort-button:hover { color: var(--accent); }
+.sort-mark { color: var(--accent); }
 
 /* pages made of numbered steps (library builder, Spotify test) */
 .steps { display: grid; gap: 12px; max-width: 1400px; margin: 0 auto; padding: 16px; }

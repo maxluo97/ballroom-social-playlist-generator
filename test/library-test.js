@@ -8,6 +8,7 @@ import { mergeImport, parseTagRules, markPreviouslyRemoved, keptSongs, updatedBl
 import { songsToCSV, parseSongsText, parseRemovedSongs, removedSongsToCSV } from "../js/data.js";
 import { buildSampleLibrary } from "../tools/sample-library.js";
 import { playlistIdFrom } from "../js/spotify.js";
+import { sortRows } from "../js/dom.js";
 
 let failures = 0;
 const check = (cond, msg) => {
@@ -175,6 +176,17 @@ console.log("=== Removing songs (blacklist)");
   check(same(keptSongs(rows2).map((s) => s.id), [tid(1), tid(2)]) && same(keptSongs(rows2)[1].dances, ["Smooth Waltz"]),
     "a restored song is saved again with its dances");
   check(updatedBlacklist(back, rows2, "2026-10-21").length === 0, "a restored song comes off the blacklist");
+}
+
+console.log("=== Sorting tables (on screen)");
+{
+  const rows = [{ t: "b", n: 3 }, { t: "A", n: null }, { t: "c", n: 1 }, { t: "a2", n: 2 }, { t: "a10", n: 2 }];
+  const cols = { T: (r) => r.t, N: (r) => r.n };
+  const by = (key, dir, field) => sortRows(rows, { key, dir }, cols).map((r) => r[field]);
+  check(same(by("T", 1, "t"), ["A", "a2", "a10", "b", "c"]), `text ascending, capitals ignored, numbers natural: ${by("T", 1, "t")}`);
+  check(same(by("T", -1, "t"), ["c", "b", "a10", "a2", "A"]), "text descending");
+  check(same(by("N", 1, "n"), [1, 2, 2, 3, null]) && same(by("N", -1, "n"), [3, 2, 2, 1, null]), "numbers; empty values last either way");
+  check(same(sortRows(rows, { key: null, dir: 1 }, cols), rows), "no column chosen: original order");
 }
 
 console.log("=== Playlist links");

@@ -7,7 +7,7 @@
  * Imports only add to the library; see js/library-merge.js for the exact rules.
  */
 
-import { el, fill, $, chipEditor, comboInput } from "./dom.js";
+import { el, fill, $, chipEditor, comboInput, sortRows, sortHeader } from "./dom.js";
 import {
   login, logout, isLoggedIn, handleLoginRedirect, getMyPlaylists, getPlaylistTracks,
   getTrack, searchTracks, playlistIdFrom,
@@ -56,6 +56,7 @@ const state = {
   blacklist: new Map(), // songs removed from the library before (data/removed-songs.csv)
   filter: "all",
   search: "",
+  reviewSort: { key: null, dir: 1 }, // step 5 table: column heading clicked, and direction
 };
 
 const store = {
@@ -844,6 +845,20 @@ const FILTERS = {
   blocked: ["Removed earlier", (r) => r.blocked || r.reimported],
 };
 
+/** The review table's sortable columns (heading -> the value to sort by). On-screen order only. */
+const statusText = (r) =>
+  r.removedNow ? "Removed" : r.blocked ? "Removed earlier" : r.reimported ? "Restored" : r.status === "new" ? "New" : r.status === "updated" ? "Updated" : "";
+const REVIEW_COLUMNS = {
+  "Status": statusText,
+  "Title": (r) => r.song.title,
+  "Artist": (r) => r.song.artist,
+  "Album": (r) => r.song.album,
+  "Length": (r) => r.song.lengthSec,
+  "Dances": (r) => r.song.dances.join(", "),
+  "Tags": (r) => r.song.tags.join(", "),
+  "From playlist(s)": (r) => r.sources.join(", "),
+};
+
 /** Blacklisted songs only show under "Removed earlier" (until restored); every other filter hides them. */
 const shownIn = (key, r) => (key === "blocked" || !r.fromBlacklist || r.reimported) && FILTERS[key][1](r);
 
@@ -858,7 +873,8 @@ function renderReview() {
   const search = el("input", { type: "text", placeholder: "search title / artist…", value: state.search, "aria-label": "Search songs" });
   const drawRows = () => {
     const q = state.search.toLowerCase();
-    const shown = rows.filter((r) => shownIn(state.filter, r) && `${r.song.title} ${r.song.artist}`.toLowerCase().includes(q));
+    const matching = rows.filter((r) => shownIn(state.filter, r) && `${r.song.title} ${r.song.artist}`.toLowerCase().includes(q));
+    const shown = sortRows(matching, state.reviewSort, REVIEW_COLUMNS);
     fill(tbody, shown.slice(0, 1000).map(reviewRow),
       shown.length > 1000 && el("tr", {}, el("td", { colspan: 8, class: "muted" }, `…and ${shown.length - 1000} more (use the filter or search).`)));
   };
@@ -884,7 +900,12 @@ function renderReview() {
       el("button", { type: "button", class: "small jump", onclick: () => jump("review-bottom") }, "Jump to bottom ↓")),
     el("div", { class: "table-wrap" },
       el("table", { class: "playlist" },
-        el("thead", {}, el("tr", {}, ["Status", "Title", "Artist", "Album", "Length", "Dances", "Tags", "From playlist(s)", ""].map((h) => el("th", { scope: "col" }, h)))),
+        el("thead", {}, el("tr", {},
+          Object.keys(REVIEW_COLUMNS).map((label) => sortHeader(label, label, state.reviewSort, (sort) => {
+            state.reviewSort = sort;
+            renderReview();
+          })),
+          el("th", { scope: "col" }))),
         tbody)),
     el("div", { id: "review-bottom", class: "actions" },
       el("button", { type: "button", class: "small jump", onclick: () => jump("review") }, "Jump to top ↑")));
