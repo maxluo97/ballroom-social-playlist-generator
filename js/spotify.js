@@ -248,8 +248,23 @@ export async function getMyPlaylists(onPage) {
 }
 
 /**
- * The songs in a playlist you own or collaborate on, as library-style song objects:
- *   { id, title, artist, album, lengthSec, isrc, isPlayable, addedAt }
+ * A Spotify track object as a library-style song:
+ *   { id, title, artist, album, lengthSec, isrc, isPlayable }
+ */
+function trackToSong(t) {
+  return {
+    id: t.id,
+    title: t.name,
+    artist: (t.artists || []).map((a) => a.name).join(", "),
+    album: t.album ? t.album.name : "",
+    lengthSec: Math.round((t.duration_ms || 0) / 1000),
+    isrc: t.external_ids ? t.external_ids.isrc || "" : "",
+    isPlayable: t.is_playable ?? null,
+  };
+}
+
+/**
+ * The songs in a playlist you own or collaborate on, as library-style songs (plus `addedAt`).
  * Local files and podcast episodes are skipped.
  */
 export async function getPlaylistTracks(playlistId, onPage) {
@@ -258,16 +273,30 @@ export async function getPlaylistTracks(playlistId, onPage) {
   for (const e of entries) {
     const t = e && (e.item ?? e.track); // `item` is current; `track` is the deprecated name
     if (!t || e.is_local || t.type !== "track" || !t.id) continue;
-    songs.push({
-      id: t.id,
-      title: t.name,
-      artist: (t.artists || []).map((a) => a.name).join(", "),
-      album: t.album ? t.album.name : "",
-      lengthSec: Math.round((t.duration_ms || 0) / 1000),
-      isrc: t.external_ids ? t.external_ids.isrc || "" : "",
-      isPlayable: t.is_playable ?? null,
-      addedAt: e.added_at || null,
-    });
+    songs.push({ ...trackToSong(t), addedAt: e.added_at || null });
   }
   return songs;
+}
+
+/** One song by its track ID (`GET /tracks/{id}`; the several-at-once endpoint was removed). */
+export async function getTrack(trackId) {
+  return trackToSong(await api(`/tracks/${encodeURIComponent(trackId)}`));
+}
+
+/**
+ * Search Spotify for songs. Development Mode returns at most 10 per page; use `offset` for more.
+ * Returns { songs, total, nextOffset } (nextOffset is null when there are no more results).
+ */
+export async function searchTracks(query, offset = 0) {
+  const params = new URLSearchParams({ q: query, type: "track", limit: "10", offset: String(offset) });
+  const data = await api(`/search?${params}`);
+  const page = data.tracks || { items: [], total: 0 };
+  const songs = page.items.filter((t) => t && t.id).map(trackToSong);
+  return { songs, total: page.total, nextOffset: page.next ? offset + page.items.length : null };
+}
+
+/** The playlist ID from a playlist link, a "spotify:playlist:..." URI, or a bare ID; else null. */
+export function playlistIdFrom(text) {
+  const m = String(text ?? "").trim().match(/^(?:spotify:playlist:|https?:\/\/open\.spotify\.com\/(?:intl-[a-z-]+\/)?playlist\/)?([A-Za-z0-9]{22})(?:[?#].*)?$/);
+  return m ? m[1] : null;
 }

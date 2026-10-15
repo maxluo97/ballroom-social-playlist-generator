@@ -180,6 +180,7 @@ table.playlist tr.final td.type { color: var(--final); font-weight: 600; }
 /* pages made of numbered steps (library builder, Spotify test) */
 .steps { display: grid; gap: 12px; max-width: 1400px; margin: 0 auto; padding: 16px; }
 .step h2 { font-size: 1.05rem; margin: 0 0 8px; }
+.step h3 { font-size: 0.95rem; margin: 16px 0 6px; }
 table.playlist td input[type="text"] { width: 100%; min-width: 9em; }
 table.playlist td.guess input { border-color: var(--warn); background: var(--warn-bg); }
 table.playlist tr.nodance td { background: var(--error-bg); }

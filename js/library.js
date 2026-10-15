@@ -8,7 +8,11 @@
  */
 
 import { el, fill, $ } from "./dom.js";
-import { login, logout, isLoggedIn, handleLoginRedirect, getMyPlaylists, getPlaylistTracks } from "./spotify.js";
+import {
+  login, logout, isLoggedIn, handleLoginRedirect, getMyPlaylists, getPlaylistTracks,
+  getTrack, searchTracks, playlistIdFrom,
+} from "./spotify.js";
+import { spotifyTrackId } from "./data.js";
 import { loadSongsFromUrl, parseSongsText, songsToCSV } from "./data.js";
 import { guessDanceInfo, canonicalDance, DANCE_ALIASES, BALLROOM_STYLES, BALLROOM_DANCE_NAMES } from "./dance-names.js";
 import { mergeImport, parseTagRules } from "./library-merge.js";
@@ -36,6 +40,10 @@ const state = {
   playlistSearch: "",
   imports: null, // last imported playlists (kept so tag rules can be re-applied without Spotify)
   failures: [],
+  // Step 4a worklist: songs added one by one. { song, include, dances: "a; b", tags: "a; b", source }
+  manual: [],
+  manualHideKnown: false,
+  spotifySearch: { query: "", results: [], total: 0, nextOffset: null },
   rows: null, // merge result
   filter: "all",
   search: "",
@@ -88,7 +96,7 @@ function renderSpotify(message) {
     message && errorBox(message),
     el("div", { class: "actions" },
       isLoggedIn()
-        ? el("button", { type: "button", onclick: () => { logout(); renderSpotify(); renderPlaylists(); } }, "Log out")
+        ? el("button", { type: "button", onclick: () => { logout(); renderSpotify(); renderPlaylists(); renderManual(); } }, "Log out")
         : el("button", { type: "button", class: "primary", onclick: () => login() }, "Log in with Spotify")));
 }
 
@@ -110,6 +118,7 @@ function setExisting(songs, name, problems) {
   state.imports = null;
   updateLists();
   renderExisting(problems);
+  renderManual(); // its "In library" column depends on the starting library
   renderReview();
 }
 
@@ -221,6 +230,7 @@ async function loadPlaylists() {
     return;
   }
   renderPlaylists();
+  renderManual(); // its playlist chooser lists these playlists too
 }
 
 const familyOf = (option) => {
@@ -353,9 +363,224 @@ async function runImport() {
 
 /** (Re)build the review rows from the imported playlists and the current tag rules. */
 function computeRows() {
-  state.rows = mergeImport(state.existing, state.imports, { tagRules: loadRules() });
+  state.rows = mergeImport(state.existing, [...(state.imports || []), ...manualImports()], { tagRules: loadRules() });
   state.filter = "all";
   renderReview();
+}
+
+/* -------------------------------------------------- 4a. Songs one by one */
+
+/** Ticked worklist songs, as one-song "imports" for mergeImport. */
+function manualImports() {
+  return state.manual
+    .filter((m) => m.include)
+    .map((m) => ({ playlistName: m.source, dances: danceList(m.dances), tags: splitList(m.tags), songs: [m.song] }));
+}
+
+const libraryEntry = (id) => state.existing.find((s) => s.id === id) ?? null;
+
+/** Add songs to the worklist (skipping ones already on it). Returns how many were new. */
+function addToWorklist(songs, source, include) {
+  const onList = new Set(state.manual.map((m) => m.song.id));
+  let added = 0;
+  for (const song of songs) {
+    if (onList.has(song.id)) continue;
+    onList.add(song.id);
+    state.manual.push({ song, include, dances: "", tags: "", source });
+    added++;
+  }
+  return added;
+}
+
+function renderManual(message) {
+  const box = $("manual");
+  if (!isLoggedIn()) return fill(box, el("p", { class: "muted" }, "Log in first (step 1)."));
+  const status = el("p", { class: "muted" }, message || "");
+
+  /* --- single songs: paste links --- */
+  const links = el("textarea", { rows: 3, placeholder: "https://open.spotify.com/track/…  (one per line)", "aria-label": "Spotify song links",
+    style: "width:100%" });
+  const addLinks = async () => {
+    const lines = links.value.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const bad = lines.filter((l) => !spotifyTrackId(l));
+    const ids = [...new Set(lines.map(spotifyTrackId).filter(Boolean))];
+    const songs = [];
+    const failed = [];
+    for (const [i, id] of ids.entries()) {
+      status.textContent = `Looking up song ${i + 1} of ${ids.length}…`;
+      try {
+        songs.push(await getTrack(id));
+      } catch (err) {
+        failed.push(`${id}: ${err.message}`);
+      }
+    }
+    const added = addToWorklist(songs, "Added by hand", true);
+    links.value = bad.join("\n");
+    renderManual([
+      `${added} song(s) added to the worklist below.`,
+      bad.length ? `${bad.length} line(s) are not Spotify song links and were left in the box.` : "",
+      failed.length ? `Could not look up: ${failed.join("; ")}` : "",
+    ].filter(Boolean).join(" "));
+  };
+
+  /* --- single songs: search --- */
+  const query = el("input", { type: "text", value: state.spotifySearch.query, placeholder: "title and/or artist", "aria-label": "Search Spotify", style: "flex:1 1 16em" });
+  const runSearch = async (offset = 0) => {
+    state.spotifySearch.query = query.value.trim();
+    if (!state.spotifySearch.query) return;
+    status.textContent = "Searching…";
+    try {
+      const res = await searchTracks(state.spotifySearch.query, offset);
+      state.spotifySearch.results = offset ? [...state.spotifySearch.results, ...res.songs] : res.songs;
+      state.spotifySearch.total = res.total;
+      state.spotifySearch.nextOffset = res.nextOffset;
+      renderManual();
+    } catch (err) {
+      status.textContent = err.message;
+    }
+  };
+  query.addEventListener("keydown", (e) => e.key === "Enter" && (e.preventDefault(), runSearch(0)));
+  const onList = new Set(state.manual.map((m) => m.song.id));
+  const searchResults = state.spotifySearch.results.length > 0 &&
+    el("div", { class: "table-wrap" },
+      el("table", { class: "playlist" },
+        el("thead", {}, el("tr", {}, ["", "Title", "Artist", "Album", "Length", "In library"].map((h) => el("th", { scope: "col" }, h)))),
+        el("tbody", {}, state.spotifySearch.results.map((s) => {
+          const lib = libraryEntry(s.id);
+          return el("tr", {},
+            el("td", {}, onList.has(s.id)
+              ? el("span", { class: "muted" }, "on list")
+              : el("button", { type: "button", class: "small", onclick: () => { addToWorklist([s], "Added by hand", true); renderManual(); } }, "Add")),
+            el("td", {}, s.title), el("td", {}, s.artist), el("td", {}, s.album),
+            el("td", { class: "num" }, formatTime(s.lengthSec)),
+            el("td", { class: "muted" }, lib ? lib.dances.join(", ") || "(no dance)" : ""));
+        }))),
+      el("p", { class: "muted" }, `Showing ${state.spotifySearch.results.length} of ${state.spotifySearch.total}. `,
+        state.spotifySearch.nextOffset != null && el("button", { type: "button", class: "small", onclick: () => runSearch(state.spotifySearch.nextOffset) }, "More results")));
+
+  /* --- one playlist, song by song --- */
+  const choose = el("select", { "aria-label": "Playlist to go through" },
+    el("option", { value: "" }, state.playlists ? "Choose one of your playlists…" : "(load your playlists first)"),
+    (state.playlists || []).map((p) => el("option", { value: p.id }, `${p.name} (${p.trackCount ?? "?"} songs)`)));
+  const linkBox = el("input", { type: "text", placeholder: "…or paste a playlist link", "aria-label": "Playlist link", style: "flex:1 1 16em" });
+  const loadOne = async () => {
+    const id = choose.value || playlistIdFrom(linkBox.value);
+    if (!id) return alert("Choose a playlist or paste a playlist link.");
+    const known = (state.playlists || []).find((p) => p.id === id);
+    const name = known ? known.name : "Pasted playlist";
+    status.textContent = `Reading “${name}”…`;
+    try {
+      const songs = await getPlaylistTracks(id, (n, total) => (status.textContent = `Reading “${name}”… ${n} of ${total}`));
+      const added = addToWorklist(songs, `${name} (song by song)`, false);
+      renderManual(`${added} song(s) from “${name}” added to the worklist, unticked. Give each one its dance(s); typing a dance ticks the song.`);
+    } catch (err) {
+      renderManual(err.status === 403
+        ? "Spotify refused (403): apps can only read playlists you own or collaborate on. Copy the songs into a playlist of your own first."
+        : err.message);
+    }
+  };
+
+  fill(box,
+    el("p", { class: "help" },
+      "For songs that are not in a single-dance playlist. Dances cannot be guessed from a song alone, so here you set each song's " +
+        "dance(s) yourself. Songs land in the worklist below; ticked songs go into the review (step 5) together with any playlists from step 4."),
+    el("h3", {}, "Single songs"),
+    el("div", {}, el("div", { class: "label" }, "Paste Spotify song links (Share → Copy song link):"), links,
+      el("div", { class: "actions" }, el("button", { type: "button", onclick: addLinks }, "Add these songs"))),
+    el("div", { class: "inline-fields" }, "Or search Spotify:", query,
+      el("button", { type: "button", onclick: () => runSearch(0) }, "Search")),
+    searchResults,
+    el("h3", {}, "One playlist, song by song"),
+    el("div", { class: "inline-fields" }, choose, linkBox,
+      el("button", { type: "button", onclick: loadOne }, "Load its songs"),
+      !state.playlists && el("button", { type: "button", class: "small", onclick: loadPlaylists }, "Load my playlists")),
+    status,
+    el("h3", {}, `Worklist (${state.manual.length} song${state.manual.length === 1 ? "" : "s"})`),
+    renderWorklist());
+}
+
+function renderWorklist() {
+  if (!state.manual.length) return el("p", { class: "muted" }, "Empty. Add songs above.");
+  const tbody = el("tbody");
+  const count = el("span", { class: "muted" });
+  const updateCount = () => {
+    const ticked = state.manual.filter((m) => m.include);
+    const noDance = ticked.filter((m) => !danceList(m.dances).length && !(libraryEntry(m.song.id) || { dances: [] }).dances.length);
+    count.textContent = `${ticked.length} ticked` + (noDance.length ? `, ${noDance.length} of them without a dance` : "");
+  };
+  const visible = () => state.manual.filter((m) => !(state.manualHideKnown && libraryEntry(m.song.id)));
+  const drawRows = () => {
+    fill(tbody, visible().map((m) => {
+      const lib = libraryEntry(m.song.id);
+      const tick = el("input", { type: "checkbox", checked: m.include, "aria-label": `Include ${m.song.title}`,
+        onchange: () => { m.include = tick.checked; updateCount(); } });
+      const dances = el("input", { type: "text", value: m.dances, list: "dl-known", placeholder: "e.g. Rhythm Rumba", "aria-label": `Dances for ${m.song.title}`,
+        oninput: () => {
+          m.dances = dances.value;
+          if (dances.value.trim() && !m.include) (m.include = true), (tick.checked = true);
+          updateCount();
+        },
+        onchange: () => { m.dances = danceList(dances.value).join("; "); dances.value = m.dances; } });
+      const tags = el("input", { type: "text", value: m.tags, list: "dl-tags", placeholder: "optional", "aria-label": `Tags for ${m.song.title}`,
+        oninput: () => (m.tags = tags.value) });
+      return el("tr", {},
+        el("td", {}, tick),
+        el("td", {}, m.song.title),
+        el("td", {}, m.song.artist),
+        el("td", { class: "num" }, formatTime(m.song.lengthSec)),
+        el("td", { class: "muted" }, lib ? lib.dances.join(", ") || "(no dance)" : "new"),
+        el("td", {}, dances),
+        el("td", {}, tags),
+        el("td", { class: "muted" }, m.source),
+        el("td", {}, el("button", { type: "button", class: "icon", title: "Remove from worklist", "aria-label": `Remove ${m.song.title}`,
+          onclick: () => { state.manual = state.manual.filter((x) => x !== m); renderManual(); } }, "×")));
+    }));
+    updateCount();
+  };
+
+  // Bulk: add a dance or tag to every ticked song.
+  const bulkDance = el("input", { type: "text", list: "dl-known", placeholder: "dance", "aria-label": "Dance to add to ticked songs" });
+  const bulkTag = el("input", { type: "text", list: "dl-tags", placeholder: "tag", "aria-label": "Tag to add to ticked songs" });
+  const addToTicked = (key, input, normalize) => {
+    const values = normalize(input.value);
+    if (!values.length) return;
+    for (const m of state.manual) if (m.include) m[key] = normalize(`${m[key]}; ${values.join("; ")}`).join("; ");
+    input.value = "";
+    drawRows();
+  };
+  const setTicks = (value) => {
+    for (const m of visible()) m.include = value;
+    drawRows();
+  };
+  const hide = el("input", { type: "checkbox", checked: state.manualHideKnown,
+    onchange: () => { state.manualHideKnown = hide.checked; drawRows(); } });
+  drawRows();
+
+  return el("div", {},
+    el("div", { class: "inline-fields" },
+      el("button", { type: "button", class: "small", onclick: () => setTicks(true) }, "Tick all shown"),
+      el("button", { type: "button", class: "small", onclick: () => setTicks(false) }, "Tick none"),
+      el("label", { class: "inline-fields" }, hide, "Hide songs already in the library"),
+      el("button", { type: "button", class: "small", onclick: () => {
+        if (confirm("Empty the worklist?")) { state.manual = []; renderManual(); }
+      } }, "Empty worklist")),
+    el("div", { class: "inline-fields" }, "For all ticked songs:",
+      bulkDance, el("button", { type: "button", class: "small", onclick: () => addToTicked("dances", bulkDance, danceList) }, "Add dance"),
+      bulkTag, el("button", { type: "button", class: "small", onclick: () => addToTicked("tags", bulkTag, splitList) }, "Add tag")),
+    el("div", { class: "table-wrap" },
+      el("table", { class: "playlist" },
+        el("thead", {}, el("tr", {}, ["Include?", "Title", "Artist", "Length", "In library", "Dance(s)", "Tags", "From", ""].map((h) => el("th", { scope: "col" }, h)))),
+        tbody)),
+    el("div", { class: "actions" },
+      el("button", { type: "button", class: "primary", onclick: () => {
+        const ticked = state.manual.filter((m) => m.include);
+        if (!ticked.length) return alert("Tick at least one song.");
+        const noDance = ticked.filter((m) => !danceList(m.dances).length && !(libraryEntry(m.song.id) || { dances: [] }).dances.length);
+        if (noDance.length && !confirm(`${noDance.length} ticked song(s) have no dance yet. Add them to the review anyway (they will be flagged “No dance”)?`)) return;
+        computeRows();
+        $("review").scrollIntoView({ behavior: "smooth" });
+      } }, "Add ticked songs to the review (step 5)"),
+      count));
 }
 
 /* ----------------------------------------------------------------- 5. Review */
@@ -398,7 +623,7 @@ function renderReview() {
     el("p", { class: "help" }, "Edit dances and tags directly in the table (separate several with “;”). " +
       "A song in several of the imported playlists gets all of their dances. Highlighted tags came from keyword rules; remove any that are wrong."),
     el("div", { class: "inline-fields" }, ...filterButtons, search),
-    state.imports && el("div", { class: "actions" },
+    (state.imports || state.manual.length > 0) && el("div", { class: "actions" },
       el("button", { type: "button", class: "small", onclick: () => {
         if (confirm("Re-apply the tag rules from step 3? Edits you made in this table will be lost.")) computeRows();
       } }, "Re-apply tag rules")),
@@ -480,6 +705,7 @@ async function init() {
   renderSpotify(result.error);
   renderRules();
   renderPlaylists();
+  renderManual();
   await loadProject();
 }
 

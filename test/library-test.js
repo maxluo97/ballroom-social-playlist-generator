@@ -7,6 +7,7 @@ import { guessDanceInfo, canonicalDance } from "../js/dance-names.js";
 import { mergeImport, parseTagRules } from "../js/library-merge.js";
 import { songsToCSV, parseSongsText } from "../js/data.js";
 import { buildSampleLibrary } from "../tools/sample-library.js";
+import { playlistIdFrom } from "../js/spotify.js";
 
 let failures = 0;
 const check = (cond, msg) => {
@@ -110,6 +111,25 @@ check(byId.B.status === "unchanged" && same(byId.B.song.dances, ["Tango"]), "B u
 check(byId.C.status === "new" && same(byId.C.song.tags, ["Hollywood"]) && same(byId.C.guessed.tags, ["Hollywood"]), "C gets guessed Hollywood");
 check(same(byId.D.song.dances, ["Foxtrot"]), `D's title ("Cha Cha Cha…") does not add a dance: ${byId.D.song.dances}`);
 check(existing[0].dances.length === 1, "the existing library objects are not modified");
+
+console.log("=== Playlist links");
+const pid = "37i9dQZF1DXcBWIGoYBM5M";
+for (const [input, expected] of [
+  [pid, pid],
+  [`https://open.spotify.com/playlist/${pid}?si=abc`, pid],
+  [`spotify:playlist:${pid}`, pid],
+  [`https://open.spotify.com/intl-fr/playlist/${pid}`, pid],
+  [`https://open.spotify.com/track/${pid}`, null],
+  ["not a link", null],
+]) check(playlistIdFrom(input) === expected, `playlistIdFrom("${input}") = ${playlistIdFrom(input)}`);
+
+console.log("=== Songs added one by one merge like a one-song playlist");
+const manual = mergeImport([{ id: "A", title: "Old", artist: "", lengthSec: 180, dances: ["Smooth Waltz"], tags: [] }], [
+  { playlistName: "Added by hand", dances: ["Latin Rumba"], tags: ["Favourite"], songs: [sp("A", "Old")] },
+  { playlistName: "Mixed list (song by song)", dances: ["Rhythm Swing"], tags: [], songs: [sp("Z", "Brand new")] },
+]);
+check(same(manual[0].song.dances, ["Smooth Waltz", "Latin Rumba"]) && same(manual[0].song.tags, ["Favourite"]), "hand-added dance and tag added to an existing song");
+check(manual[1].status === "new" && same(manual[1].song.dances, ["Rhythm Swing"]), "hand-added new song");
 
 console.log("=== CSV round trip (songsToCSV -> parseSongsText)");
 const lib = buildSampleLibrary();
