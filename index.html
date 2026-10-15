@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dance Playlist Generator</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script type="module" src="js/ui.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <h1>Dance Playlist Generator</h1>
+    <p class="tagline">Random social-dance playlists that follow your rules.</p>
+  </header>
+
+  <main class="layout">
+    <section class="panel" aria-labelledby="settings-heading">
+      <h2 id="settings-heading">Settings</h2>
+      <div id="library"></div>
+      <form id="settings-form" autocomplete="off" onsubmit="return false"></form>
+      <div class="actions">
+        <button type="button" id="generate" class="primary">Generate playlist</button>
+        <button type="button" id="reset">Reset to defaults</button>
+      </div>
+      <div id="validation" aria-live="polite"></div>
+    </section>
+
+    <section class="panel" aria-labelledby="results-heading">
+      <h2 id="results-heading">Playlist</h2>
+      <div id="results"><p class="muted">Adjust the settings, then press <strong>Generate playlist</strong>.</p></div>
+    </section>
+  </main>
+
+  <datalist id="dl-raw"></datalist>
+  <datalist id="dl-dances"></datalist>
+  <datalist id="dl-tags"></datalist>
+</body>
+</html>

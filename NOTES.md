@@ -49,6 +49,9 @@ A web app that randomly generates a curated playlist for a dance social, subject
 | Paso Doble (`pasoLocation`) | **Fixed event** with `notAfter` restriction |
 | `themeDances`, `fractionThemeMin/Max` | `theme.dances`, `theme.fractionMin/Max` |
 | `earlyCount`, `earlyBlacklist` | `opening.earlyCount`, `opening.blacklist` |
+| (new) collapsing similar dances | **Association** (`associations: [{ name, dances }]`) |
+
+**Associations:** dances treated as one, e.g. "Waltz" = Smooth Waltz + Standard Waltz (9 Smooth/Standard dances become 5; Standard Quickstep stays unassociated). Applied before everything else: song tags and every dance named in the settings are renamed to the group name, so all rules see the merged dance. A one-member group is a rename. Each dance may be in only one association. The song database can therefore keep style-specific tags.
 
 Definitions: a **song** is a piece of music irrespective of dance; a **dance** is a categorical identity for bodily motions done to a song; a song may support several dances ("Oye Como Va is a cha-cha" is shorthand).
 
@@ -70,20 +73,25 @@ Original README "future work": scrape Spotify playlists, create Spotify playlist
 Folder layout (planned; ✔ = exists):
 
 ```
-index.html            app page (GitHub Pages serves the root)
-css/style.css
-js/generator.js  ✔    pure rules logic
-js/settings.js        defaults, presets, localStorage, import/export
-js/ui.js              settings form + results list
-js/data.js            loads the song database
+index.html        ✔   app page (GitHub Pages serves the root)
+css/style.css     ✔
+js/generator.js   ✔   pure rules logic (incl. associations)
+js/settings.js    ✔   app defaults (APP_DEFAULTS), last-used settings in localStorage; presets later
+js/ui.js          ✔   settings form + results list
+js/data.js        ✔   loads songs from JSON/CSV, playlist -> CSV
 js/spotify.js         login + playlist creation
-data/songs.json       master song database
+data/sample-songs.json ✔  made-up competitive-style library (generated: `npm run sample`)
+data/songs.json       real master song database (not yet)
 presets/*.json        e.g. ballroom-social.json
-tools/                Node helper scripts (e.g. CSV -> JSON)
-test/sample-data.js ✔ fake songs + 8 scenarios
-test/test.js  ✔       run with `npm test`
-package.json  ✔       {"type": "module"}
+tools/serve.js    ✔   local server: `npm start` -> http://127.0.0.1:8000/
+tools/sample-library.js, make-sample-songs.js ✔
+test/sample-data.js ✔ scenarios;  test/test.js ✔  run with `npm test`
+package.json      ✔   {"type": "module"}, scripts start/test/sample
 ```
+
+**Song CSV format** (js/data.js): header row; columns id (Spotify track ID), title, artist (optional), length (`3:25` or seconds), dances (`;`-separated), tags (optional, `;`-separated). The page can load such a file ("Load CSV / JSON…"); it is remembered in the browser.
+
+**Settings page (step 3, built Oct 2026, not yet checked in a browser by the developer):** collapsible sections for event basics, dance associations, categories, repetition, excursions, fixed events, theme, opening/closing. Live validation; Generate is disabled while there are errors. Results: summary, warnings, table, copy song list, download CSV, keep/unlock seed. Renaming an association updates every reference to it.
 
 Language: JavaScript only (runs in the browser and in Node). The old Python files were deleted; Python is not required.
 
@@ -131,7 +139,7 @@ Remaining design assumptions (not specified by the README):
 
 1. ~~package.json, sample data, test harness~~ (done)
 2. ~~Fix bugs the tests expose; check determinism~~ (done)
-3. Build the settings UI page (plain JS) bound to the settings object, with a results list.
+3. ~~Build the settings UI page~~ (built; developer to try it and report issues)
 4. Add presets: `localStorage` plus JSON export/import, then URL-encoded settings, then per-user tag overrides.
 5. Add Spotify: PKCE login, then profile, then create playlist, then add tracks. Verify against current docs at each step.
 6. Deploy to GitHub Pages and add the live URL as a redirect URI in the Spotify dashboard.

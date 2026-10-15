@@ -7,6 +7,9 @@
  * VOCABULARY
  *   Song       { id, title, lengthSec, dances: [..], tags: [..] }   (a song may serve several dances)
  *   Dance      a label such as "Waltz" or "Bachata"
+ *   Association a group of dances treated as one, e.g. "Waltz" = Smooth Waltz + Standard Waltz.
+ *              Applied first: song tags and every dance named in the settings are renamed to the
+ *              group name, so the rules below only ever see the merged dances.
  *   Category   a named group of dances ("Ballroom", "Latin", "Swing", ...). Any number (N >= 1).
  *   Excursion  a dance outside the categories, drawn on a timer from a reducing-weight pool
  *   Fixed event a dance placed at a set fraction of the night (line-dance break, Paso Doble, ...)
@@ -16,6 +19,7 @@
  *
  * SETTINGS (all optional except `categories`; see DEFAULT_SETTINGS)
  *   eventLengthMinutes   target length of the night
+ *   associations         [{ name, dances: [...] }, ...]        each dance in at most one association
  *   categories           [{ name, dances: [...] }, ...]        each dance in at most one category
  *   maxInARow            longest block of one category in a row (blocks are 1..maxInARow)
  *   minToRepeat          songs that must separate two songs of the same dance
@@ -52,6 +56,7 @@
 
 export const DEFAULT_SETTINGS = {
   eventLengthMinutes: 180,
+  associations: [],
   categories: [],
   maxInARow: 3,
   minToRepeat: 4,
@@ -74,13 +79,14 @@ const THEME_DEFAULTS = {
 
 /** Order in which rules are relaxed when no legal choice exists. */
 const LEVELS = [
-  { name: "strict",                    bag: true,  themeOpener: true,  gapFactor: 1,   blacklist: true,  reuse: false },
-  { name: "shuffle-bag rule relaxed",  bag: false, themeOpener: true,  gapFactor: 1,   blacklist: true,  reuse: false },
-  { name: "theme opener dropped",      bag: false, themeOpener: false, gapFactor: 1,   blacklist: true,  reuse: false },
-  { name: "spacing halved",            bag: false, themeOpener: false, gapFactor: 0.5, blacklist: true,  reuse: false },
-  { name: "spacing ignored",           bag: false, themeOpener: false, gapFactor: 0,   blacklist: true,  reuse: false },
-  { name: "opening blacklist ignored", bag: false, themeOpener: false, gapFactor: 0,   blacklist: false, reuse: false },
-  { name: "song reuse allowed",        bag: false, themeOpener: false, gapFactor: 0,   blacklist: false, reuse: true },
+  { name: "strict",                    bag: true,  themeOpener: true,  longBlock: false, gapFactor: 1,   blacklist: true,  reuse: false },
+  { name: "shuffle-bag rule relaxed",  bag: false, themeOpener: true,  longBlock: false, gapFactor: 1,   blacklist: true,  reuse: false },
+  { name: "theme opener dropped",      bag: false, themeOpener: false, longBlock: false, gapFactor: 1,   blacklist: true,  reuse: false },
+  { name: "maxInARow exceeded",        bag: false, themeOpener: false, longBlock: true,  gapFactor: 1,   blacklist: true,  reuse: false },
+  { name: "spacing halved",            bag: false, themeOpener: false, longBlock: true,  gapFactor: 0.5, blacklist: true,  reuse: false },
+  { name: "spacing ignored",           bag: false, themeOpener: false, longBlock: true,  gapFactor: 0,   blacklist: true,  reuse: false },
+  { name: "opening blacklist ignored", bag: false, themeOpener: false, longBlock: true,  gapFactor: 0,   blacklist: false, reuse: false },
+  { name: "song reuse allowed",        bag: false, themeOpener: false, longBlock: true,  gapFactor: 0,   blacklist: false, reuse: true },
 ];
 
 /* ------------------------------------------------------------------ helpers */
@@ -110,6 +116,7 @@ export function mergeSettings(user = {}) {
   return {
     ...d,
     ...user,
+    associations: user.associations ?? d.associations,
     categories: user.categories ?? d.categories,
     fixedEvents: user.fixedEvents ?? d.fixedEvents,
     excursions: { ...d.excursions, ...(user.excursions || {}) },
@@ -122,6 +129,74 @@ export function mergeSettings(user = {}) {
 function normalizeSong(sg) {
   const dances = sg.dances ?? (sg.dance ? [sg.dance] : []);
   return { ...sg, dances, tags: sg.tags ?? [] };
+}
+
+/* ------------------------------------------------------------- associations */
+
+/** Returns a function mapping a dance to its association name (or itself if unassociated). */
+export function associationMap(associations = []) {
+  const alias = new Map();
+  for (const a of associations) for (const d of a.dances || []) alias.set(d, a.name);
+  return (d) => alias.get(d) ?? d;
+}
+
+const mapUnique = (list, m) => [...new Set((list || []).map(m))];
+
+/** Settings with associations applied (every dance reference renamed to its group). */
+function resolveSettings(userSettings) {
+  const s = mergeSettings(userSettings);
+  if (!s.associations.length) return s;
+  const m = associationMap(s.associations);
+  const pool = {};
+  for (const [d, w] of Object.entries(s.excursions.pool)) pool[m(d)] = (pool[m(d)] || 0) + w;
+  return {
+    ...s,
+    categories: s.categories.map((c) => ({ ...c, dances: mapUnique(c.dances, m) })),
+    excursions: { ...s.excursions, pool },
+    fixedEvents: s.fixedEvents.map((e) => ({ ...e, dance: m(e.dance), notAfter: mapUnique(e.notAfter, m) })),
+    theme: s.theme ? { ...s.theme, dances: mapUnique(s.theme.dances, m) } : null,
+    opening: { ...s.opening, blacklist: mapUnique(s.opening.blacklist, m) },
+    closing: { ...s.closing, finalDance: s.closing.finalDance ? m(s.closing.finalDance) : null },
+  };
+}
+
+/** Songs with associations applied. The original tags are kept in `sourceDances`. */
+function resolveSongs(rawSongs, s) {
+  const m = associationMap(s.associations);
+  return rawSongs.map((raw) => {
+    const sg = normalizeSong(raw);
+    return { ...sg, sourceDances: sg.dances, dances: mapUnique(sg.dances, m) };
+  });
+}
+
+/** Distinct dance names in a song list, after associations (for UI pick lists). */
+export function listDances(rawSongs, userSettings = {}) {
+  const s = mergeSettings(userSettings);
+  const set = new Set();
+  for (const sg of resolveSongs(rawSongs, s)) sg.dances.forEach((d) => set.add(d));
+  return [...set].sort();
+}
+
+function validateAssociations(s, rawDances, errors, warnings) {
+  const owner = new Map();
+  const names = new Set();
+  for (const a of s.associations) {
+    if (!a.name || !a.name.trim()) {
+      errors.push("Every association needs a name.");
+      continue;
+    }
+    if (names.has(a.name)) errors.push(`Two associations are both named "${a.name}".`);
+    names.add(a.name);
+    if (!a.dances || !a.dances.length) warnings.push(`Association "${a.name}" has no dances.`);
+    for (const d of a.dances || []) {
+      if (owner.has(d)) errors.push(`Dance "${d}" is in both associations "${owner.get(d)}" and "${a.name}".`);
+      owner.set(d, a.name);
+      if (!rawDances.has(d)) warnings.push(`Association "${a.name}": no songs are tagged "${d}".`);
+    }
+  }
+  for (const n of names) {
+    if (owner.has(n) && owner.get(n) !== n) errors.push(`"${n}" is an association name and also a member of "${owner.get(n)}".`);
+  }
 }
 
 /** Theme lookups shared by the generator, stats and rule checker. */
@@ -146,10 +221,13 @@ function themeInfo(s) {
  * not satisfy every preference.
  */
 export function validateSettings(rawSongs, userSettings) {
-  const s = mergeSettings(userSettings);
   const errors = [];
   const warnings = [];
-  const songs = rawSongs.map(normalizeSong);
+  const rawDances = new Set(rawSongs.flatMap((sg) => normalizeSong(sg).dances));
+  validateAssociations(mergeSettings(userSettings), rawDances, errors, warnings);
+  const s = resolveSettings(userSettings);
+  const songs = resolveSongs(rawSongs, s);
+  const merged = s.associations.length ? " (after associations)" : "";
   const countFor = (d) => songs.filter((sg) => sg.dances.includes(d)).length;
   const pct = (x) => `${(x * 100).toFixed(0)}%`;
 
@@ -163,7 +241,7 @@ export function validateSettings(rawSongs, userSettings) {
   for (const c of s.categories) {
     if (!c.dances || !c.dances.length) errors.push(`Category "${c.name}" has no dances.`);
     for (const d of c.dances || []) {
-      if (seen.has(d)) errors.push(`Dance "${d}" is in both "${seen.get(d)}" and "${c.name}".`);
+      if (seen.has(d)) errors.push(`Dance "${d}" is in both "${seen.get(d)}" and "${c.name}"${merged}.`);
       seen.set(d, c.name);
       if (countFor(d) === 0) warnings.push(`No songs are tagged "${d}".`);
     }
@@ -261,7 +339,7 @@ export function validateSettings(rawSongs, userSettings) {
  * @returns { playlist, totalSec, targetSec, overtimeSec, seed, warnings, stats }
  */
 export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
-  const s = mergeSettings(userSettings);
+  const s = resolveSettings(userSettings);
   const seed = s.seed ?? ((Math.random() * 2 ** 32) >>> 0);
   const rng = mulberry32(seed);
   const rand = (n) => Math.floor(rng() * n);
@@ -276,7 +354,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
   };
   const songFilter = options.songFilter || null;
 
-  const songs = rawSongs.map(normalizeSong);
+  const songs = resolveSongs(rawSongs, s);
   const byDance = new Map();
   for (const sg of songs) {
     for (const d of sg.dances) {
@@ -363,6 +441,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
   let blockLen = 1;
   let blockCount = 0;
   let lastRegularCategory = -1;
+  let runLen = 0; // regular songs in a row from lastRegularCategory
 
   function newCycle() {
     blockLen = rand(Math.max(1, s.maxInARow)) + 1;
@@ -419,6 +498,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     }
     push(dance, song, "regular", cats[c].name, null);
     if (!th.dances.has(dance)) bags[c] = bags[c].filter((d) => d !== dance);
+    runLen = c === lastRegularCategory ? runLen + 1 : 1;
     lastRegularCategory = c;
     blockCount++;
     if (blockCount >= blockLen) {
@@ -435,6 +515,9 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
       const L = LEVELS[li];
       const openerForced = th.active && L.themeOpener && playlist.length < s.theme.guaranteedOpeners;
       for (const c of tryOrder) {
+        // Falling back to another category is fine, unless it makes that category's run too long.
+        const tooLong = cats.length > 1 && c === lastRegularCategory && runLen >= s.maxInARow;
+        if (tooLong && !L.longBlock) continue;
         const ch = selectDance(c, L, openerForced ? "want" : mood, openerForced);
         if (!ch) continue;
         const song = pickSong(ch.dance, L.reuse, ch);
@@ -602,7 +685,7 @@ export function computeStats(result) {
  * Used by the test script, and usable in the UI to flag problems.
  */
 export function checkRules(result, userSettings) {
-  const s = mergeSettings(userSettings);
+  const s = resolveSettings(userSettings);
   const pl = result.playlist;
   const v = [];
   const th = themeInfo(s);

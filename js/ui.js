@@ -1,0 +1,700 @@
+/**
+ * ui.js — the settings page and results list.
+ *
+ * One settings object (state.settings, the exact shape generatePlaylist() takes) is the single
+ * source of truth: every control reads from it and writes to it. Controls only rebuild the
+ * form when its structure changes (adding/removing a row); typing just updates the object.
+ */
+
+import { generatePlaylist, validateSettings, listDances, associationMap } from "./generator.js";
+import { APP_DEFAULTS, THEME_TEMPLATE, clone, loadLastSettings, saveLastSettings } from "./settings.js";
+import { loadSongsFromUrl, parseSongsText, playlistToCSV } from "./data.js";
+
+const SAMPLE_URL = "data/sample-songs.json";
+const SAMPLE_NAME = "Sample library (made-up songs)";
+const LIBRARY_KEY = "dpg.library.v1";
+
+/** Fill in any fields missing from settings saved by an older version of the app. */
+function withDefaults(saved) {
+  if (!saved) return clone(APP_DEFAULTS);
+  const d = clone(APP_DEFAULTS);
+  return {
+    ...d,
+    ...saved,
+    excursions: { ...d.excursions, ...saved.excursions },
+    opening: { ...d.opening, ...saved.opening },
+    closing: { ...d.closing, ...saved.closing },
+  };
+}
+
+const state = {
+  settings: withDefaults(loadLastSettings()),
+  songs: [],
+  library: { name: "", problems: [] },
+  result: null,
+  stale: false,
+  errors: [],
+  themeStash: null,
+  openSections: new Set(["Event basics", "Categories and dances"]),
+};
+
+const $ = (id) => document.getElementById(id);
+
+/* ------------------------------------------------------------ DOM helpers */
+
+/** el("tag", {props}, ...children). Props starting with "on" become event listeners. */
+function el(tag, props = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (v == null || v === false) continue;
+    if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else if (k === "class") node.className = v;
+    else if (k in node && k !== "list") node[k] = v;
+    else node.setAttribute(k, v === true ? "" : v);
+  }
+  node.append(...children.flat().filter((c) => c != null && c !== false));
+  return node;
+}
+
+const hms = (sec) => {
+  const neg = sec < 0;
+  sec = Math.round(Math.abs(sec));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  const mm = h ? String(m).padStart(2, "0") : String(m);
+  return `${neg ? "-" : ""}${h ? h + ":" : ""}${mm}:${String(s).padStart(2, "0")}`;
+};
+const pct = (x) => `${Math.round(x * 100)}%`;
+
+/** Text that is recomputed after every settings change. */
+let liveUpdaters = [];
+function live(fn, tag = "p", cls = "help") {
+  const node = el(tag, { class: cls });
+  const update = () => (node.textContent = fn());
+  liveUpdaters.push(update);
+  update();
+  return node;
+}
+
+/* ------------------------------------------------------- change handling */
+
+let validateTimer;
+/** Call after any settings change. `structural` = rows were added/removed, so redraw the form. */
+function changed(structural = false) {
+  saveLastSettings(state.settings);
+  if (structural) renderForm();
+  updateDatalists();
+  liveUpdaters.forEach((u) => u());
+  if (state.result && !state.stale) {
+    state.stale = true;
+    const banner = $("stale");
+    if (banner) banner.hidden = false;
+  }
+  clearTimeout(validateTimer);
+  validateTimer = setTimeout(renderValidation, 150);
+}
+
+const rawDances = () => listDances(state.songs, {});
+const resolvedDances = () => listDances(state.songs, state.settings);
+const allTags = () => [...new Set(state.songs.flatMap((sg) => sg.tags || []))].sort();
+
+function updateDatalists() {
+  const fill = (id, values) => $(id).replaceChildren(...values.map((v) => el("option", { value: v })));
+  fill("dl-raw", rawDances());
+  fill("dl-dances", resolvedDances());
+  fill("dl-tags", allTags());
+}
+
+/** Dances referenced anywhere in the settings (after associations). */
+function referencedDances() {
+  const s = state.settings;
+  const m = associationMap(s.associations);
+  const out = new Set();
+  s.categories.forEach((c) => c.dances.forEach((d) => out.add(m(d))));
+  Object.keys(s.excursions.pool).forEach((d) => out.add(m(d)));
+  s.fixedEvents.forEach((e) => out.add(m(e.dance)));
+  if (s.closing.finalDance) out.add(m(s.closing.finalDance));
+  return out;
+}
+
+/** When an association is renamed, update every place that used the old name. */
+function renameEverywhere(oldName, newName) {
+  const s = state.settings;
+  const swap = (list) => list && list.forEach((d, i) => d === oldName && (list[i] = newName));
+  s.categories.forEach((c) => swap(c.dances));
+  if (oldName in s.excursions.pool) {
+    s.excursions.pool = Object.fromEntries(Object.entries(s.excursions.pool).map(([d, w]) => [d === oldName ? newName : d, w]));
+  }
+  s.fixedEvents.forEach((e) => {
+    if (e.dance === oldName) e.dance = newName;
+    swap(e.notAfter);
+  });
+  if (s.theme) swap(s.theme.dances);
+  swap(s.opening.blacklist);
+  if (s.closing.finalDance === oldName) s.closing.finalDance = newName;
+}
+
+/* ----------------------------------------------------------- form controls */
+
+function field(label, control, help) {
+  return el("label", { class: "field" }, el("span", { class: "label" }, label), control, help && el("small", {}, help));
+}
+
+function numberInput(get, set, { min, max, step = 1 } = {}) {
+  const input = el("input", { type: "number", value: String(get()), min, max, step });
+  input.addEventListener("input", () => {
+    const v = input.valueAsNumber;
+    if (Number.isFinite(v)) {
+      set(v);
+      changed();
+    }
+  });
+  return input;
+}
+
+/** Text input. Updates on every keystroke unless `commitOnly` (then on Enter / leaving the box). */
+function textInput(get, set, { placeholder, list, commitOnly = false, onCommit } = {}) {
+  const input = el("input", { type: "text", value: get() ?? "", placeholder, list });
+  if (!commitOnly) {
+    input.addEventListener("input", () => {
+      set(input.value);
+      changed();
+    });
+  }
+  input.addEventListener("change", () => {
+    if (onCommit) onCommit(input.value);
+    else if (commitOnly) {
+      set(input.value);
+      changed();
+    }
+  });
+  return input;
+}
+
+/** Slider + number box for a 0..1 fraction shown as a percentage. */
+function percentSlider(get, set) {
+  const range = el("input", { type: "range", min: 0, max: 100, step: 1, value: String(Math.round(get() * 100)) });
+  const num = el("input", { type: "number", min: 0, max: 100, step: 1, value: String(Math.round(get() * 100)) });
+  const apply = (v, other) => {
+    if (!Number.isFinite(v)) return;
+    v = Math.min(100, Math.max(0, v));
+    other.value = String(v);
+    set(v / 100);
+    changed();
+  };
+  range.addEventListener("input", () => apply(range.valueAsNumber, num));
+  num.addEventListener("input", () => apply(num.valueAsNumber, range));
+  return el("span", { class: "inline-fields" }, range, num, "%");
+}
+
+/** Editable list of names shown as removable chips, with suggestions from a <datalist>. */
+function chipEditor(list, datalistId, { placeholder = "add…", label = "Add" } = {}) {
+  const chips = el("span", { class: "chips-list" });
+  const input = el("input", { type: "text", list: datalistId, placeholder, "aria-label": label });
+  const draw = () =>
+    chips.replaceChildren(
+      ...list.map((d, i) =>
+        el(
+          "span",
+          { class: "chip" },
+          d,
+          el("button", { type: "button", title: `Remove ${d}`, "aria-label": `Remove ${d}`, onclick: () => {
+            list.splice(i, 1);
+            draw();
+            changed();
+          } }, "×")
+        )
+      )
+    );
+  const add = () => {
+    const v = input.value.replace(/,$/, "").trim();
+    input.value = "";
+    if (!v || list.includes(v)) return;
+    list.push(v);
+    draw();
+    changed();
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      add();
+    } else if (e.key === "Backspace" && !input.value && list.length) {
+      list.pop();
+      draw();
+      changed();
+    }
+  });
+  // Picking an entry from the suggestion list adds it straight away.
+  input.addEventListener("input", (e) => {
+    if (e.inputType === undefined || e.inputType === "insertReplacementText") {
+      const options = [...$(datalistId).options].map((o) => o.value);
+      if (options.includes(input.value)) add();
+    }
+  });
+  input.addEventListener("blur", add);
+  draw();
+  return el("div", { class: "chips" }, chips, input);
+}
+
+function removeButton(what, onclick) {
+  return el("button", { type: "button", class: "icon", title: `Remove ${what}`, "aria-label": `Remove ${what}`, onclick }, "×");
+}
+
+function section(title, note, ...body) {
+  const d = el(
+    "details",
+    { class: "section", open: state.openSections.has(title) },
+    el("summary", {}, title, note),
+    el("div", { class: "section-body" }, ...body)
+  );
+  d.addEventListener("toggle", () => (d.open ? state.openSections.add(title) : state.openSections.delete(title)));
+  return d;
+}
+
+/* --------------------------------------------------------------- sections */
+
+function basicsSection(s) {
+  return section(
+    "Event basics",
+    null,
+    field(
+      "Event length",
+      el("span", { class: "inline-fields" },
+        numberInput(() => s.eventLengthMinutes, (v) => (s.eventLengthMinutes = v), { min: 10, max: 720, step: 5 }),
+        "minutes",
+        live(() => `(${hms(s.eventLengthMinutes * 60)})`, "span", "muted"))
+    ),
+    field(
+      "Random seed",
+      textInput(() => (s.seed == null ? "" : String(s.seed)), (v) => {
+        const n = parseInt(v, 10);
+        s.seed = Number.isFinite(n) ? n : null;
+      }, { placeholder: "blank = random" }),
+      "Leave blank for a fresh playlist every time. Enter a number to get the same playlist every time."
+    )
+  );
+}
+
+function associationsSection(s) {
+  const rows = s.associations.map((a, i) =>
+    el("div", { class: "row" },
+      el("div", { class: "row-head" },
+        textInput(() => a.name, (v) => (a.name = v.trim()), {
+          placeholder: "Merged name, e.g. Waltz",
+          commitOnly: true,
+          onCommit: (v) => {
+            const old = a.name;
+            a.name = v.trim();
+            if (old && a.name && old !== a.name) renameEverywhere(old, a.name);
+            changed(true);
+          },
+        }),
+        removeButton(`association ${a.name}`, () => {
+          s.associations.splice(i, 1);
+          changed(true);
+        })),
+      chipEditor(a.dances, "dl-raw", { placeholder: "add a dance…", label: `Add a dance to ${a.name}` }))
+  );
+  return section(
+    "Dance associations",
+    live(() => `${s.associations.length} group(s)`, "span", "summary-note"),
+    el("p", { class: "help" },
+      "Treat several dances as one. Example: “Waltz” = Smooth Waltz + Standard Waltz. Songs tagged with any of them " +
+        "can play wherever “Waltz” is used, and the rules (spacing, shuffle-bag) count them as one dance. " +
+        "Dances not listed here keep their own names. A group with one dance simply renames it."),
+    el("div", { class: "rows" }, rows),
+    el("div", {}, el("button", { type: "button", class: "small", onclick: () => {
+      s.associations.push({ name: "", dances: [] });
+      state.openSections.add("Dance associations");
+      changed(true);
+    } }, "+ Add association")),
+    live(() => {
+      const raw = rawDances();
+      const m = associationMap(s.associations);
+      const loose = raw.filter((d) => m(d) === d);
+      return `The library has ${raw.length} dances; after associations there are ${resolvedDances().length}. ` +
+        (loose.length ? `Not in any association: ${loose.join(", ")}.` : "");
+    })
+  );
+}
+
+function categoriesSection(s) {
+  const rows = s.categories.map((c, i) =>
+    el("div", { class: "row" },
+      el("div", { class: "row-head" },
+        textInput(() => c.name, (v) => (c.name = v), { placeholder: "Category name, e.g. Latin" }),
+        removeButton(`category ${c.name}`, () => {
+          s.categories.splice(i, 1);
+          changed(true);
+        })),
+      chipEditor(c.dances, "dl-dances", { placeholder: "add a dance…", label: `Add a dance to ${c.name}` }))
+  );
+  return section(
+    "Categories and dances",
+    live(() => `${s.categories.length} categor${s.categories.length === 1 ? "y" : "ies"}`, "span", "summary-note"),
+    el("p", { class: "help" }, "Categories take turns in blocks. Each dance can belong to only one category."),
+    el("div", { class: "rows" }, rows),
+    el("div", {}, el("button", { type: "button", class: "small", onclick: () => {
+      s.categories.push({ name: `Category ${s.categories.length + 1}`, dances: [] });
+      changed(true);
+    } }, "+ Add category")),
+    live(() => {
+      const used = referencedDances();
+      const unused = resolvedDances().filter((d) => !used.has(d));
+      return unused.length
+        ? `Not used anywhere (categories, excursions, fixed events, final dance): ${unused.join(", ")}.`
+        : "Every dance in the library is used somewhere.";
+    })
+  );
+}
+
+function repetitionSection(s) {
+  return section(
+    "Repetition",
+    null,
+    field("Max in a row", numberInput(() => s.maxInARow, (v) => (s.maxInARow = v), { min: 1, max: 10 }),
+      "Longest run of songs from one category. Each block is a random length from 1 up to this."),
+    field("Songs between repeats", numberInput(() => s.minToRepeat, (v) => (s.minToRepeat = v), { min: 0, max: 20 }),
+      "Minimum number of other songs between two songs of the same dance.")
+  );
+}
+
+function excursionsSection(s) {
+  const ex = s.excursions;
+  const addBox = el("input", { type: "text", list: "dl-dances", placeholder: "dance to add…", "aria-label": "Excursion dance to add" });
+  const addDance = () => {
+    const d = addBox.value.trim();
+    if (d && !(d in ex.pool)) {
+      ex.pool[d] = 1;
+      changed(true);
+    }
+  };
+  addBox.addEventListener("keydown", (e) => e.key === "Enter" && (e.preventDefault(), addDance()));
+  const rows = Object.keys(ex.pool).map((d) =>
+    el("tr", {},
+      el("td", {}, d),
+      el("td", {}, numberInput(() => ex.pool[d], (v) => (ex.pool[d] = v), { min: 0, max: 50 })),
+      el("td", {}, removeButton(`excursion ${d}`, () => {
+        delete ex.pool[d];
+        changed(true);
+      })))
+  );
+  return section(
+    "Excursions",
+    live(() => `${Object.keys(ex.pool).length} dance(s), every ${ex.intervalMinutes} min`, "span", "summary-note"),
+    el("p", { class: "help" },
+      "Dances outside the categories, played on a timer. The number next to each dance is the most times it can " +
+        "play before the pool refills; higher numbers are also more likely to be picked."),
+    field("Every", el("span", { class: "inline-fields" },
+      numberInput(() => ex.intervalMinutes, (v) => (ex.intervalMinutes = v), { min: 0, max: 240 }), "minutes"),
+      "0 turns excursions off."),
+    field("Random variation", el("span", { class: "inline-fields" },
+      "±", numberInput(() => ex.jitterMinutes ?? 0, (v) => (ex.jitterMinutes = v), { min: 0, max: 60 }), "minutes")),
+    rows.length
+      ? el("table", { class: "pool-table" },
+          el("thead", {}, el("tr", {}, el("th", {}, "Dance"), el("th", {}, "Max count"), el("th", {}))),
+          el("tbody", {}, rows))
+      : el("p", { class: "muted" }, "No excursion dances yet."),
+    el("div", { class: "inline-fields" }, addBox, el("button", { type: "button", class: "small", onclick: addDance }, "+ Add"))
+  );
+}
+
+function fixedSection(s) {
+  const rows = s.fixedEvents.map((e, i) => {
+    e.notAfter ??= [];
+    return el("div", { class: "row" },
+      el("div", { class: "row-head" },
+        textInput(() => e.name, (v) => (e.name = v), { placeholder: "Event name, e.g. Line dance break" }),
+        removeButton(`fixed event ${e.name}`, () => {
+          s.fixedEvents.splice(i, 1);
+          changed(true);
+        })),
+      el("div", { class: "inline-fields" },
+        el("label", {}, "Dance", textInput(() => e.dance, (v) => (e.dance = v.trim()), { list: "dl-dances" })),
+        el("label", {}, "Songs", numberInput(() => e.count ?? 1, (v) => (e.count = v), { min: 1, max: 10 }))),
+      el("div", { class: "inline-fields" }, "At", percentSlider(() => e.at, (v) => (e.at = v)), "of the night"),
+      el("div", { class: "inline-fields" }, "Never directly after:",
+        chipEditor(e.notAfter, "dl-dances", { placeholder: "dance or event…", label: `Never directly after (${e.name})` })));
+  });
+  return section(
+    "Fixed events",
+    live(() => `${s.fixedEvents.length} event(s)`, "span", "summary-note"),
+    el("p", { class: "help" },
+      "Dances placed at a set point in the night, e.g. a line-dance break at 50% or one Paso Doble at 70%. " +
+        "Two fixed events never play back to back."),
+    el("div", { class: "rows" }, rows),
+    el("div", {}, el("button", { type: "button", class: "small", onclick: () => {
+      s.fixedEvents.push({ name: "New event", dance: "", count: 1, at: 0.5, notAfter: [] });
+      changed(true);
+    } }, "+ Add fixed event"))
+  );
+}
+
+function themeSection(s) {
+  const toggle = el("input", { type: "checkbox", checked: !!s.theme, onchange: () => {
+    if (toggle.checked) s.theme = state.themeStash ?? clone(THEME_TEMPLATE);
+    else {
+      state.themeStash = s.theme;
+      s.theme = null;
+    }
+    changed(true);
+  } });
+  const body = [el("label", { class: "inline-fields" }, toggle, "This event has a theme")];
+  if (s.theme) {
+    const t = s.theme;
+    t.tags ??= [];
+    const presetButton = (label, min, max) =>
+      el("button", { type: "button", class: "small", onclick: () => {
+        t.fractionMin = min;
+        t.fractionMax = max;
+        changed(true);
+      } }, label);
+    body.push(
+      field("Theme name", textInput(() => t.name, (v) => (t.name = v), { placeholder: "e.g. Roarin' Twenties" })),
+      el("div", {}, el("div", { class: "label" }, "Theme dances"), chipEditor(t.dances, "dl-dances", { placeholder: "add a dance…", label: "Add a theme dance" })),
+      el("div", {}, el("div", { class: "label" }, "Theme song tags"), chipEditor(t.tags, "dl-tags", { placeholder: "add a tag…", label: "Add a theme tag" })),
+      live(() => {
+        const tags = allTags();
+        return tags.length ? `Tags in the library: ${tags.join(", ")}.` : "No songs in the library have tags.";
+      }),
+      el("p", { class: "help" }, "A song counts toward the theme if it is played as a theme dance or has a theme tag."),
+      el("div", { class: "inline-fields" }, "Theme share at least", percentSlider(() => t.fractionMin, (v) => (t.fractionMin = v))),
+      el("div", { class: "inline-fields" }, "Theme share at most", percentSlider(() => t.fractionMax, (v) => (t.fractionMax = v))),
+      el("div", { class: "inline-fields" }, "Quick set:", presetButton("Broad theme (25–40%)", 0.25, 0.4), presetButton("Dance-focused theme (20–25%)", 0.2, 0.25)),
+      field("Guaranteed theme openers", numberInput(() => t.guaranteedOpeners, (v) => (t.guaranteedOpeners = v), { min: 0, max: 10 }),
+        "How many songs at the start of the night must be theme songs.")
+    );
+  }
+  return section("Theme", live(() => (s.theme ? s.theme.name || "on" : "off"), "span", "summary-note"), ...body);
+}
+
+function openingSection(s) {
+  return section(
+    "Opening and closing",
+    null,
+    field("Opening length", el("span", { class: "inline-fields" },
+      numberInput(() => s.opening.earlyCount, (v) => (s.opening.earlyCount = v), { min: 0, max: 30 }), "songs")),
+    el("div", {}, el("div", { class: "label" }, "Not allowed in the opening"),
+      chipEditor(s.opening.blacklist, "dl-dances", { placeholder: "add a dance…", label: "Add a dance to the opening blacklist" })),
+    field("Last dance of the night",
+      textInput(() => s.closing.finalDance ?? "", (v) => (s.closing.finalDance = v.trim() || null), { list: "dl-dances", placeholder: "none" }),
+      "Leave blank for no designated last dance.")
+  );
+}
+
+function renderForm() {
+  liveUpdaters = [];
+  const s = state.settings;
+  $("settings-form").replaceChildren(
+    basicsSection(s),
+    associationsSection(s),
+    categoriesSection(s),
+    repetitionSection(s),
+    excursionsSection(s),
+    fixedSection(s),
+    themeSection(s),
+    openingSection(s)
+  );
+}
+
+/* -------------------------------------------------------------- validation */
+
+function renderValidation() {
+  const { errors, warnings } = state.songs.length
+    ? validateSettings(state.songs, state.settings)
+    : { errors: ["No song library is loaded."], warnings: [] };
+  state.errors = errors;
+  $("generate").disabled = errors.length > 0;
+  $("validation").replaceChildren(
+    ...(errors.length || warnings.length
+      ? [el("ul", { class: "msgs" },
+          errors.map((e) => el("li", { class: "error" }, e)),
+          warnings.map((w) => el("li", { class: "warning" }, w)))]
+      : [])
+  );
+}
+
+/* ----------------------------------------------------------------- library */
+
+function setLibrary(songs, name, problems, persist) {
+  state.songs = songs;
+  state.library = { name, problems };
+  state.result = null;
+  try {
+    if (persist) localStorage.setItem(LIBRARY_KEY, JSON.stringify({ name, songs }));
+    else localStorage.removeItem(LIBRARY_KEY);
+  } catch {
+    /* storage full or unavailable: the library just won't be remembered */
+  }
+  renderLibrary();
+  renderResults();
+  changed();
+}
+
+function loadSavedLibrary() {
+  try {
+    const raw = localStorage.getItem(LIBRARY_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function useSample() {
+  try {
+    const { songs, problems } = await loadSongsFromUrl(SAMPLE_URL);
+    setLibrary(songs, SAMPLE_NAME, problems, false);
+  } catch (err) {
+    $("library").replaceChildren(
+      el("ul", { class: "msgs" }, el("li", { class: "error" },
+        `Could not load the sample library: ${err.message} ` +
+          "If you opened index.html directly from disk, run “npm start” and use http://127.0.0.1:8000/ instead."))
+    );
+  }
+}
+
+function renderLibrary() {
+  const fileInput = el("input", { type: "file", accept: ".csv,.json,text/csv,application/json", hidden: true });
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    try {
+      const { songs, problems } = parseSongsText(await file.text(), file.name);
+      if (!songs.length) throw new Error(problems[0] || "No songs found.");
+      setLibrary(songs, file.name, problems, true);
+    } catch (err) {
+      alert(`Could not read ${file.name}: ${err.message}`);
+    }
+  });
+  const { name, problems } = state.library;
+  $("library").replaceChildren(
+    el("div", { class: "library-line" },
+      el("span", {}, "Song library: ", el("strong", {}, name), ` — ${state.songs.length} songs, ${rawDances().length} dances`),
+      el("button", { type: "button", class: "small", onclick: () => fileInput.click() }, "Load CSV / JSON…"),
+      name !== SAMPLE_NAME && el("button", { type: "button", class: "small", onclick: useSample }, "Use sample library"),
+      fileInput),
+    problems.length > 0 &&
+      el("details", {},
+        el("summary", {}, `${problems.length} row(s) skipped or changed while loading`),
+        el("ul", { class: "msgs" }, problems.map((p) => el("li", { class: "warning" }, p)))),
+    el("details", {},
+      el("summary", { class: "muted" }, "Spreadsheet (CSV) format"),
+      el("p", { class: "help" },
+        "First row = column names: id (Spotify track ID), title, artist (optional), length (3:25 or seconds), " +
+          "dances (separate several with ;), tags (optional, separate with ;). Export from Excel or Google Sheets " +
+          "with File → Download / Save As → CSV."))
+  );
+}
+
+/* ----------------------------------------------------------------- results */
+
+function generate() {
+  clearTimeout(validateTimer);
+  renderValidation();
+  if (state.errors.length) return;
+  state.result = generatePlaylist(state.songs, state.settings);
+  state.stale = false;
+  renderResults();
+}
+
+function renderResults() {
+  const r = state.result;
+  const box = $("results");
+  if (!r) {
+    box.replaceChildren(el("p", { class: "muted" }, "Adjust the settings, then press ", el("strong", {}, "Generate playlist"), "."));
+    return;
+  }
+  const s = state.settings;
+  const themed = s.theme && (s.theme.dances.length || (s.theme.tags || []).length);
+  const diff = r.totalSec - r.targetSec;
+
+  const copyBtn = el("button", { type: "button", onclick: async () => {
+    const text = r.playlist
+      .map((it, i) => `${i + 1}. ${it.song.title}${it.song.artist ? ` – ${it.song.artist}` : ""} (${it.dance})`)
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      copyBtn.textContent = "Copied!";
+      setTimeout(() => (copyBtn.textContent = "Copy song list"), 1500);
+    } catch {
+      alert("Copying failed in this browser. Use “Download CSV” instead.");
+    }
+  } }, "Copy song list");
+
+  const download = () => {
+    const blob = new Blob([playlistToCSV(r)], { type: "text/csv" });
+    const a = el("a", { href: URL.createObjectURL(blob), download: `playlist-seed-${r.seed}.csv` });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+
+  const seedLocked = s.seed != null;
+  const kindLabel = (it) =>
+    it.kind === "regular" ? it.category : it.kind === "excursion" ? "Excursion" : it.kind === "fixed" ? it.source : "Last dance";
+
+  box.replaceChildren(
+    el("ul", { id: "stale", class: "msgs", hidden: !state.stale },
+      el("li", { class: "warning" }, "Settings have changed since this playlist was generated.")),
+    el("div", { class: "summary" },
+      el("span", {}, "Songs: ", el("b", {}, String(r.playlist.length))),
+      el("span", {}, "Length: ", el("b", {}, hms(r.totalSec)), ` (target ${hms(r.targetSec)}, ${diff >= 0 ? "+" : ""}${hms(diff)})`),
+      themed && el("span", {}, "Theme share: ", el("b", {}, pct(r.stats.themeFraction))),
+      el("span", {}, "Seed: ", el("b", {}, String(r.seed)))),
+    el("div", { class: "result-actions" },
+      el("button", { type: "button", class: "primary", onclick: generate, disabled: state.errors.length > 0 },
+        seedLocked ? "Generate (seed locked)" : "Generate another"),
+      seedLocked
+        ? el("button", { type: "button", onclick: () => {
+            s.seed = null;
+            changed(true);
+            renderResults();
+          } }, "Unlock seed")
+        : el("button", { type: "button", title: "Put this seed in the settings so the same playlist comes back", onclick: () => {
+            s.seed = r.seed;
+            changed(true);
+            state.stale = false;
+            renderResults();
+          } }, "Keep this playlist's seed"),
+      copyBtn,
+      el("button", { type: "button", onclick: download }, "Download CSV")),
+    r.warnings.length > 0 &&
+      el("ul", { class: "msgs" },
+        r.warnings.map((w) => el("li", { class: "warning" }, (w.index >= 0 ? `#${w.index + 1}: ` : "") + w.message))),
+    el("div", { class: "table-wrap" },
+      el("table", { class: "playlist" },
+        el("thead", {}, el("tr", {},
+          ["#", "Start", "Dance", "Type", "Title", "Length"].map((h) => el("th", { scope: "col" }, h)),
+          themed && el("th", { scope: "col", title: "Theme song" }, "★"))),
+        el("tbody", {},
+          r.playlist.map((it) =>
+            el("tr", { class: it.kind },
+              el("td", { class: "num" }, String(it.index + 1)),
+              el("td", { class: "num" }, hms(it.startSec)),
+              el("td", { title: it.song.sourceDances ? `Tagged: ${it.song.sourceDances.join(", ")}` : null }, it.dance),
+              el("td", { class: "type" }, kindLabel(it)),
+              el("td", {}, it.song.title, it.song.artist && el("span", { class: "muted" }, ` – ${it.song.artist}`)),
+              el("td", { class: "num" }, hms(it.song.lengthSec)),
+              themed && el("td", { class: "theme-mark", title: it.isTheme ? "Theme song" : null }, it.isTheme ? "★" : ""))))))
+  );
+}
+
+/* -------------------------------------------------------------------- init */
+
+async function init() {
+  $("generate").addEventListener("click", generate);
+  $("reset").addEventListener("click", () => {
+    if (!confirm("Reset all settings to the defaults?")) return;
+    state.settings = clone(APP_DEFAULTS);
+    state.themeStash = null;
+    changed(true);
+  });
+  renderForm();
+  const saved = loadSavedLibrary();
+  if (saved && Array.isArray(saved.songs) && saved.songs.length) setLibrary(saved.songs, saved.name, [], true);
+  else await useSample();
+}
+
+init();

@@ -13,15 +13,59 @@
  * Everything else (rules relaxed WITH a warning) is reported as information.
  */
 
-import { generatePlaylist, checkRules, validateSettings, formatTime } from "../js/generator.js";
+import { generatePlaylist, checkRules, validateSettings, listDances, formatTime } from "../js/generator.js";
 import { buildSongs, SCENARIOS } from "./sample-data.js";
+import { buildSampleLibrary } from "../tools/sample-library.js";
+import { APP_DEFAULTS } from "../js/settings.js";
 
 const SEEDS = Number(process.argv[2]) || 500;
 const SHOW_EXAMPLES = 3;
 let totalBugs = 0;
 
+/* ---- association checks ---- */
+{
+  console.log("=== Associations");
+  const lib = buildSampleLibrary();
+  const expect = (cond, msg) => {
+    if (!cond) {
+      console.log(`  BUG: ${msg}`);
+      totalBugs++;
+    }
+  };
+  const raw = listDances(lib, {});
+  const merged = listDances(lib, APP_DEFAULTS);
+  console.log(`  dances in library: ${raw.length} raw, ${merged.length} after the default associations`);
+  expect(raw.length === 26, `expected 26 raw dances, got ${raw.length}`);
+  expect(merged.includes("Waltz") && !merged.includes("Smooth Waltz"), "Smooth Waltz should merge into Waltz");
+  expect(merged.includes("Rhythm Rumba"), "unassociated Rhythm Rumba should keep its name");
+
+  const errorsFor = (associations, categories = [{ name: "A", dances: ["Waltz"] }]) =>
+    validateSettings(lib, { associations, categories }).errors;
+  expect(errorsFor([{ name: "Waltz", dances: ["Smooth Waltz", "Standard Waltz"] }]).length === 0, "valid association rejected");
+  expect(
+    errorsFor([
+      { name: "Waltz", dances: ["Smooth Waltz"] },
+      { name: "Waltz 2", dances: ["Smooth Waltz"] },
+    ]).length > 0,
+    "dance in two associations not reported"
+  );
+  expect(
+    errorsFor([{ name: "Waltz", dances: ["Smooth Waltz", "Standard Waltz"] }], [
+      { name: "Smooth", dances: ["Smooth Waltz"] },
+      { name: "Standard", dances: ["Standard Waltz"] },
+    ]).some((e) => e.includes("after associations")),
+    "merged dance landing in two categories not reported"
+  );
+
+  // A merged dance must be playable from either source tag.
+  const res = generatePlaylist(lib, { ...APP_DEFAULTS, seed: 7 });
+  const waltzSources = new Set(res.playlist.filter((it) => it.dance === "Waltz").flatMap((it) => it.song.sourceDances));
+  console.log(`  "Waltz" slots drew songs tagged: ${[...waltzSources].join(", ")}`);
+  expect(waltzSources.has("Smooth Waltz") || waltzSources.has("Standard Waltz"), "Waltz slots drew no Smooth/Standard Waltz songs");
+}
+
 for (const sc of SCENARIOS) {
-  const songs = buildSongs(sc.perDance);
+  const songs = sc.songs ?? buildSongs(sc.perDance);
   const longest = Math.max(...songs.map((s) => s.lengthSec));
   const shortest = Math.min(...songs.map((s) => s.lengthSec));
   console.log(`\n=== ${sc.name}  (${songs.length} songs, ${SEEDS} seeds)`);

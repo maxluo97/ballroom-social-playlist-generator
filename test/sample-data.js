@@ -5,7 +5,10 @@
  * fake; lengths are deterministic (same every run) and range from 2:30 to 4:10.
  */
 
-export const BALLROOM = ["Waltz", "Tango", "Foxtrot", "Viennese Waltz", "Quickstep"];
+import { buildSampleLibrary, SAMPLE_DANCES } from "../tools/sample-library.js";
+import { APP_DEFAULTS } from "../js/settings.js";
+
+export const BALLROOM =["Waltz", "Tango", "Foxtrot", "Viennese Waltz", "Quickstep"];
 export const LATIN = ["Cha-cha", "Rumba", "Swing", "Samba", "Mambo"];
 export const CLUB = ["Bachata", "Hustle", "West Coast Swing", "Night Club Two Step"];
 export const EXTRAS = ["Polka", "Line dance", "Paso Doble"];
@@ -61,8 +64,28 @@ const ballroomLatinBase = {
   closing: { finalDance: "Waltz" },
 };
 
-/** Each scenario: { name, settings, perDance } */
+/** Each scenario: { name, settings, perDance } or { name, settings, songs } */
 export const SCENARIOS = [
+  {
+    name: "App defaults: sample library, associations (Smooth+Standard, Rhythm+Latin)",
+    songs: buildSampleLibrary(),
+    settings: APP_DEFAULTS,
+  },
+  {
+    name: "Sample library, NO associations: Smooth and Standard as separate categories",
+    songs: buildSampleLibrary(),
+    settings: {
+      eventLengthMinutes: 180,
+      categories: [
+        { name: "Smooth", dances: SAMPLE_DANCES.Smooth },
+        { name: "Standard", dances: SAMPLE_DANCES.Standard },
+      ],
+      minToRepeat: 3,
+      excursions: { intervalMinutes: 25, pool: { Hustle: 1, "West Coast Swing": 1 } },
+      opening: { earlyCount: 6, blacklist: ["Standard Quickstep"] },
+      closing: { finalDance: "Standard Waltz" },
+    },
+  },
   {
     name: "N=1 (Ballroom only), 2 h, no theme",
     perDance: 8,
