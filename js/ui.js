@@ -1427,7 +1427,10 @@ function saveToSpotifyBox(r, trackIds) {
   const name = el("input", { type: "text", value: `Dance social ${today}`, "aria-label": "Playlist name", style: "flex:1 1 16em" });
   const isPublic = el("input", { type: "checkbox" });
   const status = el("div", { "aria-live": "polite" });
-  const create = el("button", { type: "button", class: "primary" }, `Create playlist (${trackIds.length} songs)`);
+  // Wait for the Spotify check (and its replacements) before the playlist can be created.
+  const checking = !!(state.result && state.result.check && state.result.check.running);
+  const create = el("button", { type: "button", class: "primary", disabled: checking,
+    title: checking ? "Waiting for the Spotify check to finish" : null }, `Create playlist (${trackIds.length} songs)`);
   const say = (kind, ...content) => fill(status, el("ul", { class: "msgs" }, el("li", { class: kind }, ...content)));
   const openLink = (url) => url && el("a", { href: url, target: "_blank", rel: "noopener" }, "Open in Spotify");
   const fallback = " You can still use “Copy Spotify links” and paste them into a playlist by hand.";
@@ -1463,7 +1466,8 @@ function saveToSpotifyBox(r, trackIds) {
     el("div", { class: "subbox-title" }, "Save to Spotify"),
     el("div", { class: "inline-fields" }, "Name:", name),
     el("label", { class: "inline-fields" }, isPublic, "Public (shows on your Spotify profile); otherwise private"),
-    el("div", {}, create),
+    el("div", { class: "inline-fields" }, create,
+      checking && el("span", { class: "muted" }, "Waiting for the Spotify check to finish…")),
     status);
 }
 

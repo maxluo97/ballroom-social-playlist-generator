@@ -12,7 +12,7 @@ import {
   login, logout, isLoggedIn, handleLoginRedirect, getMyPlaylists, getPlaylistTracks,
   getTrack, searchTracks, playlistIdFrom,
 } from "./spotify.js";
-import { availabilityOf, isUnavailable, unavailableReason, reloadAvailability } from "./availability.js";
+import { availabilityOf, isUnavailable, unavailableReason, reloadAvailability, checkSongs } from "./availability.js";
 import { spotifyTrackId } from "./data.js";
 import { loadSongsFromUrl, parseSongsText, songsToCSV, parseRemovedSongs, removedSongsToCSV } from "./data.js";
 import {
@@ -767,7 +767,36 @@ function availabilityNote(id) {
   return null;
 }
 
-/** The "Spotify availability" box at the top of step 5: what the generator has learned so far. */
+/**
+ * Re-check every library song that was checked before (songs can come back to Spotify, or leave).
+ * One request per song, so it asks first. Runs with progress and a Stop button.
+ */
+let recheck = null; // while running: { done, total, stop }
+async function recheckCheckedSongs(ids) {
+  const minutes = Math.max(1, Math.round(ids.length / 120));
+  if (!confirm(
+    `Recheck ${ids.length} songs on Spotify?\n\n` +
+      `This sends one request per song and may take ${ids.length > 120 ? `around ${minutes} minutes` : "a minute"}. ` +
+      "With many songs, Spotify may also start limiting requests for a while (the app then waits and carries on, " +
+      "which makes it slower). You can stop at any time; results so far are kept.\n\nContinue?")) return;
+  recheck = { done: 0, total: ids.length, stop: false };
+  renderReview();
+  await checkSongs(ids, {
+    shouldStop: () => recheck.stop,
+    onProgress: (done, total) => {
+      recheck.done = done;
+      const progress = $("recheck-progress");
+      if (progress) progress.textContent = `Rechecked ${done} of ${total}…`;
+    },
+  });
+  const stopped = recheck.stop;
+  const done = recheck.done;
+  recheck = null;
+  renderReview();
+  if (stopped) alert(`Stopped after ${done} of ${ids.length} songs. Those results are kept.`);
+}
+
+/** The "Spotify availability" box at the top of step 5: what has been learned so far. */
 function availabilityBox() {
   reloadAvailability(); // the generator page may have checked songs since this page opened
   const inLibrary = state.rows.filter((r) => !r.removedNow && !r.blocked);
@@ -781,7 +810,17 @@ function availabilityBox() {
         (checked.length
           ? `${checked.length} of ${inLibrary.length} songs checked so far; ${bad} not available` +
             (bad ? " (filter “Not available on Spotify” below; consider removing them)." : ".")
-          : "No songs have been checked yet.")));
+          : "No songs have been checked yet.")),
+    recheck
+      ? el("div", { class: "inline-fields" },
+          el("span", { id: "recheck-progress" }, `Rechecked ${recheck.done} of ${recheck.total}…`),
+          el("button", { type: "button", class: "small", onclick: () => (recheck.stop = true) }, "Stop"))
+      : checked.length > 0 && el("div", { class: "inline-fields" },
+          isLoggedIn()
+            ? el("button", { type: "button", class: "small", onclick: () => recheckCheckedSongs(checked.map((r) => r.song.id)) },
+                `Recheck checked songs (${checked.length})`)
+            : el("span", { class: "muted" }, "Log in (step 1) to recheck these songs."),
+          el("span", { class: "muted" }, "Songs can return to Spotify or leave it; this refreshes what is known.")));
 }
 
 const FILTERS = {
