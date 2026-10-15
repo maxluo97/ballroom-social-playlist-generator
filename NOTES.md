@@ -52,22 +52,42 @@ A web app that randomly generates a curated playlist for a dance social, subject
 
 Definitions: a **song** is a piece of music irrespective of dance; a **dance** is a categorical identity for bodily motions done to a song; a song may support several dances ("Oye Como Va is a cha-cha" is shorthand).
 
-## 7. The rules (from the original README)
+## 7. The rules (README.md is authoritative; summary here)
 
 1. **Blocks:** categories alternate in blocks of 1..`maxInARow` songs (default 3). Block length is rerolled only after every category has had a turn. Interrupts (excursions, fixed events) do not reset the block.
 2. **Shuffle-bag repetition:** within a category, no dance repeats until all of that category's dances have occurred; order is re-randomized each round (like Tetris bags).
-3. **Spacing:** `minToRepeat` (default 4) songs must separate two songs of the same dance. Applies to theme dances too. The last song is exempt.
-4. **Excursions:** fire on a timer (~every 25 min). Weighted reducing pool: each draw removes one occurrence of that dance, so weights are also maximum counts (Polka 1, Hustle 1, Bachata 3, etc.).
-5. **Fixed events:** a line-dance break at the halfway mark (3 songs); Paso Doble exactly once at `at` (e.g. 0.7), never directly after the line-dance break.
-6. **Theme:** theme dances should make up `fractionMin`..`fractionMax` of regular songs (default 25-40%; 20-25% when the theme focuses on specific dances). Theme dances are exempt from the shuffle-bag but not from spacing. First two songs are guaranteed theme dances if a theme exists.
+3. **Spacing:** `minToRepeat` (default 4) songs must separate two songs of the same dance. Applies to theme dances too. The last song and fixed events are exempt.
+4. **Excursions:** fire on a timer (~every 25 min). Weighted reducing pool: each draw removes one occurrence of that dance. When every counter reaches 0, the pool **resets** to its starting weights.
+5. **Fixed events:** e.g. a line-dance break at the halfway mark (3 songs), Paso Doble once at `at` 0.7. Two different fixed events are **never back to back** (general rule); `notAfter` adds extra per-event restrictions.
+6. **Theme:** a theme is a set of dances and/or song tags (`theme.dances`, `theme.tags`, e.g. "Hollywood"); a song is a theme song if either matches ("song" and "dance" are interchangeable here). Theme songs should make up `fractionMin`..`fractionMax` of regular + excursion songs (default 25-40%; 20-25% for dance-focused themes). Theme songs can come from categories or excursions. Theme dances are exempt from the shuffle-bag but not from spacing (tag-only theme songs still obey the bag). First `guaranteedOpeners` (default 2) songs are theme songs.
 7. **Opening:** the first `earlyCount` (default 6) songs avoid `blacklist` (default Mambo, Quickstep).
-8. **Closing:** an optional designated final dance; the night is budgeted to end close to the target length.
+8. **Closing:** an optional designated final dance. The night ends no later than `longest song - shortest song` past the target (and no earlier than one shortest song before it).
 
 Original README "future work": scrape Spotify playlists, create Spotify playlists directly, in-place song replacement, a preferred-songs list spread evenly through the night, themed blocks of songs.
 
 ## 8. Current state of the code
 
-**Exists:** `generator.js` (ES module, ~600 lines), a pure-logic implementation of rules 1-8 with N categories:
+Folder layout (planned; ✔ = exists):
+
+```
+index.html            app page (GitHub Pages serves the root)
+css/style.css
+js/generator.js  ✔    pure rules logic
+js/settings.js        defaults, presets, localStorage, import/export
+js/ui.js              settings form + results list
+js/data.js            loads the song database
+js/spotify.js         login + playlist creation
+data/songs.json       master song database
+presets/*.json        e.g. ballroom-social.json
+tools/                Node helper scripts (e.g. CSV -> JSON)
+test/sample-data.js ✔ fake songs + 8 scenarios
+test/test.js  ✔       run with `npm test`
+package.json  ✔       {"type": "module"}
+```
+
+Language: JavaScript only (runs in the browser and in Node). The old Python files were deleted; Python is not required.
+
+**Exists:** `js/generator.js` (ES module), a pure-logic implementation of the rules with N categories:
 
 - `generatePlaylist(songs, settings, options)` returns `{ playlist, totalSec, targetSec, overtimeSec, seed, warnings, stats }`.
 - `validateSettings(songs, settings)` returns `{ errors, warnings }` (e.g. dance in two categories, missing songs, infeasible theme fraction).
@@ -77,7 +97,7 @@ Original README "future work": scrape Spotify playlists, create Spotify playlist
 - If rules cannot all be met, it relaxes them in a fixed order (`LEVELS`) and records a warning rather than failing.
 - Optional `options.songFilter(song, ctx)` hook for tag-based rules (e.g. no tempo-change songs in the opening).
 
-Song format: `{ id, title, lengthSec, dances: ["Waltz", ...] }`.
+Song format: `{ id, title, lengthSec, dances: ["Waltz", ...], tags: ["Hollywood", ...] }`.
 
 Settings shape (see header comment in `generator.js` for details):
 
@@ -92,27 +112,25 @@ Settings shape (see header comment in `generator.js` for details):
     { name: "Line dance", dance: "Line dance", count: 3, at: 0.5 },
     { name: "Paso Doble", dance: "Paso Doble", count: 1, at: 0.7, notAfter: ["Line dance"] }
   ],
-  theme: { name: "...", dances: [...], fractionMin: 0.25, fractionMax: 0.40, guaranteedOpeners: 2 },
+  theme: { name: "...", dances: [...], tags: [...], fractionMin: 0.25, fractionMax: 0.40, guaranteedOpeners: 2 },
   opening: { earlyCount: 6, blacklist: ["Mambo", "Quickstep"] },
   closing: { finalDance: "Waltz" },
   seed: null
 }
 ```
 
-**Not yet done / not yet verified:**
+**Tested (Oct 2026):** `npm test` runs 8 scenarios x 500 seeds (N=1/2/3 categories; no theme, dance theme, focused theme, song-tag theme, excursion theme). It checks for silent rule violations, determinism, song reuse, and night length. All pass. `validateSettings` warns about infeasible settings (e.g. too few dances for `minToRepeat`, a theme minimum above what spacing allows, one theme dance but two guaranteed openers).
 
-- `generator.js` has **never been run or tested**. It was written but not executed.
-- No sample data, test script, or `package.json` exist yet. Needed: `package.json` with `{"type":"module"}` so Node can import it.
-- Design assumptions made without the lost MATLAB code (confirm with the developer):
-  - Excursion timer fires at `nextExcAt += interval`.
-  - Theme share is steered by feedback (force theme below `fractionMin`, forbid above `fractionMax`, otherwise a coin flip at the midpoint). Theme dances only in some categories cap the achievable share.
-  - Overtime is bounded by the longest song, not by the original `maxSongLength - minSongLength` rule.
-  - Fixed-event songs skip spacing rules.
+Remaining design assumptions (not specified by the README):
+- Excursion timer fires at `nextExcAt += interval`; the first excursion is at one interval in.
+- Theme share is steered by feedback (force theme below `fractionMin`, avoid above `fractionMax`, otherwise a coin flip at the midpoint). Share can end slightly below the minimum (~5-15% of runs land at 24%).
+- Fixed-event songs skip spacing rules. A fixed event may directly follow an excursion.
+- Openers come from categories only (excursions do not fire in the first songs).
 
 ## 9. Suggested next steps
 
-1. Create `package.json` (`"type": "module"`), a sample song set (about 8 songs per dance, a few multi-dance songs, 2-3 categories), and `test.js` that runs `generatePlaylist` over many seeds and prints any `checkRules` violations that occur with no relaxation warnings. Test N=1, 2, and 3 categories, with and without a theme.
-2. Fix any bugs the tests expose; check determinism (same seed gives same output).
+1. ~~package.json, sample data, test harness~~ (done)
+2. ~~Fix bugs the tests expose; check determinism~~ (done)
 3. Build the settings UI page (plain JS) bound to the settings object, with a results list.
 4. Add presets: `localStorage` plus JSON export/import, then URL-encoded settings, then per-user tag overrides.
 5. Add Spotify: PKCE login, then profile, then create playlist, then add tracks. Verify against current docs at each step.

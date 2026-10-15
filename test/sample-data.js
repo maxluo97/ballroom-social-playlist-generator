@@ -10,14 +10,19 @@ export const LATIN = ["Cha-cha", "Rumba", "Swing", "Samba", "Mambo"];
 export const CLUB = ["Bachata", "Hustle", "West Coast Swing", "Night Club Two Step"];
 export const EXTRAS = ["Polka", "Line dance", "Paso Doble"];
 
-/** Build `perDance` single-dance songs for each dance, plus a few multi-dance songs. */
+/**
+ * Build `perDance` single-dance songs for each dance, plus a few multi-dance songs.
+ * Every 4th song is tagged "Hollywood" (for testing song-tag themes).
+ */
 export function buildSongs(perDance = 8) {
   const songs = [];
   let n = 0;
   const lengthFor = (i) => 150 + ((i * 37) % 100); // 150..249 s
+  const tagsFor = (i) => (i % 4 === 0 ? ["Hollywood"] : []);
   for (const dance of [...BALLROOM, ...LATIN, ...CLUB, ...EXTRAS]) {
     for (let k = 1; k <= perDance; k++) {
-      songs.push({ id: `t${++n}`, title: `${dance} song ${k}`, lengthSec: lengthFor(n), dances: [dance] });
+      n++;
+      songs.push({ id: `t${n}`, title: `${dance} song ${k}`, lengthSec: lengthFor(n), dances: [dance], tags: tagsFor(n) });
     }
   }
   const multi = [
@@ -90,6 +95,23 @@ export const SCENARIOS = [
     settings: {
       ...ballroomLatinBase,
       theme: { name: "Rumba night", dances: ["Rumba"], fractionMin: 0.2, fractionMax: 0.25 },
+    },
+  },
+  {
+    name: "N=2, 3 h, song-tag theme (Hollywood songs, any dance)",
+    perDance: 8,
+    settings: {
+      ...ballroomLatinBase,
+      theme: { name: "Hollywood", tags: ["Hollywood"], fractionMin: 0.25, fractionMax: 0.4 },
+    },
+  },
+  {
+    name: "N=2, 3 h, theme in excursions (Hustle night, every 10 min)",
+    perDance: 12,
+    settings: {
+      ...ballroomLatinBase,
+      excursions: { intervalMinutes: 10, pool: { Hustle: 6, Polka: 1, Bachata: 2 } },
+      theme: { name: "Hustle night", dances: ["Hustle"], fractionMin: 0.1, fractionMax: 0.2, guaranteedOpeners: 0 },
     },
   },
   {

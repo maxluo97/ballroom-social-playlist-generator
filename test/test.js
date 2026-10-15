@@ -23,6 +23,7 @@ let totalBugs = 0;
 for (const sc of SCENARIOS) {
   const songs = buildSongs(sc.perDance);
   const longest = Math.max(...songs.map((s) => s.lengthSec));
+  const shortest = Math.min(...songs.map((s) => s.lengthSec));
   console.log(`\n=== ${sc.name}  (${songs.length} songs, ${SEEDS} seeds)`);
 
   const { errors, warnings } = validateSettings(songs, sc.settings);
@@ -72,9 +73,11 @@ for (const sc of SCENARIOS) {
     const reuseWarned = res.warnings.some((w) => /reuse/.test(w.message));
     if (new Set(ids).size !== ids.length && !reuseWarned) bugs.push(`seed ${seed}: a song was used twice with no warning`);
 
-    if (res.overtimeSec > longest) bugs.push(`seed ${seed}: overtime ${formatTime(res.overtimeSec)} exceeds longest song`);
+    // README rule 8: end no later than (longest - shortest) past the target; and since songs are
+    // added while the shortest would still fit, no earlier than one shortest song before it.
+    if (res.overtimeSec > longest - shortest) bugs.push(`seed ${seed}: overtime ${formatTime(res.overtimeSec)} exceeds longest - shortest song`);
     const endedEarly = res.warnings.some((w) => /ended early/.test(w.message));
-    if (!endedEarly && res.overtimeSec < -longest) bugs.push(`seed ${seed}: night ended ${formatTime(-res.overtimeSec)} short of target`);
+    if (!endedEarly && res.overtimeSec <= -shortest) bugs.push(`seed ${seed}: night ended ${formatTime(-res.overtimeSec)} short of target`);
 
     maxOver = Math.max(maxOver, res.overtimeSec);
     minOver = Math.min(minOver, res.overtimeSec);
@@ -86,8 +89,7 @@ for (const sc of SCENARIOS) {
   const pct = (x) => `${(x * 100).toFixed(0)}%`;
   console.log(`  clean runs (no warnings, no violations): ${clean}/${SEEDS}`);
   console.log(`  songs per night: ${Math.min(...songCounts)}-${Math.max(...songCounts)} (avg ${avg(songCounts).toFixed(1)})`);
-  const fmtSigned = (x) => (x < 0 ? `-${formatTime(-x)}` : formatTime(x));
-  console.log(`  end vs target: ${fmtSigned(minOver)} to ${fmtSigned(maxOver)}`);
+  console.log(`  end vs target: ${formatTime(minOver)} to ${formatTime(maxOver)}`);
   if (themeFracs.length) {
     const { fractionMin, fractionMax } = sc.settings.theme;
     const inRange = themeFracs.filter((f) => f >= fractionMin - 1e-9 && f <= fractionMax + 1e-9).length;

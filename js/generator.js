@@ -5,12 +5,14 @@
  * (load with <script type="module">).
  *
  * VOCABULARY
- *   Song       { id, title, lengthSec, dances: [..] }   (a song may serve several dances)
+ *   Song       { id, title, lengthSec, dances: [..], tags: [..] }   (a song may serve several dances)
  *   Dance      a label such as "Waltz" or "Bachata"
  *   Category   a named group of dances ("Ballroom", "Latin", "Swing", ...). Any number (N >= 1).
  *   Excursion  a dance outside the categories, drawn on a timer from a reducing-weight pool
  *   Fixed event a dance placed at a set fraction of the night (line-dance break, Paso Doble, ...)
- *   Theme      dances that should appear at an elevated rate
+ *   Theme      dances and/or song tags that should appear at an elevated rate. A song is a
+ *              "theme song" if it is played as a theme dance OR carries a theme tag
+ *              ("Hollywood night" = tag; "Hustle night" = dance; both may be combined).
  *
  * SETTINGS (all optional except `categories`; see DEFAULT_SETTINGS)
  *   eventLengthMinutes   target length of the night
@@ -19,27 +21,30 @@
  *   minToRepeat          songs that must separate two songs of the same dance
  *   excursions           { intervalMinutes, jitterMinutes, pool: { dance: maxOccurrences } }
  *   fixedEvents          [{ name, dance, count, at: 0..1, notAfter: [names or dances] }]
- *   theme                { name, dances, fractionMin, fractionMax, guaranteedOpeners } or null
+ *   theme                { name, dances, tags, fractionMin, fractionMax, guaranteedOpeners } or null
  *   opening              { earlyCount, blacklist: [dances] }
  *   closing              { finalDance }   (null = no designated last dance)
  *   seed                 integer for reproducible output (null = random)
  *
- * RULES IMPLEMENTED
+ * RULES IMPLEMENTED (numbers follow the README where possible)
  *   1. Categories alternate in blocks of 1..maxInARow. One block length is rolled per cycle,
  *      and it is rerolled only after every category has had its turn (cycle order is shuffled,
  *      and a cycle never starts with the category that just ended the previous one).
- *   2. Within a category, non-theme dances are drawn from a shuffle-bag (Tetris-style):
- *      no repeat until all the category's non-theme dances have occurred.
- *   3. Theme dances skip the bag, but still obey minToRepeat. Their share of regular songs is
- *      steered into [fractionMin, fractionMax].
- *   4. minToRepeat applies to every dance, except the designated final song and fixed events.
- *   5. Excursions fire on a timer; each draw is weighted and removes one entry from the pool.
- *   6. Fixed events fire once when the clock passes `at` * length (and not directly after any
- *      dance/event named in `notAfter`; they wait until it is allowed).
- *   7. Opening: the first `earlyCount` songs avoid the blacklist; the first
- *      `guaranteedOpeners` songs are theme dances.
- *   8. Closing: the final song is reserved up front and the night stops when it would reach
- *      the target length.
+ *   2. Excursions fire on a timer; each draw is weighted and removes one entry from the pool.
+ *      When every counter reaches 0, the pool resets to its starting weights.
+ *   3/4. Fixed events fire once when the clock passes `at` * length. Two different fixed events
+ *      are never back to back, and an event also waits if the previous song matches its `notAfter`.
+ *   5. Theme songs (dance or tag) are steered to make up fractionMin..fractionMax of the regular
+ *      and excursion songs. Theme dances skip the shuffle-bag but obey minToRepeat. The first
+ *      `guaranteedOpeners` songs are theme songs.
+ *   6. (blocks, see 1)
+ *   7. Within a category, non-theme dances are drawn from a shuffle-bag (Tetris-style):
+ *      no repeat until all the category's non-theme dances have occurred. minToRepeat applies
+ *      to every dance, except the designated final song and fixed events.
+ *   8. Closing: the final song is reserved up front. Songs are added while the shortest song in
+ *      the library would still fit, so the night ends within
+ *      (target - shortest song, target + longest song - shortest song].
+ *   9. Opening: the first `earlyCount` songs avoid the blacklist.
  *
  * If a rule set cannot be satisfied (e.g. too few songs), rules are relaxed in a fixed order
  * (see LEVELS) and a warning is recorded, instead of failing.
@@ -61,6 +66,7 @@ export const DEFAULT_SETTINGS = {
 const THEME_DEFAULTS = {
   name: "",
   dances: [],
+  tags: [],
   fractionMin: 0.25,
   fractionMax: 0.4,
   guaranteedOpeners: 2,
@@ -68,12 +74,13 @@ const THEME_DEFAULTS = {
 
 /** Order in which rules are relaxed when no legal choice exists. */
 const LEVELS = [
-  { name: "strict",                       bag: true,  themeOpener: true,  gapFactor: 1,   blacklist: true,  reuse: false },
-  { name: "shuffle-bag rule relaxed",     bag: false, themeOpener: true,  gapFactor: 1,   blacklist: true,  reuse: false },
-  { name: "spacing halved, opener theme dropped", bag: false, themeOpener: false, gapFactor: 0.5, blacklist: true,  reuse: false },
-  { name: "spacing ignored",              bag: false, themeOpener: false, gapFactor: 0,   blacklist: true,  reuse: false },
-  { name: "opening blacklist ignored",    bag: false, themeOpener: false, gapFactor: 0,   blacklist: false, reuse: false },
-  { name: "song reuse allowed",           bag: false, themeOpener: false, gapFactor: 0,   blacklist: false, reuse: true },
+  { name: "strict",                    bag: true,  themeOpener: true,  gapFactor: 1,   blacklist: true,  reuse: false },
+  { name: "shuffle-bag rule relaxed",  bag: false, themeOpener: true,  gapFactor: 1,   blacklist: true,  reuse: false },
+  { name: "theme opener dropped",      bag: false, themeOpener: false, gapFactor: 1,   blacklist: true,  reuse: false },
+  { name: "spacing halved",            bag: false, themeOpener: false, gapFactor: 0.5, blacklist: true,  reuse: false },
+  { name: "spacing ignored",           bag: false, themeOpener: false, gapFactor: 0,   blacklist: true,  reuse: false },
+  { name: "opening blacklist ignored", bag: false, themeOpener: false, gapFactor: 0,   blacklist: false, reuse: false },
+  { name: "song reuse allowed",        bag: false, themeOpener: false, gapFactor: 0,   blacklist: false, reuse: true },
 ];
 
 /* ------------------------------------------------------------------ helpers */
@@ -91,9 +98,11 @@ export function mulberry32(seed) {
 }
 
 export function formatTime(sec) {
+  const sign = sec < 0 ? "-" : "";
+  sec = Math.abs(sec);
   const m = Math.floor(sec / 60);
   const s = Math.round(sec % 60);
-  return `${m}:${String(s).padStart(2, "0")}`;
+  return `${sign}${m}:${String(s).padStart(2, "0")}`;
 }
 
 export function mergeSettings(user = {}) {
@@ -112,7 +121,21 @@ export function mergeSettings(user = {}) {
 
 function normalizeSong(sg) {
   const dances = sg.dances ?? (sg.dance ? [sg.dance] : []);
-  return { ...sg, dances };
+  return { ...sg, dances, tags: sg.tags ?? [] };
+}
+
+/** Theme lookups shared by the generator, stats and rule checker. */
+function themeInfo(s) {
+  const dances = new Set(s.theme ? s.theme.dances : []);
+  const tags = new Set(s.theme ? s.theme.tags : []);
+  const hasTag = (sg) => (sg.tags || []).some((t) => tags.has(t));
+  return {
+    active: dances.size > 0 || tags.size > 0,
+    dances,
+    tags,
+    hasTag,
+    isThemeSong: (sg, dance) => dances.has(dance) || hasTag(sg),
+  };
 }
 
 /* --------------------------------------------------------------- validation */
@@ -128,11 +151,13 @@ export function validateSettings(rawSongs, userSettings) {
   const warnings = [];
   const songs = rawSongs.map(normalizeSong);
   const countFor = (d) => songs.filter((sg) => sg.dances.includes(d)).length;
+  const pct = (x) => `${(x * 100).toFixed(0)}%`;
 
   if (!(s.eventLengthMinutes > 0)) errors.push("Event length must be positive.");
   if (!s.categories.length) errors.push("At least one category is required.");
   if (!(s.maxInARow >= 1)) errors.push("maxInARow must be at least 1.");
   if (!(s.minToRepeat >= 0)) errors.push("minToRepeat cannot be negative.");
+  if (songs.some((sg) => !(sg.lengthSec > 0))) errors.push("Every song needs a positive lengthSec.");
 
   const seen = new Map();
   for (const c of s.categories) {
@@ -144,23 +169,70 @@ export function validateSettings(rawSongs, userSettings) {
     }
   }
 
-  const themeSet = new Set(s.theme ? s.theme.dances : []);
-  for (const d of themeSet) {
-    if (!seen.has(d)) warnings.push(`Theme dance "${d}" is not in any category, so it will never be drawn as a theme dance.`);
+  // Spacing feasibility: with too few dances, minToRepeat forces (or breaks) the order.
+  const regular = [...seen.keys()].filter((d) => countFor(d) > 0);
+  const black = new Set(s.opening.blacklist);
+  if (regular.length && regular.length <= s.minToRepeat) {
+    warnings.push(`Only ${regular.length} dances are available but minToRepeat=${s.minToRepeat}; spacing will often be relaxed.`);
+  } else if (regular.length && regular.length === s.minToRepeat + 1) {
+    warnings.push(
+      `With ${regular.length} dances and minToRepeat=${s.minToRepeat}, the dance order is almost fixed; ` +
+        `rules will sometimes be relaxed. Consider a lower minToRepeat.`
+    );
   }
+  const openable = regular.filter((d) => !black.has(d));
+  if (s.opening.earlyCount > 1 && openable.length && openable.length <= Math.min(s.minToRepeat, s.opening.earlyCount - 1)) {
+    warnings.push(`Only ${openable.length} dances are allowed in the opening but minToRepeat=${s.minToRepeat}; spacing will be relaxed there.`);
+  }
+
+  const pool = s.excursions.pool;
+  const th = themeInfo(s);
   if (s.theme) {
+    if (!th.active) warnings.push("The theme has no dances or tags, so it has no effect.");
     if (s.theme.fractionMin > s.theme.fractionMax) errors.push("Theme fractionMin exceeds fractionMax.");
-    const k = [...themeSet].filter((d) => seen.has(d)).length;
-    const ceiling = Math.min(1, k / (s.minToRepeat + 1));
-    if (k && s.theme.fractionMin > ceiling + 1e-9) {
-      warnings.push(
-        `With ${k} theme dance(s) and minToRepeat=${s.minToRepeat}, theme songs can make up at most ` +
-          `${(ceiling * 100).toFixed(0)}% of regular songs; the requested minimum is ${(s.theme.fractionMin * 100).toFixed(0)}%.`
-      );
+    for (const d of th.dances) {
+      if (!seen.has(d) && !(pool[d] > 0)) warnings.push(`Theme dance "${d}" is not in any category or the excursion pool, so it will never be played.`);
+    }
+    for (const t of th.tags) {
+      if (!songs.some((sg) => sg.tags.includes(t))) warnings.push(`No songs carry the theme tag "${t}".`);
+    }
+
+    if (!th.tags.size) {
+      // Each theme dance can fill at most 1 slot in every (minToRepeat + 1).
+      const inCats = [...th.dances].filter((d) => seen.has(d) && countFor(d) > 0);
+      const inPool = [...th.dances].filter((d) => !seen.has(d) && pool[d] > 0 && countFor(d) > 0);
+      const ceiling = Math.min(1, (inCats.length + inPool.length) / (s.minToRepeat + 1));
+      if (th.dances.size && s.theme.fractionMin >= ceiling - 1e-9) {
+        warnings.push(
+          `With ${inCats.length + inPool.length} theme dance(s) and minToRepeat=${s.minToRepeat}, theme songs can make up ` +
+            `at most about ${pct(ceiling)} of songs; the requested minimum (${pct(s.theme.fractionMin)}) will often be missed.`
+        );
+      }
+      // Theme dances only in the excursion pool are limited by how often excursions fire.
+      if (!inCats.length && inPool.length && s.excursions.intervalMinutes > 0 && songs.length) {
+        const avgLen = songs.reduce((t, sg) => t + sg.lengthSec, 0) / songs.length;
+        const share = s.eventLengthMinutes / s.excursions.intervalMinutes / ((s.eventLengthMinutes * 60) / avgLen);
+        if (share < s.theme.fractionMin) {
+          warnings.push(
+            `Theme dances are only excursions, which fire about ${pct(share)} of the time; ` +
+              `the requested minimum (${pct(s.theme.fractionMin)}) cannot be reached. Shorten the excursion interval.`
+          );
+        }
+      }
+      // Openers come from categories; spacing means each one needs a different theme dance.
+      const openers = s.theme.guaranteedOpeners;
+      const openerDances = inCats.filter((d) => !(s.opening.earlyCount > 0 && black.has(d)));
+      const needed = Math.min(openers, s.minToRepeat + 1);
+      if (openers > 0 && openerDances.length < needed) {
+        warnings.push(
+          `The first ${openers} songs should be theme songs, but only ${openerDances.length} theme dance(s) ` +
+            `are in a category and allowed in the opening; the opener rule will be relaxed.`
+        );
+      }
     }
   }
 
-  for (const [d, w] of Object.entries(s.excursions.pool)) {
+  for (const [d, w] of Object.entries(pool)) {
     if (!(w >= 0)) errors.push(`Excursion weight for "${d}" must be 0 or more.`);
     if (w > 0 && countFor(d) === 0) warnings.push(`No songs are tagged "${d}" (excursion).`);
   }
@@ -172,7 +244,7 @@ export function validateSettings(rawSongs, userSettings) {
     warnings.push(`No songs are tagged "${s.closing.finalDance}" (final dance).`);
   }
   for (const c of s.categories) {
-    if (c.dances && c.dances.every((d) => s.opening.blacklist.includes(d))) {
+    if (c.dances && c.dances.length && c.dances.every((d) => black.has(d))) {
       warnings.push(`Every dance in "${c.name}" is on the opening blacklist.`);
     }
   }
@@ -212,13 +284,15 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
       byDance.get(d).push(sg);
     }
   }
+  const minLen = songs.length ? Math.min(...songs.map((sg) => sg.lengthSec)) : 0;
 
   const targetSec = s.eventLengthMinutes * 60;
   const cats = s.categories.map((c) => ({ name: c.name, dances: [...c.dances] }));
   const danceToCat = new Map();
   cats.forEach((c, i) => c.dances.forEach((d) => danceToCat.set(d, i)));
-  const themeSet = new Set(s.theme ? s.theme.dances : []);
-  const themeMid = s.theme ? (s.theme.fractionMin + s.theme.fractionMax) / 2 : 0;
+  const th = themeInfo(s);
+  const themeMid = th.active ? (s.theme.fractionMin + s.theme.fractionMax) / 2 : 0;
+  const notThemeTag = (sg) => !th.hasTag(sg);
   const blackSet = new Set(s.opening.blacklist);
 
   const warnings = [];
@@ -228,25 +302,41 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
   const history = []; // dance label per slot, used for spacing
   const used = new Set();
   let elapsed = 0;
-  let regularCount = 0;
+  let themeBase = 0; // regular + excursion songs (the theme share is measured over these)
   let themeCount = 0;
 
   /* ---- song selection ---- */
-  const availableSongs = (dance, reuse) =>
+  const availableSongs = (dance, reuse, require = null) =>
     (byDance.get(dance) || []).filter(
       (sg) =>
         (reuse || !used.has(sg.id)) &&
+        (!require || require(sg)) &&
         (!songFilter || songFilter(sg, { dance, elapsed, index: playlist.length }))
     );
-  const hasSong = (dance, reuse) => availableSongs(dance, reuse).length > 0;
-  const pickSong = (dance, reuse = false) => {
-    const list = availableSongs(dance, reuse);
+  const hasSong = (dance, reuse, require = null) => availableSongs(dance, reuse, require).length > 0;
+  /** `require` is a hard song filter; `prefer` is soft (ignored if nothing matches). */
+  const pickSong = (dance, reuse = false, { require = null, prefer = null } = {}) => {
+    let list = availableSongs(dance, reuse, require);
+    if (prefer) {
+      const p = list.filter(prefer);
+      if (p.length) list = p;
+    }
     return list.length ? choice(list) : null;
   };
   const gapAllowed = (dance, gap) => gap <= 0 || !history.slice(-gap).includes(dance);
   const isEarly = () => playlist.length < s.opening.earlyCount;
 
-  function push(dance, song, kind, category, source, isTheme = false) {
+  /** Theme steering for the next slot: 'want' | 'avoid' | 'neutral'. */
+  function themeMood() {
+    if (!th.active) return "neutral";
+    const f = themeBase ? themeCount / themeBase : 0;
+    if (f < s.theme.fractionMin) return "want";
+    if (f > s.theme.fractionMax) return "avoid";
+    return rng() < themeMid ? "want" : "neutral";
+  }
+
+  function push(dance, song, kind, category, source) {
+    const isTheme = kind !== "fixed" && th.isThemeSong(song, dance);
     playlist.push({
       index: playlist.length,
       startSec: elapsed,
@@ -260,6 +350,10 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     history.push(dance);
     used.add(song.id);
     elapsed += song.lengthSec;
+    if (kind === "regular" || kind === "excursion") {
+      themeBase++;
+      if (isTheme) themeCount++;
+    }
   }
 
   /* ---- category block state ---- */
@@ -281,11 +375,15 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     blockCount = 0;
   }
 
-  /** Choose a dance within category c under relaxation level L, or null. */
-  function selectDance(c, L) {
+  /**
+   * Choose a dance within category c under relaxation level L, or null.
+   * Returns { dance, require?, prefer? } where require/prefer are song filters for pickSong.
+   */
+  function selectDance(c, L, mood, openerForced) {
     const cat = cats[c];
-    const themeInC = cat.dances.filter((d) => themeSet.has(d));
-    const normalC = cat.dances.filter((d) => !themeSet.has(d));
+    const themeInC = cat.dances.filter((d) => th.dances.has(d));
+    const normalC = cat.dances.filter((d) => !th.dances.has(d));
+    if (L.bag && normalC.length && bags[c].length === 0) bags[c] = normalC.slice();
     const early = isEarly();
     const gap = Math.floor(s.minToRepeat * L.gapFactor);
     const ok = (d) =>
@@ -293,50 +391,34 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
       !(L.blacklist && early && blackSet.has(d)) &&
       gapAllowed(d, gap);
 
-    const openerForced = !!s.theme && L.themeOpener && playlist.length < s.theme.guaranteedOpeners;
-    let wantTheme = false;
-    if (themeInC.length) {
-      if (openerForced) wantTheme = true;
-      else {
-        const frac = regularCount ? themeCount / regularCount : 0;
-        if (frac < s.theme.fractionMin) wantTheme = true;
-        else if (frac > s.theme.fractionMax) wantTheme = false;
-        else wantTheme = rng() < themeMid;
+    // Non-theme dances this level may draw from (the bag, unless the bag rule is relaxed).
+    const normalPool = L.bag ? bags[c] : normalC;
+
+    if (mood === "want") {
+      const opts = themeInC.filter(ok).map((d) => ({ dance: d }));
+      if (th.tags.size) {
+        for (const d of normalPool) {
+          if (ok(d) && hasSong(d, L.reuse, th.hasTag)) opts.push({ dance: d, require: th.hasTag });
+        }
       }
+      if (opts.length) return choice(opts);
+      if (openerForced) return null; // let another category supply the opener
     }
 
-    if (wantTheme) {
-      const p = themeInC.filter(ok);
-      if (p.length) return { dance: choice(p), theme: true };
-      if (openerForced) return null; // try another category before giving up on the opener rule
-    }
-
-    if (!L.bag) {
-      const p = cat.dances.filter(ok);
-      if (!p.length) return null;
-      const d = choice(p);
-      return { dance: d, theme: themeSet.has(d) };
-    }
-
-    if (normalC.length) {
-      if (bags[c].length === 0) bags[c] = normalC.slice();
-      const p = bags[c].filter(ok);
-      return p.length ? { dance: choice(p), theme: false } : null;
-    }
-    const p = themeInC.filter(ok);
-    return p.length ? { dance: choice(p), theme: true } : null;
+    const prefer = mood === "avoid" ? notThemeTag : null;
+    const pool = !L.bag ? cat.dances : normalC.length ? bags[c] : themeInC;
+    const p = pool.filter(ok);
+    return p.length ? { dance: choice(p), prefer } : null;
   }
 
-  function commitRegular(c, ch, song) {
+  function commitRegular(c, dance, song) {
     const pos = cycleOrder.indexOf(c);
     if (pos !== cyclePos) {
       cyclePos = pos;
       blockCount = 0;
     }
-    push(ch.dance, song, "regular", cats[c].name, null, ch.theme);
-    regularCount++;
-    if (ch.theme) themeCount++;
-    if (!ch.theme) bags[c] = bags[c].filter((d) => d !== ch.dance);
+    push(dance, song, "regular", cats[c].name, null);
+    if (!th.dances.has(dance)) bags[c] = bags[c].filter((d) => d !== dance);
     lastRegularCategory = c;
     blockCount++;
     if (blockCount >= blockLen) {
@@ -348,15 +430,17 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
 
   function placeRegular() {
     const tryOrder = [...cycleOrder.slice(cyclePos), ...cycleOrder.slice(0, cyclePos)];
+    const mood = themeMood();
     for (let li = 0; li < LEVELS.length; li++) {
       const L = LEVELS[li];
+      const openerForced = th.active && L.themeOpener && playlist.length < s.theme.guaranteedOpeners;
       for (const c of tryOrder) {
-        const ch = selectDance(c, L);
+        const ch = selectDance(c, L, openerForced ? "want" : mood, openerForced);
         if (!ch) continue;
-        const song = pickSong(ch.dance, L.reuse);
+        const song = pickSong(ch.dance, L.reuse, ch);
         if (!song) continue;
         if (li > 0) warn(playlist.length, `Rule relaxed (${L.name}) to place a ${ch.dance} song.`);
-        commitRegular(c, ch, song);
+        commitRegular(c, ch.dance, song);
         return true;
       }
     }
@@ -364,14 +448,17 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
   }
 
   /* ---- excursions ---- */
-  const pool = { ...s.excursions.pool };
+  const initialPool = { ...s.excursions.pool };
+  let pool = { ...initialPool };
   const excInterval = s.excursions.intervalMinutes * 60;
   const excActive = excInterval > 0 && Object.values(pool).some((w) => w > 0);
   let nextExcAt = excActive ? excInterval : Infinity;
 
   function tryExcursion() {
+    // README: once every counter has reached 0, the pool resets to its starting weights.
+    if (!Object.values(pool).some((w) => w > 0)) pool = { ...initialPool };
     const early = isEarly();
-    const cands = Object.entries(pool).filter(
+    let cands = Object.entries(pool).filter(
       ([d, w]) =>
         w > 0 &&
         hasSong(d, false) &&
@@ -379,6 +466,16 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
         gapAllowed(d, s.minToRepeat)
     );
     if (!cands.length) return false;
+
+    const mood = themeMood();
+    if (mood === "want") {
+      const t = cands.filter(([d]) => th.dances.has(d) || (th.tags.size && hasSong(d, false, th.hasTag)));
+      if (t.length) cands = t;
+    } else if (mood === "avoid") {
+      const t = cands.filter(([d]) => !th.dances.has(d) && hasSong(d, false, notThemeTag));
+      if (t.length) cands = t;
+    }
+
     const total = cands.reduce((sum, [, w]) => sum + w, 0);
     let r = rng() * total;
     let pick = cands[cands.length - 1][0];
@@ -390,7 +487,8 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
       }
     }
     pool[pick]--;
-    push(pick, pickSong(pick), "excursion", null, null);
+    const prefer = mood === "want" && !th.dances.has(pick) ? th.hasTag : mood === "avoid" ? notThemeTag : null;
+    push(pick, pickSong(pick, false, { prefer }), "excursion", null, null);
     do {
       const jitter = (rng() * 2 - 1) * (s.excursions.jitterMinutes || 0) * 60;
       nextExcAt += Math.max(60, excInterval + jitter);
@@ -408,6 +506,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     const last = playlist[playlist.length - 1];
     for (const ev of fixed) {
       if (ev.triggered || elapsed < ev.at * targetSec) continue;
+      if (last && last.kind === "fixed") continue; // README: fixed events are never back to back
       if (last && ev.notAfter.some((x) => x === last.source || x === last.dance)) continue;
       return ev;
     }
@@ -423,9 +522,9 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
   }
   const finalReserve = finalSong ? finalSong.lengthSec : 0;
 
-  /* ---- main loop ---- */
+  /* ---- main loop: keep adding songs while even the shortest song would still fit ---- */
   newCycle();
-  while (playlist.length < 5000 && elapsed + finalReserve < targetSec) {
+  while (playlist.length < 5000 && elapsed + finalReserve + minLen <= targetSec) {
     if (queue.length === 0) {
       const ev = dueFixedEvent();
       if (ev) {
@@ -447,6 +546,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     }
   }
 
+  if (queue.length) warn(-1, `Fixed event "${queue[0].name}" was cut short by the end of the night.`);
   for (const ev of fixed) {
     if (!ev.triggered) warn(-1, `Fixed event "${ev.name}" never fired (night ended first or it was blocked).`);
   }
@@ -454,7 +554,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
   if (finalSong) {
     const d = s.closing.finalDance;
     const c = danceToCat.get(d);
-    push(d, finalSong, "final", c === undefined ? null : cats[c].name, null, themeSet.has(d));
+    push(d, finalSong, "final", c === undefined ? null : cats[c].name, null);
   }
 
   const result = {
@@ -465,13 +565,13 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     seed,
     warnings,
   };
-  result.stats = computeStats(result, s);
+  result.stats = computeStats(result);
   return result;
 }
 
 /* -------------------------------------------------------------------- stats */
 
-export function computeStats(result, s) {
+export function computeStats(result) {
   const pl = result.playlist;
   const perDance = {};
   const perCategory = {};
@@ -479,12 +579,14 @@ export function computeStats(result, s) {
     perDance[it.dance] = (perDance[it.dance] || 0) + 1;
     if (it.category) perCategory[it.category] = (perCategory[it.category] || 0) + 1;
   }
-  const regular = pl.filter((it) => it.kind === "regular");
-  const themeFraction = regular.length ? regular.filter((it) => it.isTheme).length / regular.length : 0;
+  // Theme share is measured over regular and excursion songs (fixed events and the final song excluded).
+  const base = pl.filter((it) => it.kind === "regular" || it.kind === "excursion");
+  const themeFraction = base.length ? base.filter((it) => it.isTheme).length / base.length : 0;
   let longestRun = 0;
   let run = 0;
   let prev = null;
-  for (const it of regular) {
+  for (const it of pl) {
+    if (it.kind !== "regular") continue;
     run = it.category === prev ? run + 1 : 1;
     prev = it.category;
     longestRun = Math.max(longestRun, run);
@@ -503,7 +605,7 @@ export function checkRules(result, userSettings) {
   const s = mergeSettings(userSettings);
   const pl = result.playlist;
   const v = [];
-  const themeSet = new Set(s.theme ? s.theme.dances : []);
+  const th = themeInfo(s);
 
   // 1. block length, measured over the sequence of regular songs
   if (s.categories.length > 1) {
@@ -535,43 +637,50 @@ export function checkRules(result, userSettings) {
       v.push({ rule: "earlyBlacklist", index: it.index, message: `${it.dance} in the opening.` });
     }
   }
-  if (s.theme && themeSet.size) {
+  if (th.active) {
     for (const it of pl.slice(0, s.theme.guaranteedOpeners)) {
-      if (it.kind === "regular" && !it.isTheme) v.push({ rule: "themeOpener", index: it.index, message: `${it.dance} is not a theme dance.` });
+      if (it.kind === "regular" && !it.isTheme) v.push({ rule: "themeOpener", index: it.index, message: `${it.dance} is not a theme song.` });
     }
   }
 
-  // 4. shuffle-bag: within each category, non-theme dances come in groups with no repeats
+  // 4. shuffle-bag: within each category, a non-theme dance may not repeat until the bag empties
   s.categories.forEach((c) => {
-    const normal = c.dances.filter((d) => !themeSet.has(d));
+    const normal = c.dances.filter((d) => !th.dances.has(d));
     if (!normal.length) return;
-    const seq = pl.filter((it) => it.kind === "regular" && it.category === c.name && !it.isTheme);
-    for (let i = 0; i < seq.length; i += normal.length) {
-      const chunk = seq.slice(i, i + normal.length);
-      const names = chunk.map((it) => it.dance);
-      if (new Set(names).size !== names.length) {
-        v.push({ rule: "shuffleBag", index: chunk[0].index, message: `${c.name}: repeat inside a bag (${names.join(", ")}).` });
-      }
+    let remaining = new Set(normal);
+    for (const it of pl) {
+      if (it.kind !== "regular" || it.category !== c.name || th.dances.has(it.dance)) continue;
+      if (remaining.has(it.dance)) remaining.delete(it.dance);
+      else v.push({ rule: "shuffleBag", index: it.index, message: `${c.name}: ${it.dance} repeated before the bag emptied.` });
+      if (remaining.size === 0) remaining = new Set(normal);
     }
   });
 
-  // 5. excursion pool never exceeded
-  const excCount = {};
-  for (const it of pl) if (it.kind === "excursion") excCount[it.dance] = (excCount[it.dance] || 0) + 1;
-  for (const [d, n] of Object.entries(excCount)) {
-    if (n > (s.excursions.pool[d] || 0)) v.push({ rule: "excursionPool", index: -1, message: `${d} used ${n}x, pool allows ${s.excursions.pool[d] || 0}.` });
+  // 5. excursion pool: each draw needs a positive counter; the pool resets when all reach 0
+  const initial = s.excursions.pool;
+  let pool = { ...initial };
+  for (const it of pl) {
+    if (it.kind !== "excursion") continue;
+    if (!Object.values(pool).some((w) => w > 0)) pool = { ...initial };
+    if (!(pool[it.dance] > 0)) v.push({ rule: "excursionPool", index: it.index, message: `${it.dance} drawn with no count left in the pool.` });
+    else pool[it.dance]--;
   }
 
-  // 6. fixed events
+  // 6. fixed events: right count, not before their time, never back to back with another event
   for (const ev of s.fixedEvents) {
-    const n = pl.filter((it) => it.kind === "fixed" && it.source === (ev.name ?? ev.dance)).length;
-    if (n !== (ev.count ?? 1)) v.push({ rule: "fixedEvent", index: -1, message: `"${ev.name ?? ev.dance}" appeared ${n}x, expected ${ev.count ?? 1}.` });
-    for (const it of pl) {
-      if (it.kind === "fixed" && it.source === (ev.name ?? ev.dance) && it.index > 0) {
-        const before = pl[it.index - 1];
-        if ((ev.notAfter || []).some((x) => x === before.source || x === before.dance)) {
-          v.push({ rule: "notAfter", index: it.index, message: `"${ev.name ?? ev.dance}" directly after ${before.source ?? before.dance}.` });
-        }
+    const name = ev.name ?? ev.dance;
+    const items = pl.filter((it) => it.kind === "fixed" && it.source === name);
+    if (items.length !== (ev.count ?? 1)) v.push({ rule: "fixedEvent", index: -1, message: `"${name}" appeared ${items.length}x, expected ${ev.count ?? 1}.` });
+    if (items.length && result.targetSec && items[0].startSec < ev.at * result.targetSec) {
+      v.push({ rule: "fixedEventTime", index: items[0].index, message: `"${name}" started before ${(ev.at * 100).toFixed(0)}% of the night.` });
+    }
+    for (const it of items) {
+      if (it.index === 0) continue;
+      const before = pl[it.index - 1];
+      if (before.kind === "fixed" && before.source !== name) {
+        v.push({ rule: "fixedAdjacent", index: it.index, message: `"${name}" directly after fixed event "${before.source}".` });
+      } else if (before.source !== name && (ev.notAfter || []).some((x) => x === before.source || x === before.dance)) {
+        v.push({ rule: "notAfter", index: it.index, message: `"${name}" directly after ${before.source ?? before.dance}.` });
       }
     }
   }
