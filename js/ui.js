@@ -259,7 +259,7 @@ function basicsSection(s) {
     field("Shortest song allowed", lengthInput(() => s.minSongSec, (v) => (s.minSongSec = v))),
     field("Longest song allowed", lengthInput(() => s.maxSongSec, (v) => (s.maxSongSec = v)),
       live(() => {
-        const how = "Type m:ss (e.g. 2:30) or seconds (e.g. 150, shown as 2:30). Leave blank for no limit.";
+        const how = "Type minutes:seconds (2:30) or just seconds (150 becomes 2:30). Leave blank for no limit.";
         if (!(s.minSongSec > 0) && !(s.maxSongSec > 0)) return how;
         const fit = state.songs.filter((sg) => withinLengthLimits(sg, s)).length;
         return `${how} ${fit} of ${state.songs.length} songs in the library fit these limits.`;
@@ -326,9 +326,9 @@ function associationsSection(s) {
     "Dance associations",
     live(() => `${s.associations.length} group(s)`, "span", "summary-note"),
     el("p", { class: "help" },
-      "Treat several dances as one. Example: “Waltz” = Smooth Waltz + Standard Waltz. Songs tagged with any of them " +
-        "can play wherever “Waltz” is used, and the rules (spacing, shuffle-bag) count them as one dance. " +
-        "Dances not listed here keep their own names. A group with one dance simply renames it."),
+      "Treat several dances as one. Example: “Waltz” = Smooth Waltz + Standard Waltz: a song tagged with any of them " +
+        "can play as a Waltz, and the generator counts them as the same dance when it spaces out repeats. " +
+        "Dances not in a group keep their own names. A group with a single dance just renames it."),
     el("div", { class: "rows" }, rows),
     el("div", {}, el("button", { type: "button", class: "small", onclick: () => {
       s.associations.push({ name: "", dances: [] });
@@ -376,7 +376,8 @@ function categoriesSection(s) {
   return section(
     "Categories and dances",
     live(() => `${s.categories.length} categor${s.categories.length === 1 ? "y" : "ies"}`, "span", "summary-note"),
-    el("p", { class: "help" }, "Categories take turns in blocks. Each dance can belong to only one category."),
+    el("p", { class: "help" }, "The night alternates between categories in short blocks (see Repetition). Within a category, " +
+      "every dance plays once before any of them repeats. Each dance can belong to only one category."),
     el("div", { class: "rows" }, rows),
     el("div", {}, el("button", { type: "button", class: "small", onclick: () => {
       s.categories.push({ name: `Category ${s.categories.length + 1}`, dances: [] });
@@ -397,9 +398,9 @@ function repetitionSection(s) {
     "Repetition",
     null,
     field("Max in a row", numberInput(() => s.maxInARow, (v) => (s.maxInARow = v), { min: 1, max: 10 }),
-      "Longest run of songs from one category. Each block is a random length from 1 up to this."),
+      "The most songs in a row from one category before switching. Each block is a random length from 1 up to this."),
     field("Songs between repeats", numberInput(() => s.minToRepeat, (v) => (s.minToRepeat = v), { min: 0, max: 20 }),
-      "Minimum number of other songs between two songs of the same dance.")
+      "At least this many other songs between two songs of the same dance.")
   );
 }
 
@@ -437,8 +438,8 @@ function excursionsSection(s) {
     "Excursions",
     live(() => `${Object.keys(ex.pool).length} dance(s), every ${ex.intervalMinutes} min`, "span", "summary-note"),
     el("p", { class: "help" },
-      "Dances outside the categories, played on a timer. The number next to each dance is the most times it can " +
-        "play before the pool refills; higher numbers are also more likely to be picked."),
+      "Dances outside the categories, played every so often. Max count is how many times a dance can play before " +
+        "all the counts start over; a higher count also makes that dance more likely to be picked."),
     field("Every", el("span", { class: "inline-fields" },
       numberInput(() => ex.intervalMinutes, (v) => (ex.intervalMinutes = v), { min: 0, max: 240 }), "minutes"),
       "0 turns excursions off."),
@@ -491,8 +492,8 @@ function fixedSection(s) {
     "Fixed events",
     live(() => `${s.fixedEvents.length} event(s)`, "span", "summary-note"),
     el("p", { class: "help" },
-      "Dances placed at a set point in the night, e.g. a line-dance break at 50% or one Paso Doble at 70%. " +
-        "With several dances, each song of the event is one of them. Two fixed events never play back to back."),
+      "Dances placed at a set point in the night, e.g. a line-dance break halfway through (50%) or one Paso Doble at 70%. " +
+        "If an event lists several dances, each of its songs is one of them. Two fixed events never play back to back."),
     el("div", { class: "rows" }, rows),
     el("div", {}, el("button", { type: "button", class: "small", onclick: () => {
       s.fixedEvents.push({ name: "New event", dances: [], count: 1, at: 0.5, notAfter: [] });
@@ -528,7 +529,8 @@ function themeSection(s) {
         const tags = allTags();
         return tags.length ? `Tags in the library: ${tags.join(", ")}.` : "No songs in the library have tags.";
       }),
-      el("p", { class: "help" }, "A song counts toward the theme if it is played as a theme dance or has a theme tag."),
+      el("p", { class: "help" }, "A song is a theme song if it is played as a theme dance or has a theme tag. " +
+        "The theme share is the part of the night's songs that are theme songs."),
       el("div", { class: "inline-fields" }, "Theme share at least", percentSlider(() => t.fractionMin, (v) => (t.fractionMin = v))),
       el("div", { class: "inline-fields" }, "Theme share at most", percentSlider(() => t.fractionMax, (v) => (t.fractionMax = v))),
       el("div", { class: "inline-fields" }, "Quick set:", presetButton("Broad theme (50–70%)", 0.5, 0.7), presetButton("Dance-focused theme (20–25%)", 0.2, 0.25)),
@@ -547,7 +549,8 @@ function openingSection(s) {
     "Opening and closing",
     null,
     field("Opening length", el("span", { class: "inline-fields" },
-      numberInput(() => s.opening.earlyCount, (v) => (s.opening.earlyCount = v), { min: 0, max: 30 }), "songs")),
+      numberInput(() => s.opening.earlyCount, (v) => (s.opening.earlyCount = v), { min: 0, max: 30 }), "songs"),
+      "The first songs of the night, which avoid the dances listed below (e.g. fast or demanding ones)."),
     el("div", {}, el("div", { class: "label" }, "Not allowed in the opening"),
       chipEditor(s.opening.blacklist, "dl-dances", { ...onlyDances(settingDances), placeholder: "add a dance…", label: "Add a dance to the opening blacklist" })),
     field("Last dance of the night",
@@ -811,7 +814,7 @@ function renderLibrary() {
       el("button", { type: "button", class: "small", onclick: () => fileInput.click() }, "Load CSV / JSON…"),
       name !== PROJECT_NAME && el("button", { type: "button", class: "small", onclick: useProject }, "Use data/songs.csv"),
       name !== SAMPLE_NAME && el("button", { type: "button", class: "small", onclick: useSample }, "Use sample library"),
-      el("a", { href: "library.html", class: "small" }, "Library builder"),
+      el("a", { href: "library.html", class: "button-link small" }, "Library builder"),
       fileInput),
     problems.length > 0 &&
       el("details", {},
@@ -1068,8 +1071,8 @@ function renderResults() {
       el("ul", { class: "msgs" },
         r.editViolations.map((v) => el("li", { class: "warning" }, `After your changes: ${v.index >= 0 ? `#${v.index + 1}: ` : ""}${v.message}`))),
     el("div", { class: "edit-bar" },
-      el("p", { class: "help" }, "Change the playlist by hand with the buttons on each row. Swapped songs can be Reset to the " +
-        "generator's choice, songs you added can be removed, and removed songs stay listed (small) so you can Restore them."),
+      el("p", { class: "help" }, "Change the playlist with the buttons on each row. Every change can be undone: Reset puts back " +
+        "the generator's song, and removed songs stay listed (small) so you can Restore them."),
       hasEdits(r) && el("button", { type: "button", class: "undo", onclick: resetAll,
         title: "Undo every swap, insertion and removal: back to exactly the playlist the generator made" }, "Reset all")),
     el("div", { class: "table-wrap" },

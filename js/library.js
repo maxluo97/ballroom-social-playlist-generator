@@ -166,8 +166,8 @@ function openDanceDialog() {
 
   fill(dialog,
     el("h2", {}, "Your own dances"),
-    el("p", { class: "help" }, "Add a dance the app does not know yet. It becomes available in every dance box on this page " +
-      "and is remembered in this browser; once songs carry it in songs.csv it is part of your library for good."),
+    el("p", { class: "help" }, "Add a dance the app does not know yet. It appears in every dance box on this page and is remembered " +
+      "in this browser. Once songs with this dance are saved in songs.csv, it is known everywhere."),
     list,
     el("h3", {}, "Define a new dance"),
     el("div", { class: "inline-fields" }, "Name:", name),
@@ -351,8 +351,8 @@ function renderRules() {
         drawRules();
       } }, "Restore default rules")),
     el("div", { class: "inline-fields" }, "Try a title or album:", tryBox, tryResult),
-    el("p", { class: "help" }, "Capitals are ignored. Tags added by keyword are highlighted in the review (step 5) so you can check them; " +
-      "you can also edit any song's tags by hand there or later in songs.csv. After changing rules, use “Re-apply tag rules” in step 5."));
+    el("p", { class: "help" }, "Capitals are ignored. Tags added by keyword are highlighted in step 5 so you can check them. " +
+      "If you change the rules after importing, press “Re-apply tag rules” in step 5."));
 }
 
 /* ------------------------------------------------------------- 4. Playlists */
@@ -387,7 +387,7 @@ function renderPlaylists() {
   if (!isLoggedIn()) return fill(box, el("p", { class: "muted" }, "Log in first (step 1)."));
   if (!state.playlists) {
     return fill(box,
-      el("p", { class: "help" }, "Lists the playlists you own or collaborate on (Spotify does not let apps read anyone else's). " +
+      el("p", { class: "help" }, "Lists the playlists you own or collaborate on (Spotify only lets apps read those). " +
         "Each playlist's dance is guessed from its name; check it before importing."),
       el("button", { type: "button", class: "primary", onclick: loadPlaylists }, "Load my playlists"));
   }
@@ -453,11 +453,13 @@ function renderPlaylists() {
 
   fill(box,
     el("p", { class: "help" },
-      `${state.playlists.length} playlists can be read` +
-        (state.hiddenCount ? `; ${state.hiddenCount} others you follow are hidden (copy their songs into a playlist of your own to import them).` : ".") +
-        " Dances: pick from the dropdown (or type and press Enter); add several if a playlist fits more than one. " +
-        "Ballroom dances use the style name: Smooth / Rhythm (American), Standard / Latin (International). " +
-        "Names like “American Rumba” or “Intl Cha Cha” are converted automatically. Tags (optional) are added to every song in that playlist."),
+      `${state.playlists.length} playlists can be read.` +
+        (state.hiddenCount ? ` ${state.hiddenCount} playlists you follow are hidden; to import one, copy its songs into a playlist of your own.` : "")),
+    el("ul", { class: "help" },
+      el("li", {}, "Each playlist's dance is guessed from its name. Check it, and add more dances if a playlist fits several."),
+      el("li", {}, "Ballroom dances are named by style: Smooth or Rhythm (American), Standard or Latin (International). " +
+        "Typing “American Rumba” or “Intl Cha Cha” is converted for you."),
+      el("li", {}, "Tags are optional; a tag here goes on every song in that playlist.")),
     el("div", { class: "inline-fields" }, search,
       el("button", { type: "button", class: "small", onclick: () => setAll((c) => c.dances.length > 0) }, "Select all with a dance"),
       el("button", { type: "button", class: "small", onclick: () => setAll(() => false) }, "Select none"),
@@ -638,8 +640,8 @@ function renderManual(message) {
 
   fill(box,
     el("p", { class: "help" },
-      "For songs that are not in a single-dance playlist. Dances cannot be guessed from a song alone, so here you set each song's " +
-        "dance(s) yourself. Songs land in the worklist below; ticked songs go into the review (step 5) together with any playlists from step 4."),
+      "For songs that are not in a single-dance playlist. A song's dance cannot be guessed from the song alone, so you choose it here. " +
+        "Added songs go into the worklist below; ticked songs are added to the review (step 5)."),
     el("h3", {}, "Single songs"),
     el("div", {}, el("div", { class: "label" }, "Paste Spotify song links (Share → Copy song link):"), links,
       el("div", { class: "actions" }, el("button", { type: "button", onclick: addLinks }, "Add these songs"))),
@@ -784,20 +786,30 @@ function renderReview() {
 
   fill($("review"),
     state.failures.length > 0 && el("ul", { class: "msgs" }, state.failures.map((f) => el("li", { class: "error" }, f))),
-    el("p", { class: "help" }, "The whole library is listed here, with any imported songs. Edit dances and tags directly in the table: " +
-      "× removes one, the dropdown adds one. A song in several of the imported playlists gets all of their dances. " +
-      "Highlighted tags came from keyword rules; remove any that are wrong. " +
-      "“Remove” takes a song out of the library and remembers it (data/removed-songs.csv), so a later import will ask before bringing it back."),
+    el("p", { class: "help" }, "Your whole library is listed here, plus anything imported. Use × to take a dance or tag off a song, " +
+      "and the dropdown to add one. Highlighted tags came from keyword rules, so check them. " +
+      "Remove takes a song out of the library; the app remembers it, so a later import will not quietly bring it back."),
     el("div", { class: "inline-fields" }, ...filterButtons, search),
-    (state.imports || state.manual.length > 0) && el("div", { class: "actions" },
-      el("button", { type: "button", class: "small", onclick: () => {
+    el("div", { class: "actions" },
+      (state.imports || state.manual.length > 0) && el("button", { type: "button", class: "small", onclick: () => {
         if (confirm("Re-apply the tag rules from step 3? Edits you made in this table will be lost.")) computeRows();
-      } }, "Re-apply tag rules")),
+      } }, "Re-apply tag rules"),
+      // For long libraries: jump past the table and back.
+      el("button", { type: "button", class: "small jump", onclick: () => jump("review-bottom") }, "Jump to bottom ↓")),
     el("div", { class: "table-wrap" },
       el("table", { class: "playlist" },
         el("thead", {}, el("tr", {}, ["Status", "Title", "Artist", "Album", "Length", "Dances", "Tags", "From playlist(s)", ""].map((h) => el("th", { scope: "col" }, h)))),
-        tbody)));
+        tbody)),
+    el("div", { id: "review-bottom", class: "actions" },
+      el("button", { type: "button", class: "small jump", onclick: () => jump("review") }, "Jump to top ↑")));
   renderOutput();
+}
+
+/** Scroll smoothly to an element of the page (by id), leaving a little space above it. */
+function jump(id) {
+  const target = $(id);
+  if (!target) return;
+  window.scrollTo({ top: target.getBoundingClientRect().top + window.scrollY - 12, behavior: "smooth" });
 }
 
 function reviewRow(r) {
@@ -903,11 +915,10 @@ function renderOutput() {
       listChanged && el("button", { type: "button", class: "primary", onclick: downloadRemoved }, "Download removed-songs.csv"),
       el("button", { type: "button", onclick: useNow }, "Try it in the generator now")),
     el("ol", { class: "help" },
-      el("li", {}, "Download songs.csv and move it into the project's data folder, replacing data/songs.csv if it exists."),
-      listChanged && el("li", {}, "You removed or re-imported songs: also download removed-songs.csv and put it in the data folder " +
-        "(replacing data/removed-songs.csv if it exists). It is how the app remembers removed songs."),
-      el("li", {}, "Reload the generator page and press “Use data/songs.csv” (or it is picked automatically if nothing else was loaded)."),
-      el("li", {}, listChanged ? "Commit both files when you are happy with them." : "Commit the file when you are happy with it.")));
+      el("li", {}, "Download songs.csv and save it in the project's data folder, replacing the old one."),
+      listChanged && el("li", {}, "Also download removed-songs.csv and save it in the data folder too. " +
+        "It is how the app remembers the songs you removed."),
+      el("li", {}, "Reload the generator page. If it still shows an older library, press “Use data/songs.csv”.")));
 }
 
 /* -------------------------------------------------------------------- init */
