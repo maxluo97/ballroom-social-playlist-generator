@@ -72,6 +72,11 @@ export const SCENARIOS = [
     settings: APP_DEFAULTS,
   },
   {
+    name: "App defaults + song length limits 2:45 to 3:45",
+    songs: buildSampleLibrary(),
+    settings: { ...APP_DEFAULTS, minSongSec: 165, maxSongSec: 225 },
+  },
+  {
     name: "App defaults + a fixed event with several dances (Latin showcase)",
     songs: buildSampleLibrary(),
     settings: {

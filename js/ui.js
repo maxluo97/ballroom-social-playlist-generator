@@ -6,12 +6,12 @@
  * form when its structure changes (adding/removing a row); typing just updates the object.
  */
 
-import { generatePlaylist, validateSettings, listDances, associationMap, DEFAULT_SETTINGS } from "./generator.js";
+import { generatePlaylist, validateSettings, listDances, associationMap, withinLengthLimits, DEFAULT_SETTINGS } from "./generator.js";
 import {
   THEME_TEMPLATE, LIBRARY_KEY, clone, loadLastSettings, saveLastSettings,
   loadDefaultSettings, upgradeSettings, parseSettingsFile, settingsFileText,
 } from "./settings.js";
-import { loadSongsFromUrl, parseSongsText, playlistToCSV, spotifyLink, spotifyTrackId } from "./data.js";
+import { loadSongsFromUrl, parseSongsText, playlistToCSV, spotifyLink, spotifyTrackId, parseLength } from "./data.js";
 import { handleLoginRedirect, isLoggedIn, login as spotifyLogin, createPlaylist, addTracksToPlaylist } from "./spotify.js";
 import { el, fill, $, comboInput, chipEditor as sharedChipEditor } from "./dom.js";
 import { DANCE_ALIASES, BALLROOM_DANCE_NAMES, canonicalDance, unknownDanceMessage } from "./dance-names.js";
@@ -253,8 +253,36 @@ function basicsSection(s) {
         numberInput(() => s.eventLengthMinutes, (v) => (s.eventLengthMinutes = v), { min: 10, max: 720, step: 5 }),
         "minutes",
         live(() => `(${hms(s.eventLengthMinutes * 60)})`, "span", "muted"))
-    )
+    ),
+    field("Shortest song allowed", lengthInput(() => s.minSongSec, (v) => (s.minSongSec = v))),
+    field("Longest song allowed", lengthInput(() => s.maxSongSec, (v) => (s.maxSongSec = v)),
+      live(() => {
+        const how = "Type m:ss (e.g. 2:30) or seconds (e.g. 150, shown as 2:30). Leave blank for no limit.";
+        if (!(s.minSongSec > 0) && !(s.maxSongSec > 0)) return how;
+        const fit = state.songs.filter((sg) => withinLengthLimits(sg, s)).length;
+        return `${how} ${fit} of ${state.songs.length} songs in the library fit these limits.`;
+      }, "span", ""))
   );
+}
+
+/** A song length typed as m:ss (or seconds). Blank = no limit (null). */
+function lengthInput(get, set) {
+  const show = (sec) => (sec > 0 ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}` : "");
+  const input = el("input", { type: "text", value: show(get()), placeholder: "no limit", size: 7, "aria-label": "Length (m:ss)" });
+  input.addEventListener("input", () => input.setCustomValidity(""));
+  input.addEventListener("change", () => {
+    const text = input.value.trim();
+    const sec = text ? Math.round(parseLength(text)) : null;
+    if (text && !(sec > 0)) {
+      input.setCustomValidity("Type a length like 2:30 (minutes:seconds), or leave it blank.");
+      input.reportValidity();
+      return;
+    }
+    set(sec);
+    input.value = show(sec);
+    changed();
+  });
+  return input;
 }
 
 function associationsSection(s) {

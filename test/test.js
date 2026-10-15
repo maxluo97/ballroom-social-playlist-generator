@@ -13,7 +13,7 @@
  * Everything else (rules relaxed WITH a warning) is reported as information.
  */
 
-import { generatePlaylist, checkRules, validateSettings, listDances, formatTime } from "../js/generator.js";
+import { generatePlaylist, checkRules, validateSettings, listDances, formatTime, withinLengthLimits } from "../js/generator.js";
 import { buildSongs, SCENARIOS } from "./sample-data.js";
 import { buildSampleLibrary } from "../tools/sample-library.js";
 import { APP_DEFAULTS } from "./defaults.js";
@@ -99,8 +99,10 @@ let totalBugs = 0;
 
 for (const sc of SCENARIOS) {
   const songs = sc.songs ?? buildSongs(sc.perDance);
-  const longest = Math.max(...songs.map((s) => s.lengthSec));
-  const shortest = Math.min(...songs.map((s) => s.lengthSec));
+  // Timing bounds use only the songs that may play (inside any song length limits).
+  const playable = songs.filter((s) => withinLengthLimits(s, sc.settings));
+  const longest = Math.max(...playable.map((s) => s.lengthSec));
+  const shortest = Math.min(...playable.map((s) => s.lengthSec));
   console.log(`\n=== ${sc.name}  (${songs.length} songs, ${SEEDS} seeds)`);
 
   const { errors, warnings } = validateSettings(songs, sc.settings);

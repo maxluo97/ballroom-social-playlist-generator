@@ -156,7 +156,7 @@ Also in v0.2 (done): every "add a dance" box accepts only known dances (library 
 - A dedicated "Define a new dance" button (replaces free typing of new dances).
 - Availability check of library songs (one `GET /tracks/{id}` per song; the batch endpoint was removed). Moved from v0.2.
 - Manual swap of a song in a generated playlist (alternatives of the same dance; re-run `checkRules` and warn). Moved from v0.2.
-- **Min / max song length** (settings: skip songs shorter/longer than X). Validation warns if too few songs remain. The end-of-night timing rule must then use the shortest/longest *allowed* song, not the whole library's.
+- ~~**Min / max song length**~~ (done): settings `minSongSec` / `maxSongSec` (null = no limit), set on the page under Event basics as m:ss. Songs outside the limits are removed before generation (`withinLengthLimits` in js/generator.js), so the end-of-night timing uses the shortest/longest *allowed* song. Validation reports how many songs are excluded, and names dances whose songs are all outside the limits; `checkRules` checks every played song. Test scenario: limits 2:45–3:45 on the sample library.
 - **Remove songs from the library, with a blacklist:** a Remove button per song in the library builder review. Removed songs go to `data/removed-songs.csv` in the repo (id, title, artist, removed date), so the removal is remembered on any computer. When an import includes a removed song it is unticked and flagged ("You removed this song on <date>; re-import anyway?"); re-importing takes it off the blacklist.
 
 **v0.3 candidates:**

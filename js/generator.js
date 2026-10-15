@@ -19,6 +19,7 @@
  *
  * SETTINGS (all optional except `categories`; see DEFAULT_SETTINGS)
  *   eventLengthMinutes   target length of the night
+ *   minSongSec, maxSongSec  songs shorter / longer than this are never played (null = no limit)
  *   associations         [{ name, dances: [...] }, ...]        each dance in at most one association
  *   categories           [{ name, dances: [...] }, ...]        each dance in at most one category
  *   maxInARow            longest block of one category in a row (blocks are 1..maxInARow)
@@ -62,6 +63,8 @@ const KNOWN_DANCE_NAMES = new Set([...Object.keys(DANCE_ALIASES), ...BALLROOM_DA
 
 export const DEFAULT_SETTINGS = {
   eventLengthMinutes: 180,
+  minSongSec: null,
+  maxSongSec: null,
   associations: [],
   categories: [],
   maxInARow: 3,
@@ -182,6 +185,14 @@ function resolveSongs(rawSongs, s) {
   });
 }
 
+/** Whether a song's length is inside the settings' song-length limits (null = no limit). */
+export function withinLengthLimits(song, settings) {
+  const len = song.lengthSec;
+  if (settings.minSongSec > 0 && len < settings.minSongSec) return false;
+  if (settings.maxSongSec > 0 && len > settings.maxSongSec) return false;
+  return true;
+}
+
 /** Distinct dance names in a song list, after associations (for UI pick lists). */
 export function listDances(rawSongs, userSettings = {}) {
   const s = mergeSettings(userSettings);
@@ -243,12 +254,21 @@ export function validateSettings(rawSongs, userSettings) {
   const rawDances = new Set(rawSongs.flatMap((sg) => normalizeSong(sg).dances));
   validateAssociations(mergeSettings(userSettings), rawDances, errors, warnings);
   const s = resolveSettings(userSettings);
-  const songs = resolveSongs(rawSongs, s);
+  const allSongs = resolveSongs(rawSongs, s);
+  const songs = allSongs.filter((sg) => withinLengthLimits(sg, s)); // the songs that can actually play
   const merged = s.associations.length ? " (after associations)" : "";
   const countFor = (d) => songs.filter((sg) => sg.dances.includes(d)).length;
   const pct = (x) => `${(x * 100).toFixed(0)}%`;
+  const fmt = (sec) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, "0")}`;
 
   if (!(s.eventLengthMinutes > 0)) errors.push("Event length must be positive.");
+  if (s.minSongSec > 0 && s.maxSongSec > 0 && s.minSongSec > s.maxSongSec) {
+    errors.push(`The shortest allowed song (${fmt(s.minSongSec)}) is longer than the longest allowed song (${fmt(s.maxSongSec)}).`);
+  }
+  const skipped = allSongs.length - songs.length;
+  if (skipped > 0) {
+    warnings.push(`${skipped} of ${allSongs.length} songs are outside the song length limits and will not be played.`);
+  }
   if (!s.categories.length) errors.push("At least one category is required.");
   if (!(s.maxInARow >= 1)) errors.push("maxInARow must be at least 1.");
   if (!(s.minToRepeat >= 0)) errors.push("minToRepeat cannot be negative.");
@@ -260,7 +280,12 @@ export function validateSettings(rawSongs, userSettings) {
     for (const d of c.dances || []) {
       if (seen.has(d)) errors.push(`Dance "${d}" is in both "${seen.get(d)}" and "${c.name}"${merged}.`);
       seen.set(d, c.name);
-      if (countFor(d) === 0) warnings.push(`No songs are tagged "${d}".`);
+      if (countFor(d) === 0) {
+        const outside = allSongs.filter((sg) => sg.dances.includes(d)).length;
+        warnings.push(outside
+          ? `All ${outside} song(s) tagged "${d}" are outside the song length limits.`
+          : `No songs are tagged "${d}".`);
+      }
     }
   }
 
@@ -375,7 +400,9 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
   };
   const songFilter = options.songFilter || null;
 
-  const songs = resolveSongs(rawSongs, s);
+  // Songs outside the length limits are left out entirely, so every rule (including the
+  // end-of-night timing, which uses the shortest song) only sees the songs that can play.
+  const songs = resolveSongs(rawSongs, s).filter((sg) => withinLengthLimits(sg, s));
   const byDance = new Map();
   for (const sg of songs) {
     for (const d of sg.dances) {
@@ -796,6 +823,13 @@ export function checkRules(result, userSettings) {
       } else if (before.source !== name && (ev.notAfter || []).some((x) => x === before.source || x === before.dance)) {
         v.push({ rule: "notAfter", index: it.index, message: `"${name}" directly after ${before.source ?? before.dance}.` });
       }
+    }
+  }
+
+  // 6b. song length limits
+  for (const it of pl) {
+    if (!withinLengthLimits(it.song, s)) {
+      v.push({ rule: "songLength", index: it.index, message: `"${it.song.title}" (${it.song.lengthSec} s) is outside the song length limits.` });
     }
   }
 
