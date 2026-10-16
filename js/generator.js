@@ -42,7 +42,11 @@
  *      are never back to back, and an event also waits if the previous song matches its `notAfter`.
  *   5. Theme songs (dance or tag) are steered to make up fractionMin..fractionMax of the regular
  *      and excursion songs. Theme dances skip the shuffle-bag but obey minToRepeat. The first
- *      `guaranteedOpeners` songs are theme songs.
+ *      `guaranteedOpeners` songs are theme songs. When the theme has dances, those openers are theme
+ *      dances that ignore spacing, blocks, the shuffle-bag and the opening blacklist. The theme dances
+ *      take turns equally, never the same dance twice in a row (A, B, 4 openers: ABAB or BABA), and
+ *      leftover theme dances (more than openers) do not open. For a tag-only theme, excursion songs with
+ *      a theme tag may open too, without using up their excursion counts.
  *   6. (blocks, see 1)
  *   7. Within a category, non-theme dances are drawn from a shuffle-bag (Tetris-style):
  *      no repeat until all the category's non-theme dances have occurred. minToRepeat applies
@@ -305,6 +309,8 @@ export function validateSettings(rawSongs, userSettings) {
     if (!th.active) warnings.push("The theme has no dances or tags, so it has no effect.");
     if (s.theme.fractionMin > s.theme.fractionMax) errors.push("Theme fractionMin exceeds fractionMax.");
     for (const d of th.dances) {
+      // A theme dance is meant to be played a lot, so it belongs in a category, not among the excursions.
+      if (pool[d] > 0) warnings.push(`Theme dance "${d}" is still an excursion. A theme dance belongs in a category; consider removing it from the excursions.`);
       if (!seen.has(d) && !(pool[d] > 0)) warnings.push(`Theme dance "${d}" is not in any category or the excursion pool, so it will never be played.`);
     }
     for (const t of th.tags) {
@@ -333,14 +339,11 @@ export function validateSettings(rawSongs, userSettings) {
           );
         }
       }
-      // Openers come from categories; spacing means each one needs a different theme dance.
-      const openers = s.theme.guaranteedOpeners;
-      const openerDances = inCats.filter((d) => !(s.opening.earlyCount > 0 && black.has(d)));
-      const needed = Math.min(openers, s.minToRepeat + 1);
-      if (openers > 0 && openerDances.length < needed) {
+      // Openers are theme dances from the categories (the other rules do not apply to them).
+      if (s.theme.guaranteedOpeners > 0 && th.dances.size && !inCats.length) {
         warnings.push(
-          `The first ${openers} songs should be theme songs, but only ${openerDances.length} theme dance(s) ` +
-            `are in a category and allowed in the opening; the opener rule will be relaxed.`
+          `The first ${s.theme.guaranteedOpeners} songs should be theme songs, but no theme dance with songs is in a category, ` +
+            `so the openers cannot be theme dances.`
         );
       }
     }
@@ -550,11 +553,60 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     }
   }
 
+  /* ---- theme openers for a theme with dances: the rules (spacing, blocks, shuffle-bag, opening
+   * blacklist) do not apply to them. The theme dances take turns in shuffled rounds, so each one
+   * opens equally often and no dance opens twice in a row (A and B with 4 openers: ABAB or BABA);
+   * with more theme dances than openers, the ones left over simply do not open. ---- */
+  const openerDances = [...th.dances].filter((d) => danceToCat.has(d));
+  const danceOpeners = s.theme && openerDances.length ? s.theme.guaranteedOpeners : 0;
+  let openerRound = [];
+  let lastOpener = null;
+
+  function placeOpener() {
+    openerRound = openerRound.filter((d) => hasSong(d, false));
+    if (!openerRound.length) {
+      openerRound = shuffle(openerDances.filter((d) => hasSong(d, false)));
+      if (!openerRound.length) return false;
+      // A new round never starts with the dance that ended the last one.
+      if (openerRound.length > 1 && openerRound[0] === lastOpener) {
+        const j = 1 + rand(openerRound.length - 1);
+        [openerRound[0], openerRound[j]] = [openerRound[j], openerRound[0]];
+      }
+    }
+    const dance = openerRound.shift();
+    lastOpener = dance;
+    const c = danceToCat.get(dance);
+    push(dance, pickSong(dance, false), "regular", cats[c].name, null);
+    // Normal rules resume after the openers: a new block cycle, not starting with the openers' category.
+    lastRegularCategory = c;
+    runLen = 0;
+    if (playlist.length >= danceOpeners) newCycle();
+    return true;
+  }
+
+  /* ---- theme openers for a tag-only theme: they follow the rules, and excursion songs with a theme
+   * tag may open too, without using up their excursion counts. ---- */
+  const tagOpeners = th.tags.size && !danceOpeners ? s.theme.guaranteedOpeners : 0;
+
+  function tryTagOpenerExcursion() {
+    const early = isEarly();
+    const allowed = (d) => hasSong(d, false, th.hasTag) && !(early && blackSet.has(d)) && gapAllowed(d, s.minToRepeat);
+    const exc = Object.keys(initialPool).filter((d) => initialPool[d] > 0 && allowed(d));
+    if (!exc.length) return false;
+    // Every dance with a theme song is equally likely to open, excursion or not.
+    const inCats = cats.flatMap((c) => c.dances).filter(allowed);
+    if (rng() * (exc.length + inCats.length) >= exc.length) return false;
+    const dance = choice(exc);
+    push(dance, pickSong(dance, false, { require: th.hasTag }), "excursion", null, null);
+    return true;
+  }
+
   function placeRegular() {
     const tryOrder = [...cycleOrder.slice(cyclePos), ...cycleOrder.slice(0, cyclePos)];
     const mood = themeMood();
     for (let li = 0; li < LEVELS.length; li++) {
       const L = LEVELS[li];
+      // (A theme with dances has its openers placed by placeOpener; this covers tag-only themes.)
       const openerForced = th.active && L.themeOpener && playlist.length < s.theme.guaranteedOpeners;
       for (const c of tryOrder) {
         // Falling back to another category is fine, unless it makes that category's run too long.
@@ -671,6 +723,11 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
       else warn(playlist.length, `No song available for fixed event "${ev.name}".`);
       continue;
     }
+    if (playlist.length < danceOpeners) {
+      if (placeOpener()) continue;
+      warn(playlist.length, "No theme dance song was left for the theme openers.");
+    }
+    if (playlist.length < tagOpeners && tryTagOpenerExcursion()) continue;
     if (elapsed >= nextExcAt && tryExcursion()) continue;
     if (!placeRegular()) {
       warn(playlist.length, "No playable song remained; the night was ended early.");
@@ -738,6 +795,12 @@ export function checkRules(result, userSettings) {
   const pl = result.playlist;
   const v = [];
   const th = themeInfo(s);
+  // Openers of a theme with dances are exempt from spacing, blocks and the opening blacklist.
+  const inCategory = new Set(s.categories.flatMap((c) => c.dances));
+  const danceOpeners = s.theme && [...th.dances].some((d) => inCategory.has(d)) ? s.theme.guaranteedOpeners : 0;
+  const isOpener = (it) => it.index >= 0 && it.index < danceOpeners && it.kind === "regular" && th.dances.has(it.dance);
+  // A tag-only theme's excursion openers do not use up excursion counts.
+  const tagOpeners = th.tags.size && !danceOpeners ? s.theme.guaranteedOpeners : 0;
 
   // 1. block length, measured over the sequence of regular songs
   if (s.categories.length > 1) {
@@ -745,6 +808,10 @@ export function checkRules(result, userSettings) {
     let prev = null;
     for (const it of pl) {
       if (it.kind !== "regular") continue;
+      if (isOpener(it)) {
+        prev = null;
+        continue;
+      }
       run = it.category === prev ? run + 1 : 1;
       prev = it.category;
       if (run > s.maxInARow) v.push({ rule: "maxInARow", index: it.index, message: `${run} ${it.category} songs in a row.` });
@@ -753,7 +820,7 @@ export function checkRules(result, userSettings) {
 
   // 2. spacing (final song and fixed events are exempt)
   for (const it of pl) {
-    if (it.kind === "final" || it.kind === "fixed") continue;
+    if (it.kind === "final" || it.kind === "fixed" || isOpener(it)) continue;
     for (let j = Math.max(0, it.index - s.minToRepeat); j < it.index; j++) {
       if (pl[j].dance === it.dance) {
         v.push({ rule: "minToRepeat", index: it.index, message: `${it.dance} repeated after ${it.index - j - 1} song(s).` });
@@ -765,7 +832,7 @@ export function checkRules(result, userSettings) {
   // 3. opening
   const black = new Set(s.opening.blacklist);
   for (const it of pl.slice(0, s.opening.earlyCount)) {
-    if ((it.kind === "regular" || it.kind === "excursion") && black.has(it.dance)) {
+    if ((it.kind === "regular" || it.kind === "excursion") && black.has(it.dance) && !isOpener(it)) {
       v.push({ rule: "earlyBlacklist", index: it.index, message: `${it.dance} in the opening.` });
     }
   }
@@ -793,6 +860,7 @@ export function checkRules(result, userSettings) {
   let pool = { ...initial };
   for (const it of pl) {
     if (it.kind !== "excursion") continue;
+    if (it.index < tagOpeners && th.hasTag(it.song)) continue;
     if (!Object.values(pool).some((w) => w > 0)) pool = { ...initial };
     if (!(pool[it.dance] > 0)) v.push({ rule: "excursionPool", index: it.index, message: `${it.dance} drawn with no count left in the pool.` });
     else pool[it.dance]--;

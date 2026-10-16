@@ -93,6 +93,66 @@ let totalBugs = 0;
   expect(v.errors.length === 0, `default settings have errors: ${v.errors.join("; ")}`);
 }
 
+/* ---- theme openers for a theme with dances ---- */
+{
+  console.log("=== Theme openers (theme dances)");
+  const expect = (cond, msg) => {
+    if (!cond) {
+      console.log(`  BUG: ${msg}`);
+      totalBugs++;
+    }
+  };
+  const lib = buildSampleLibrary();
+  const night = (dances, guaranteedOpeners, seed) => {
+    const settings = {
+      ...APP_DEFAULTS, seed, fixedEvents: [],
+      opening: { earlyCount: 6, blacklist: ["Quickstep"] },
+      theme: { name: "t", dances, fractionMin: 0.2, fractionMax: 0.25, guaranteedOpeners },
+    };
+    const r = generatePlaylist(lib, settings);
+    return { r, settings, first: r.playlist.slice(0, guaranteedOpeners).map((it) => it.dance) };
+  };
+  let tagExcursionOpeners = 0;
+  for (let seed = 1; seed <= 50; seed++) {
+    const one = night(["Foxtrot"], 3, seed);
+    expect(one.first.join() === "Foxtrot,Foxtrot,Foxtrot", `one theme dance opens every opener: ${one.first}`);
+    expect(checkRules(one.r, one.settings).length === 0, `openers do not count as broken rules: ${JSON.stringify(checkRules(one.r, one.settings)[0])}`);
+    expect(one.r.playlist[3].dance !== "Foxtrot", "after the openers, spacing applies again");
+
+    const two = night(["Foxtrot", "Quickstep"], 4, seed);
+    expect(["Foxtrot,Quickstep,Foxtrot,Quickstep", "Quickstep,Foxtrot,Quickstep,Foxtrot"].includes(two.first.join()),
+      `two theme dances, 4 openers: ABAB or BABA: ${two.first}`);
+    expect(two.first.includes("Quickstep"), "a theme dance on the opening blacklist may still open");
+    expect(!two.r.playlist.slice(4, 6).some((it) => it.dance === "Quickstep"), "the blacklist applies again after the openers");
+
+    const three = night(["Foxtrot", "Quickstep", "Waltz"], 2, seed);
+    expect(new Set(three.first).size === 2, `more theme dances than openers: two different ones open: ${three.first}`);
+    expect(checkRules(three.r, three.settings).length === 0, `3 dances, 2 openers: no broken rules: ${JSON.stringify(checkRules(three.r, three.settings)[0])}`);
+    const five = night(["Foxtrot", "Quickstep", "Waltz"], 7, seed).first;
+    const counts = Object.values(five.reduce((m, d) => ({ ...m, [d]: (m[d] || 0) + 1 }), {}));
+    expect(five.every((d, i) => i === 0 || d !== five[i - 1]), `no theme dance opens twice in a row: ${five}`);
+    expect(Math.max(...counts) - Math.min(...counts) <= 1 && counts.length === 3, `theme dances open equally often: ${five}`);
+
+    // Bachata is only an excursion: a theme dance there gets a warning, and it does not open.
+    const exc = night(["Mambo / Salsa", "Bachata"], 4, seed);
+    expect(exc.first.join() === "Mambo / Salsa,Mambo / Salsa,Mambo / Salsa,Mambo / Salsa", `an excursion theme dance does not open: ${exc.first}`);
+    if (seed === 1) {
+      expect(validateSettings(lib, exc.settings).warnings.some((w) => w.includes('"Bachata" is still an excursion')),
+        "a theme dance left as an excursion is warned about");
+    }
+
+    // A tag-only theme: excursion songs with the tag may open, without using up their excursion counts.
+    const tagSettings = { ...APP_DEFAULTS, seed, fixedEvents: [], theme: { name: "Hollywood", tags: ["Hollywood"], guaranteedOpeners: 3 } };
+    const tag = generatePlaylist(lib, tagSettings);
+    const openers = tag.playlist.slice(0, 3);
+    expect(openers.every((it) => it.isTheme), `tag-theme openers are theme songs: ${openers.map((it) => it.dance)}`);
+    tagExcursionOpeners += openers.filter((it) => it.kind === "excursion").length;
+    expect(checkRules(tag, tagSettings).length === 0, `tag-theme openers: no broken rules: ${JSON.stringify(checkRules(tag, tagSettings)[0])}`);
+  }
+  console.log(`  tag theme: ${tagExcursionOpeners} of 150 openers were excursion songs`);
+  expect(tagExcursionOpeners > 0, "excursion songs with a theme tag never opened");
+}
+
 for (const sc of SCENARIOS) {
   const songs = sc.songs ?? buildSongs(sc.perDance);
   // Timing bounds use only the songs that may play (inside any song length limits).

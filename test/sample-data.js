@@ -125,7 +125,7 @@ export const SCENARIOS = [
     settings: {
       ...ballroomLatinBase,
       theme: { name: "Roarin' Twenties", dances: ["Foxtrot", "Quickstep", "Swing"], fractionMin: 0.25, fractionMax: 0.4 },
-      // Quickstep is a theme dance but also blacklisted early; theme openers must use Foxtrot/Swing.
+      // Quickstep is a theme dance but also blacklisted early; as a theme opener it is allowed anyway.
     },
   },
   {

@@ -542,7 +542,7 @@ function themeSection(s) {
         "Broad themes (e.g. Hollywood) match songs of any dance, so a high share is easy to reach. " +
           "Dance-focused themes (e.g. Hustle night) should stay lower so that one dance does not dominate."),
       field("Guaranteed theme openers", numberInput(() => t.guaranteedOpeners, (v) => (t.guaranteedOpeners = v), { min: 0, max: 10 }),
-        "How many songs at the start of the night must be theme songs.")
+        "How many songs at the start of the night must be theme songs. With theme dances, the openers take turns among them (never the same one twice in a row, unless there is only one) and may use dances not allowed in the opening.")
     );
   }
   return section("Theme", live(() => (s.theme ? s.theme.name || "on" : "off"), "span", "summary-note"), ...body);
