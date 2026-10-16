@@ -200,7 +200,13 @@ export async function api(path, { method = "GET", body } = {}) {
     if (res.status === 429) {
       // Too many requests. A short wait is waited out; a long one (Spotify's quota is used up for a
       // while) is reported at once, so callers can stop instead of making it worse.
-      const wait = Number(res.headers.get("Retry-After")) || 2;
+      // Browsers usually hide Retry-After from the page (Spotify does not expose it), so the wait is
+      // often unknown: then one short wait is tried, and a second refusal is reported straight away.
+      const header = Number(res.headers.get("Retry-After"));
+      if (!header && attempt > 0) {
+        throw new SpotifyError("Spotify is limiting requests and did not say for how long; try again later.", 429, { retryAfter: null });
+      }
+      const wait = header || 5;
       if (wait > 30) throw new SpotifyError(`Spotify is limiting requests; try again in about ${Math.ceil(wait / 60)} minute(s).`, 429, { retryAfter: wait });
       await sleep(wait * 1000);
       continue;

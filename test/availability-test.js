@@ -18,6 +18,8 @@ const answers = {
   [id("gone")]: { status: 404, body: { error: { status: 404, message: "Non existing id" } } },
   // Spotify's request limit: "too many requests, come back in an hour".
   [id("limited")]: { status: 429, retryAfter: "3600", body: { error: { status: 429, message: "quota exceeded" } } },
+  // The same, as a browser sees it: Spotify does not let the page read Retry-After.
+  [id("hidden")]: { status: 429, body: { error: { status: 429, message: "quota exceeded" } } },
   [id("empty")]: { status: 200, body: {} }, // an answer without a track
 };
 let requests = 0;
@@ -75,6 +77,12 @@ console.log("=== Spotify's request limit, and sparing requests");
   check(checkFailed(id("limited")) && !isChecked(id("limited")) && !isUnavailable(id("limited")),
     "a song that could not be checked is neither 'checked' nor 'unavailable' (it is unknown)");
   check(isChecked(id("fine")) && availabilityOf(id("fine")).status === "ok", "a failed lookup never replaces an earlier real answer");
+
+  requests = 0;
+  const hidden = await checkSongs([id("hidden")]);
+  check(hidden.rateLimited && !hidden.rateLimited.retryAfter, `a limit without a stated wait is still reported (wait unknown): ${JSON.stringify(hidden.rateLimited)}`);
+  check(requests === 2, `with no stated wait, one short retry and then stop: ${requests} requests`);
+  check(checkFailed(id("hidden")) && !isUnavailable(id("hidden")), "that song counts as 'could not be checked'");
 
   await checkSongs([id("empty")]);
   check(checkFailed(id("empty")), "an answer without a track counts as 'could not be checked', not as playable");

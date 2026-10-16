@@ -804,7 +804,8 @@ async function recheckCheckedSongs(ids) {
   recheck = null;
   renderReview();
   if (rateLimited) {
-    const wait = rateLimited.retryAfter ? `about ${Math.ceil(rateLimited.retryAfter / 60)} minute(s)` : "a while";
+    const wait = rateLimited.retryAfter ? `about ${Math.ceil(rateLimited.retryAfter / 60)} minute(s)`
+      : "a while (Spotify does not say how long the limit lasts, so an hour is a safe start)";
     alert(`Spotify is limiting requests, so the recheck stopped after ${done} of ${ids.length} songs (those results are kept). Try again in ${wait}.`);
   } else if (stopped) alert(`Stopped after ${done} of ${ids.length} songs. Those results are kept.`);
 }

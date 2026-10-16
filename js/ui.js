@@ -973,7 +973,9 @@ function spotifyCheckLine(r) {
   if (c.unresolved) parts.push(`${c.unresolved} unavailable song(s) could not be replaced (marked below); swap or remove them.`);
   if (!unchecked) return el("p", { class: "inline-fields muted" }, parts.join(" "), again("Check again"));
   // Songs Spotify did not answer for are NOT known to be playable: say so clearly.
-  const wait = c.rateLimited && c.rateLimited.retryAfter ? ` in about ${Math.ceil(c.rateLimited.retryAfter / 60)} minute(s)` : " later";
+  // Spotify often does not say how long the limit lasts (browsers hide that part of its answer).
+  const wait = c.rateLimited && c.rateLimited.retryAfter ? ` in about ${Math.ceil(c.rateLimited.retryAfter / 60)} minute(s)`
+    : c.rateLimited ? " later; Spotify does not say how long the limit lasts, so an hour is a safe start" : " later";
   return el("ul", { class: "msgs" }, el("li", { class: "warning" },
     `${parts.join(" ")} ${unchecked} song(s) could not be checked` +
       (c.rateLimited ? " because Spotify is limiting requests right now" : "") +
