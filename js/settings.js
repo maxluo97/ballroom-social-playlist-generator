@@ -19,7 +19,7 @@ export const THEME_TEMPLATE = {
   tags: [],
   fractionMin: 0.5,
   fractionMax: 0.7,
-  guaranteedOpeners: 2,
+  minGap: null, // theme minimum gap; null = the normal gap minus 2
 };
 
 export const clone = (obj) => JSON.parse(JSON.stringify(obj));

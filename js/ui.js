@@ -8,6 +8,7 @@
 
 import {
   generatePlaylist, validateSettings, listDances, associationMap, withinLengthLimits, DEFAULT_SETTINGS,
+  themeMinGapFor, themeMinGapApplies,
 } from "./generator.js";
 import {
   THEME_TEMPLATE, clone, loadLastSettings, saveLastSettings,
@@ -534,18 +535,34 @@ function themeSection(s) {
         return tags.length ? `Tags in the library: ${tags.join(", ")}.` : "No songs in the library have tags.";
       }),
       el("p", { class: "help" }, "A song is a theme song if it is played as a theme dance or has a theme tag. " +
-        "The theme share is the part of the night's songs that are theme songs."),
+        "The theme share is the part of the night's songs that are theme songs, not counting the opening songs (which are theme songs anyway)."),
       el("div", { class: "inline-fields" }, "Theme share at least", percentSlider(() => t.fractionMin, (v) => (t.fractionMin = v))),
       el("div", { class: "inline-fields" }, "Theme share at most", percentSlider(() => t.fractionMax, (v) => (t.fractionMax = v))),
       el("div", { class: "inline-fields" }, "Quick set:", presetButton("Broad theme (50–70%)", 0.5, 0.7), presetButton("Dance-focused theme (20–25%)", 0.2, 0.25)),
       el("p", { class: "help" },
         "Broad themes (e.g. Hollywood) match songs of any dance, so a high share is easy to reach. " +
           "Dance-focused themes (e.g. Hustle night) should stay lower so that one dance does not dominate."),
-      field("Guaranteed theme openers", numberInput(() => t.guaranteedOpeners, (v) => (t.guaranteedOpeners = v), { min: 0, max: 10 }),
-        "How many songs at the start of the night must be theme songs. With theme dances, the openers take turns among them (never the same one twice in a row, unless there is only one) and may use dances not allowed in the opening.")
+      themeMinGapField(s, t)
     );
   }
   return section("Theme", live(() => (s.theme ? s.theme.name || "on" : "off"), "span", "summary-note"), ...body);
+}
+
+/**
+ * The theme minimum gap: only shown when it matters (the theme has tags, or is one dance that is in no
+ * category and not an excursion). Until set, it follows the normal gap (minus 2).
+ */
+function themeMinGapField(s, t) {
+  const input = numberInput(() => themeMinGapFor(s), (v) => (t.minGap = v), { min: 0, max: 20 });
+  const node = field("Theme songs may repeat after at least", el("span", { class: "inline-fields" }, input, "songs"),
+    "When no theme song fits the normal gap between repeats, the gap may shrink down to this. " +
+      "Also the gap for a theme of one dance that is in no category. Default: the normal gap minus 2.");
+  liveUpdaters.push(() => {
+    node.hidden = !themeMinGapApplies(s);
+    if (t.minGap == null && document.activeElement !== input) input.value = String(themeMinGapFor(s));
+  });
+  node.hidden = !themeMinGapApplies(s);
+  return node;
 }
 
 function openingSection(s) {
@@ -554,7 +571,9 @@ function openingSection(s) {
     null,
     field("Opening length", el("span", { class: "inline-fields" },
       numberInput(() => s.opening.earlyCount, (v) => (s.opening.earlyCount = v), { min: 0, max: 30 }), "songs"),
-      "The first songs of the night, which avoid the dances listed below (e.g. fast or demanding ones)."),
+      "The first songs of the night, which avoid the dances listed below (e.g. fast or demanding ones). " +
+        "With a theme, they are theme songs too. Theme dances take turns there (never the same one twice in a row, unless there is only one) " +
+        "and may open even if listed below."),
     el("div", {}, el("div", { class: "label" }, "Not allowed in the opening"),
       chipEditor(s.opening.blacklist, "dl-dances", { ...onlyDances(settingDances), placeholder: "add a dance…", label: "Add a dance to the opening blacklist" })),
     field("Last dance of the night",
@@ -1031,6 +1050,7 @@ function renderResults() {
   const kindLabel = (it) =>
     it.kind === "regular" ? it.category
       : it.kind === "excursion" ? "Excursion"
+      : it.kind === "theme" ? it.source
       : it.kind === "fixed" ? it.source
       : it.kind === "inserted" ? "Added by you"
       : "Last dance";

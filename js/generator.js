@@ -27,7 +27,7 @@
  *   excursions           { intervalMinutes, jitterMinutes, pool: { dance: maxOccurrences } }
  *   fixedEvents          [{ name, dances: [...], count, at: 0..1, notAfter: [names or dances] }]
  *                        each of the `count` songs is one of `dances`
- *   theme                { name, dances, tags, fractionMin, fractionMax, guaranteedOpeners } or null
+ *   theme                { name, dances, tags, fractionMin, fractionMax, minGap } or null
  *   opening              { earlyCount, blacklist: [dances] }
  *   closing              { finalDance }   (null = no designated last dance)
  *   seed                 integer for reproducible output (null = random)
@@ -36,16 +36,24 @@
  *   1. Categories alternate in blocks of 1..maxInARow. One block length is rolled per cycle,
  *      and it is rerolled only after every category has had its turn (cycle order is shuffled,
  *      and a cycle never starts with the category that just ended the previous one).
- *   2. Excursions fire on a timer; each draw is weighted and removes one entry from the pool.
- *      When every counter reaches 0, the pool resets to its starting weights.
+ *   2. Excursions fire on a timer (every interval ± jitter, the first one too); each draw is weighted
+ *      and removes one entry from the pool. When every counter reaches 0, the pool resets to its
+ *      starting weights. The theme does not steer which excursion plays.
  *   3/4. Fixed events fire once when the clock passes `at` * length. Two different fixed events
  *      are never back to back, and an event also waits if the previous song matches its `notAfter`.
- *   5. Theme songs (dance or tag) are steered to make up fractionMin..fractionMax of the regular
- *      and excursion songs. Theme dances skip the shuffle-bag but obey minToRepeat. The first
- *      `guaranteedOpeners` songs are theme songs. When the theme has dances, those openers are theme
+ *   5. Theme songs (dance or tag) are steered to make up fractionMin..fractionMax of the regular,
+ *      hidden-theme and excursion songs: before each regular song, the share decides whether a theme
+ *      song is due. Mixed themes then roll between the tag group (one theme tag at random; a song with
+ *      it from the current category, shuffle-bag kept, gap lowered step by step down to theme.minGap)
+ *      and the dance group (standalone theme dances, i.e. in no category and not excursions, form a
+ *      hidden theme category chosen with chance n/(m+n), with its own shuffle-bag and gap n, or
+ *      theme.minGap for a theme of one standalone dance; otherwise a theme dance of the current
+ *      category, which skips the shuffle-bag but keeps minToRepeat). If neither group can supply a
+ *      song, a normal song plays. Hidden theme songs (kind 'theme') do not take category turns.
+ *      With a theme, the opening songs (opening.earlyCount) are theme songs. When the theme has dances, those openers are theme
  *      dances that ignore spacing, blocks, the shuffle-bag and the opening blacklist. The theme dances
  *      take turns equally, never the same dance twice in a row (A, B, 4 openers: ABAB or BABA), and
- *      leftover theme dances (more than openers) do not open. For a tag-only theme, excursion songs with
+ *      leftover theme dances (more than openers) do not open; standalone theme dances open too. For a tag-only theme, excursion songs with
  *      a theme tag may open too, without using up their excursion counts.
  *   6. (blocks, see 1)
  *   7. Within a category, non-theme dances are drawn from a shuffle-bag (Tetris-style):
@@ -87,7 +95,7 @@ const THEME_DEFAULTS = {
   tags: [],
   fractionMin: 0.5, // broad-theme default; dance-focused themes should use about 0.2-0.25
   fractionMax: 0.7,
-  guaranteedOpeners: 2,
+  minGap: null, // theme minimum gap; null = the normal gap (minToRepeat) - 2
 };
 
 /** Order in which rules are relaxed when no legal choice exists. */
@@ -239,6 +247,50 @@ function themeInfo(s) {
   };
 }
 
+/** The theme minimum gap: how close two theme songs of the same dance may come (see themePlan). */
+function themeMinGap(s) {
+  const g = s.theme && s.theme.minGap;
+  return Number.isFinite(g) && g >= 0 ? g : Math.max(0, s.minToRepeat - 2);
+}
+
+/**
+ * How the theme's dances are played (the agreed theme spec, NOTES.md v0.2.4):
+ *   catDances        theme dances in a category
+ *   standalone       theme dances in no category and not excursions: the "hidden theme category"
+ *   singleStandalone the theme is one standalone dance and nothing else
+ *   standaloneGap    their repeat gap: the theme minimum gap for a single standalone dance, else n
+ *   openerDances     the dances that take turns opening a theme with dances
+ */
+function themePlan(s, th = themeInfo(s)) {
+  const inCategory = new Set(s.categories.flatMap((c) => c.dances));
+  const pool = s.excursions.pool || {};
+  const catDances = [...th.dances].filter((d) => inCategory.has(d));
+  const standalone = [...th.dances].filter((d) => !inCategory.has(d) && !(pool[d] > 0));
+  const singleStandalone = !th.tags.size && th.dances.size === 1 && standalone.length === 1;
+  const minGap = themeMinGap(s);
+  return {
+    catDances,
+    standalone,
+    singleStandalone,
+    minGap,
+    standaloneGap: singleStandalone ? minGap : standalone.length,
+    openerDances: [...catDances, ...standalone],
+  };
+}
+
+/** The theme minimum gap for these settings (default: the normal gap - 2). */
+export function themeMinGapFor(userSettings) {
+  return themeMinGap(mergeSettings(userSettings));
+}
+
+/** Whether the theme minimum gap matters: the theme has tags, or is one standalone dance. */
+export function themeMinGapApplies(userSettings) {
+  const s = resolveSettings(userSettings);
+  if (!s.theme) return false;
+  const th = themeInfo(s);
+  return th.tags.size > 0 || themePlan(s, th).singleStandalone;
+}
+
 /* --------------------------------------------------------------- validation */
 
 /**
@@ -311,21 +363,35 @@ export function validateSettings(rawSongs, userSettings) {
     for (const d of th.dances) {
       // A theme dance is meant to be played a lot, so it belongs in a category, not among the excursions.
       if (pool[d] > 0) warnings.push(`Theme dance "${d}" is still an excursion. A theme dance belongs in a category; consider removing it from the excursions.`);
-      if (!seen.has(d) && !(pool[d] > 0)) warnings.push(`Theme dance "${d}" is not in any category or the excursion pool, so it will never be played.`);
+      if (!seen.has(d) && !(pool[d] > 0) && countFor(d) === 0) warnings.push(`No songs are tagged "${d}" (theme dance).`);
     }
     for (const t of th.tags) {
       if (!songs.some((sg) => sg.tags.includes(t))) warnings.push(`No songs carry the theme tag "${t}".`);
     }
+    if (s.theme.minGap != null && !(s.theme.minGap >= 0)) errors.push("The theme minimum gap cannot be negative.");
+    const plan = themePlan(s, th);
 
     if (!th.tags.size) {
-      // Each theme dance can fill at most 1 slot in every (minToRepeat + 1).
-      const inCats = [...th.dances].filter((d) => seen.has(d) && countFor(d) > 0);
+      // Each theme dance can fill at most 1 slot in every (gap + 1): the normal gap for theme dances in a
+      // category, the standalone gap for the hidden theme category. Excursions are not steered by the theme.
+      const inCats = plan.catDances.filter((d) => countFor(d) > 0);
       const inPool = [...th.dances].filter((d) => !seen.has(d) && pool[d] > 0 && countFor(d) > 0);
-      const ceiling = Math.min(1, (inCats.length + inPool.length) / (s.minToRepeat + 1));
-      if (th.dances.size && s.theme.fractionMin >= ceiling - 1e-9) {
+      const standalone = plan.standalone.filter((d) => countFor(d) > 0);
+      const ceiling = Math.min(1, inCats.length / (s.minToRepeat + 1) + standalone.length / (plan.standaloneGap + 1));
+      // Theme dances in no category have a shorter repeat gap (the hidden theme category), so taking
+      // them out of their categories can raise the ceiling: suggest it when it would.
+      const all = inCats.length + standalone.length;
+      const outGap = all === 1 ? plan.minGap : all;
+      const outCeiling = Math.min(1, all / (outGap + 1));
+      const moveOutHint = inCats.length && outCeiling > ceiling + 1e-9
+        ? ` To allow more, remove ${inCats.map((d) => `"${d}"`).join(", ").replace(/, ([^,]*)$/, " and $1")} from ${inCats.length > 1 ? "their categories" : "its category"}: ` +
+          `theme dances in no category have a shorter repeat gap, which allows up to about ${pct(outCeiling)}.`
+        : "";
+      if (inCats.length + standalone.length && s.theme.fractionMin >= ceiling - 1e-9) {
         warnings.push(
-          `With ${inCats.length + inPool.length} theme dance(s) and minToRepeat=${s.minToRepeat}, theme songs can make up ` +
-            `at most about ${pct(ceiling)} of songs; the requested minimum (${pct(s.theme.fractionMin)}) will often be missed.`
+          `With ${inCats.length + standalone.length} playable theme dance(s) and their repeat gaps, theme songs can make up ` +
+            `at most about ${pct(ceiling)} of songs; the requested minimum (${pct(s.theme.fractionMin)}) will often be missed.` +
+            moveOutHint
         );
       }
       // Theme dances only in the excursion pool are limited by how often excursions fire.
@@ -339,10 +405,10 @@ export function validateSettings(rawSongs, userSettings) {
           );
         }
       }
-      // Openers are theme dances from the categories (the other rules do not apply to them).
-      if (s.theme.guaranteedOpeners > 0 && th.dances.size && !inCats.length) {
+      // Openers are theme dances from the categories and standalone ones (the other rules do not apply to them).
+      if (s.opening.earlyCount > 0 && th.dances.size && !inCats.length && !standalone.length) {
         warnings.push(
-          `The first ${s.theme.guaranteedOpeners} songs should be theme songs, but no theme dance with songs is in a category, ` +
+          `The first ${s.opening.earlyCount} songs should be theme songs, but every theme dance with songs is an excursion, ` +
             `so the openers cannot be theme dances.`
         );
       }
@@ -414,6 +480,8 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
   const danceToCat = new Map();
   cats.forEach((c, i) => c.dances.forEach((d) => danceToCat.set(d, i)));
   const th = themeInfo(s);
+  const plan = themePlan(s, th);
+  const themeLabel = (s.theme && s.theme.name) || "Theme";
   const themeMid = th.active ? (s.theme.fractionMin + s.theme.fractionMax) / 2 : 0;
   const notThemeTag = (sg) => !th.hasTag(sg);
   const blackSet = new Set(s.opening.blacklist);
@@ -425,7 +493,10 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
   const history = []; // dance label per slot, used for spacing
   const used = new Set();
   let elapsed = 0;
-  let themeBase = 0; // regular + excursion songs (the theme share is measured over these)
+  // The theme share is measured over regular, hidden-theme and excursion songs after the opening (the
+  // opening songs are theme songs anyway, so counting them would hold the theme back afterwards).
+  const openingCount = th.active ? s.opening.earlyCount : 0;
+  let themeBase = 0;
   let themeCount = 0;
 
   /* ---- song selection ---- */
@@ -465,7 +536,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
       startSec: elapsed,
       song,
       dance,
-      kind, // 'regular' | 'excursion' | 'fixed' | 'final'
+      kind, // 'regular' | 'excursion' | 'theme' (hidden theme category) | 'fixed' | 'final'
       category,
       source,
       isTheme,
@@ -473,7 +544,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     history.push(dance);
     used.add(song.id);
     elapsed += song.lengthSec;
-    if (kind === "regular" || kind === "excursion") {
+    if ((kind === "regular" || kind === "excursion" || kind === "theme") && playlist.length > openingCount) {
       themeBase++;
       if (isTheme) themeCount++;
     }
@@ -556,9 +627,10 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
   /* ---- theme openers for a theme with dances: the rules (spacing, blocks, shuffle-bag, opening
    * blacklist) do not apply to them. The theme dances take turns in shuffled rounds, so each one
    * opens equally often and no dance opens twice in a row (A and B with 4 openers: ABAB or BABA);
-   * with more theme dances than openers, the ones left over simply do not open. ---- */
-  const openerDances = [...th.dances].filter((d) => danceToCat.has(d));
-  const danceOpeners = s.theme && openerDances.length ? s.theme.guaranteedOpeners : 0;
+   * with more theme dances than openers, the ones left over simply do not open. Standalone theme
+   * dances (the hidden theme category) open too. ---- */
+  const openerDances = plan.openerDances;
+  const danceOpeners = s.theme && openerDances.length ? s.opening.earlyCount : 0;
   let openerRound = [];
   let lastOpener = null;
 
@@ -576,17 +648,20 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     const dance = openerRound.shift();
     lastOpener = dance;
     const c = danceToCat.get(dance);
-    push(dance, pickSong(dance, false), "regular", cats[c].name, null);
-    // Normal rules resume after the openers: a new block cycle, not starting with the openers' category.
-    lastRegularCategory = c;
-    runLen = 0;
+    if (c === undefined) push(dance, pickSong(dance, false), "theme", null, themeLabel);
+    else {
+      push(dance, pickSong(dance, false), "regular", cats[c].name, null);
+      // Normal rules resume after the openers: a new block cycle, not starting with the openers' category.
+      lastRegularCategory = c;
+      runLen = 0;
+    }
     if (playlist.length >= danceOpeners) newCycle();
     return true;
   }
 
   /* ---- theme openers for a tag-only theme: they follow the rules, and excursion songs with a theme
    * tag may open too, without using up their excursion counts. ---- */
-  const tagOpeners = th.tags.size && !danceOpeners ? s.theme.guaranteedOpeners : 0;
+  const tagOpeners = th.tags.size && !danceOpeners ? s.opening.earlyCount : 0;
 
   function tryTagOpenerExcursion() {
     const early = isEarly();
@@ -601,13 +676,83 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     return true;
   }
 
-  function placeRegular() {
+  /* ---- a theme song, when the theme share says one is due (the agreed theme spec, NOTES.md v0.2.4).
+   * Mixed themes roll between the tag group and the dance group (weighted by how many tags and theme
+   * dances there are); if that group cannot supply a song the other one is tried, and if neither can,
+   * the caller plays a normal song. ---- */
+  const tagWeight = th.tags.size;
+  const danceWeight = plan.catDances.length + plan.standalone.length;
+  let hiddenBag = []; // the hidden theme category's shuffle-bag
+
+  function placeThemeSong() {
+    const tagFirst = rng() * (tagWeight + danceWeight) < tagWeight;
+    return tagFirst ? placeTagSong() || placeThemeDance() : placeThemeDance() || placeTagSong();
+  }
+
+  /** The category whose turn it is, or null if its block would run too long. */
+  function currentCategory() {
+    const c = cycleOrder[cyclePos];
+    return cats.length > 1 && c === lastRegularCategory && runLen >= s.maxInARow ? null : c;
+  }
+
+  /** Tag group: one theme tag at random; a song with it from the current category, obeying the
+   * shuffle-bag; the gap is lowered step by step down to the theme minimum gap if needed. */
+  function placeTagSong() {
+    if (!tagWeight) return false;
+    const c = currentCategory();
+    if (c === null) return false;
+    const tag = choice([...th.tags]);
+    const withTag = (sg) => (sg.tags || []).includes(tag);
+    const normalC = cats[c].dances.filter((d) => !th.dances.has(d));
+    if (normalC.length && bags[c].length === 0) bags[c] = normalC.slice();
+    const candidates = [...bags[c], ...cats[c].dances.filter((d) => th.dances.has(d))];
+    const early = isEarly();
+    const floor = Math.min(plan.minGap, s.minToRepeat);
+    for (let gap = s.minToRepeat; gap >= floor; gap--) {
+      // Theme dances (which skip the shuffle-bag) always keep the normal gap.
+      const opts = candidates.filter((d) =>
+        !(early && blackSet.has(d)) && gapAllowed(d, th.dances.has(d) ? s.minToRepeat : gap) && hasSong(d, false, withTag));
+      if (!opts.length) continue;
+      const dance = choice(opts);
+      commitRegular(c, dance, pickSong(dance, false, { require: withTag }));
+      return true;
+    }
+    return false;
+  }
+
+  /** Dance group: the hidden theme category with chance n/(m+n) (always, if no theme dance is in a
+   * category), otherwise a theme dance of the current category (no shuffle-bag, normal gap). */
+  function placeThemeDance() {
+    if (!danceWeight) return false;
+    const early = isEarly();
+    const n = plan.standalone.length;
+    const hidden = n > 0 && (!plan.catDances.length || rng() * (cats.length + n) < n);
+    if (hidden) {
+      hiddenBag = hiddenBag.filter((d) => hasSong(d, false));
+      if (!hiddenBag.length) hiddenBag = plan.standalone.filter((d) => hasSong(d, false));
+      const opts = hiddenBag.filter((d) => !(early && blackSet.has(d)) && gapAllowed(d, plan.standaloneGap));
+      if (!opts.length) return false;
+      const dance = choice(opts);
+      hiddenBag = hiddenBag.filter((d) => d !== dance);
+      push(dance, pickSong(dance, false), "theme", null, themeLabel);
+      return true;
+    }
+    const c = currentCategory();
+    if (c === null) return false;
+    const opts = cats[c].dances.filter((d) =>
+      th.dances.has(d) && hasSong(d, false) && !(early && blackSet.has(d)) && gapAllowed(d, s.minToRepeat));
+    if (!opts.length) return false;
+    const dance = choice(opts);
+    commitRegular(c, dance, pickSong(dance, false));
+    return true;
+  }
+
+  function placeRegular(mood) {
     const tryOrder = [...cycleOrder.slice(cyclePos), ...cycleOrder.slice(0, cyclePos)];
-    const mood = themeMood();
     for (let li = 0; li < LEVELS.length; li++) {
       const L = LEVELS[li];
       // (A theme with dances has its openers placed by placeOpener; this covers tag-only themes.)
-      const openerForced = th.active && L.themeOpener && playlist.length < s.theme.guaranteedOpeners;
+      const openerForced = th.active && L.themeOpener && playlist.length < s.opening.earlyCount;
       for (const c of tryOrder) {
         // Falling back to another category is fine, unless it makes that category's run too long.
         const tooLong = cats.length > 1 && c === lastRegularCategory && runLen >= s.maxInARow;
@@ -629,13 +774,14 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
   let pool = { ...initialPool };
   const excInterval = s.excursions.intervalMinutes * 60;
   const excActive = excInterval > 0 && Object.values(pool).some((w) => w > 0);
-  let nextExcAt = excActive ? excInterval : Infinity;
+  const excursionGap = () => Math.max(60, excInterval + (rng() * 2 - 1) * (s.excursions.jitterMinutes || 0) * 60);
+  let nextExcAt = excActive ? excursionGap() : Infinity;
 
   function tryExcursion() {
     // README: once every counter has reached 0, the pool resets to its starting weights.
     if (!Object.values(pool).some((w) => w > 0)) pool = { ...initialPool };
     const early = isEarly();
-    let cands = Object.entries(pool).filter(
+    const cands = Object.entries(pool).filter(
       ([d, w]) =>
         w > 0 &&
         hasSong(d, false) &&
@@ -643,15 +789,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
         gapAllowed(d, s.minToRepeat)
     );
     if (!cands.length) return false;
-
-    const mood = themeMood();
-    if (mood === "want") {
-      const t = cands.filter(([d]) => th.dances.has(d) || (th.tags.size && hasSong(d, false, th.hasTag)));
-      if (t.length) cands = t;
-    } else if (mood === "avoid") {
-      const t = cands.filter(([d]) => !th.dances.has(d) && hasSong(d, false, notThemeTag));
-      if (t.length) cands = t;
-    }
+    // The theme is not a deciding factor: just the weighted die.
 
     const total = cands.reduce((sum, [, w]) => sum + w, 0);
     let r = rng() * total;
@@ -664,12 +802,9 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
       }
     }
     pool[pick]--;
-    const prefer = mood === "want" && !th.dances.has(pick) ? th.hasTag : mood === "avoid" ? notThemeTag : null;
-    push(pick, pickSong(pick, false, { prefer }), "excursion", null, null);
-    do {
-      const jitter = (rng() * 2 - 1) * (s.excursions.jitterMinutes || 0) * 60;
-      nextExcAt += Math.max(60, excInterval + jitter);
-    } while (nextExcAt <= elapsed);
+    push(pick, pickSong(pick, false), "excursion", null, null);
+    do nextExcAt += excursionGap();
+    while (nextExcAt <= elapsed);
     return true;
   }
 
@@ -729,7 +864,11 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     }
     if (playlist.length < tagOpeners && tryTagOpenerExcursion()) continue;
     if (elapsed >= nextExcAt && tryExcursion()) continue;
-    if (!placeRegular()) {
+    // Tag-only openers (and dance openers that ran out of songs) are forced inside placeRegular.
+    const openerSlot = th.active && playlist.length < s.opening.earlyCount;
+    const mood = themeMood();
+    if (mood === "want" && !openerSlot && placeThemeSong()) continue;
+    if (!placeRegular(mood === "want" && !openerSlot ? "neutral" : mood)) {
       warn(playlist.length, "No playable song remained; the night was ended early.");
       break;
     }
@@ -753,6 +892,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     overtimeSec: elapsed - targetSec,
     seed,
     warnings,
+    openingCount,
   };
   result.stats = computeStats(result);
   return result;
@@ -768,8 +908,10 @@ export function computeStats(result) {
     perDance[it.dance] = (perDance[it.dance] || 0) + 1;
     if (it.category) perCategory[it.category] = (perCategory[it.category] || 0) + 1;
   }
-  // Theme share is measured over regular and excursion songs (fixed events and the final song excluded).
-  const base = pl.filter((it) => it.kind === "regular" || it.kind === "excursion");
+  // Theme share is measured over regular, hidden-theme and excursion songs after the opening songs
+  // (result.openingCount; fixed events and the final song excluded).
+  const base = pl.filter((it) =>
+    (it.kind === "regular" || it.kind === "excursion" || it.kind === "theme") && it.index >= (result.openingCount || 0));
   const themeFraction = base.length ? base.filter((it) => it.isTheme).length / base.length : 0;
   let longestRun = 0;
   let run = 0;
@@ -796,11 +938,19 @@ export function checkRules(result, userSettings) {
   const v = [];
   const th = themeInfo(s);
   // Openers of a theme with dances are exempt from spacing, blocks and the opening blacklist.
-  const inCategory = new Set(s.categories.flatMap((c) => c.dances));
-  const danceOpeners = s.theme && [...th.dances].some((d) => inCategory.has(d)) ? s.theme.guaranteedOpeners : 0;
-  const isOpener = (it) => it.index >= 0 && it.index < danceOpeners && it.kind === "regular" && th.dances.has(it.dance);
+  const plan = themePlan(s, th);
+  const danceOpeners = s.theme && plan.openerDances.length ? s.opening.earlyCount : 0;
+  const isOpener = (it) =>
+    it.index >= 0 && it.index < danceOpeners && (it.kind === "regular" || it.kind === "theme") && th.dances.has(it.dance);
+  // Repeat gaps: standalone theme dances use their own gap; songs with a theme tag may come down to the
+  // theme minimum gap; everything else uses minToRepeat.
+  const standaloneSet = new Set(plan.standalone);
+  const gapFor = (it) =>
+    standaloneSet.has(it.dance) ? plan.standaloneGap
+      : th.tags.size && !th.dances.has(it.dance) && th.hasTag(it.song) ? Math.min(plan.minGap, s.minToRepeat)
+        : s.minToRepeat;
   // A tag-only theme's excursion openers do not use up excursion counts.
-  const tagOpeners = th.tags.size && !danceOpeners ? s.theme.guaranteedOpeners : 0;
+  const tagOpeners = th.tags.size && !danceOpeners ? s.opening.earlyCount : 0;
 
   // 1. block length, measured over the sequence of regular songs
   if (s.categories.length > 1) {
@@ -821,7 +971,7 @@ export function checkRules(result, userSettings) {
   // 2. spacing (final song and fixed events are exempt)
   for (const it of pl) {
     if (it.kind === "final" || it.kind === "fixed" || isOpener(it)) continue;
-    for (let j = Math.max(0, it.index - s.minToRepeat); j < it.index; j++) {
+    for (let j = Math.max(0, it.index - gapFor(it)); j < it.index; j++) {
       if (pl[j].dance === it.dance) {
         v.push({ rule: "minToRepeat", index: it.index, message: `${it.dance} repeated after ${it.index - j - 1} song(s).` });
         break;
@@ -832,12 +982,12 @@ export function checkRules(result, userSettings) {
   // 3. opening
   const black = new Set(s.opening.blacklist);
   for (const it of pl.slice(0, s.opening.earlyCount)) {
-    if ((it.kind === "regular" || it.kind === "excursion") && black.has(it.dance) && !isOpener(it)) {
+    if (["regular", "excursion", "theme"].includes(it.kind) && black.has(it.dance) && !isOpener(it)) {
       v.push({ rule: "earlyBlacklist", index: it.index, message: `${it.dance} in the opening.` });
     }
   }
   if (th.active) {
-    for (const it of pl.slice(0, s.theme.guaranteedOpeners)) {
+    for (const it of pl.slice(0, s.opening.earlyCount)) {
       if (it.kind === "regular" && !it.isTheme) v.push({ rule: "themeOpener", index: it.index, message: `${it.dance} is not a theme song.` });
     }
   }
@@ -854,6 +1004,17 @@ export function checkRules(result, userSettings) {
       if (remaining.size === 0) remaining = new Set(normal);
     }
   });
+
+  // 4b. the hidden theme category's shuffle-bag: no standalone theme dance repeats until all have played
+  if (plan.standalone.length > 1) {
+    let remaining = new Set(plan.standalone);
+    for (const it of pl) {
+      if (it.kind !== "theme" || isOpener(it)) continue;
+      if (remaining.has(it.dance)) remaining.delete(it.dance);
+      else v.push({ rule: "themeBag", index: it.index, message: `${it.dance} repeated before every standalone theme dance had played.` });
+      if (remaining.size === 0) remaining = new Set(plan.standalone);
+    }
+  }
 
   // 5. excursion pool: each draw needs a positive counter; the pool resets when all reach 0
   const initial = s.excursions.pool;

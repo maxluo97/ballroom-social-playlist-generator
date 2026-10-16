@@ -150,7 +150,33 @@ export const SCENARIOS = [
     settings: {
       ...ballroomLatinBase,
       excursions: { intervalMinutes: 10, pool: { Hustle: 6, Polka: 1, Bachata: 2 } },
-      theme: { name: "Hustle night", dances: ["Hustle"], fractionMin: 0.1, fractionMax: 0.2, guaranteedOpeners: 0 },
+      theme: { name: "Hustle night", dances: ["Hustle"], fractionMin: 0.1, fractionMax: 0.2 },
+    },
+  },
+  {
+    name: "N=2, 3 h, standalone theme dance (Hustle night, Hustle in no category and not an excursion)",
+    perDance: 20,
+    settings: {
+      ...ballroomLatinBase,
+      excursions: { intervalMinutes: 25, pool: { Polka: 1, Bachata: 3, "West Coast Swing": 2, "Night Club Two Step": 1 } },
+      theme: { name: "Hustle night", dances: ["Hustle"], fractionMin: 0.15, fractionMax: 0.25 },
+    },
+  },
+  {
+    name: "N=2, 3 h, standalone + category theme dances (Foxtrot, Hustle, Night Club Two Step)",
+    perDance: 15,
+    settings: {
+      ...ballroomLatinBase,
+      excursions: { intervalMinutes: 25, pool: { Polka: 1, Bachata: 3, "West Coast Swing": 2 } },
+      theme: { name: "Club night", dances: ["Foxtrot", "Hustle", "Night Club Two Step"], fractionMin: 0.25, fractionMax: 0.4 },
+    },
+  },
+  {
+    name: "N=2, 3 h, mixed theme (Hollywood songs + Waltz, counted independently)",
+    perDance: 10,
+    settings: {
+      ...ballroomLatinBase,
+      theme: { name: "Hollywood waltzes", dances: ["Waltz"], tags: ["Hollywood"], fractionMin: 0.3, fractionMax: 0.45 },
     },
   },
   {

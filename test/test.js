@@ -13,7 +13,7 @@
  * Everything else (rules relaxed WITH a warning) is reported as information.
  */
 
-import { generatePlaylist, checkRules, validateSettings, listDances, formatTime, withinLengthLimits } from "../js/generator.js";
+import { generatePlaylist, checkRules, validateSettings, listDances, formatTime, withinLengthLimits, themeMinGapFor, themeMinGapApplies } from "../js/generator.js";
 import { buildSongs, SCENARIOS } from "./sample-data.js";
 import { buildSampleLibrary } from "../tools/sample-library.js";
 import { APP_DEFAULTS } from "./defaults.js";
@@ -103,14 +103,15 @@ let totalBugs = 0;
     }
   };
   const lib = buildSampleLibrary();
-  const night = (dances, guaranteedOpeners, seed) => {
+  // The openers are the opening songs (Opening length).
+  const night = (dances, openers, seed) => {
     const settings = {
       ...APP_DEFAULTS, seed, fixedEvents: [],
-      opening: { earlyCount: 6, blacklist: ["Quickstep"] },
-      theme: { name: "t", dances, fractionMin: 0.2, fractionMax: 0.25, guaranteedOpeners },
+      opening: { earlyCount: openers, blacklist: ["Quickstep"] },
+      theme: { name: "t", dances, fractionMin: 0.2, fractionMax: 0.25 },
     };
     const r = generatePlaylist(lib, settings);
-    return { r, settings, first: r.playlist.slice(0, guaranteedOpeners).map((it) => it.dance) };
+    return { r, settings, first: r.playlist.slice(0, openers).map((it) => it.dance) };
   };
   let tagExcursionOpeners = 0;
   for (let seed = 1; seed <= 50; seed++) {
@@ -123,7 +124,6 @@ let totalBugs = 0;
     expect(["Foxtrot,Quickstep,Foxtrot,Quickstep", "Quickstep,Foxtrot,Quickstep,Foxtrot"].includes(two.first.join()),
       `two theme dances, 4 openers: ABAB or BABA: ${two.first}`);
     expect(two.first.includes("Quickstep"), "a theme dance on the opening blacklist may still open");
-    expect(!two.r.playlist.slice(4, 6).some((it) => it.dance === "Quickstep"), "the blacklist applies again after the openers");
 
     const three = night(["Foxtrot", "Quickstep", "Waltz"], 2, seed);
     expect(new Set(three.first).size === 2, `more theme dances than openers: two different ones open: ${three.first}`);
@@ -142,7 +142,7 @@ let totalBugs = 0;
     }
 
     // A tag-only theme: excursion songs with the tag may open, without using up their excursion counts.
-    const tagSettings = { ...APP_DEFAULTS, seed, fixedEvents: [], theme: { name: "Hollywood", tags: ["Hollywood"], guaranteedOpeners: 3 } };
+    const tagSettings = { ...APP_DEFAULTS, seed, fixedEvents: [], opening: { ...APP_DEFAULTS.opening, earlyCount: 3 }, theme: { name: "Hollywood", tags: ["Hollywood"] } };
     const tag = generatePlaylist(lib, tagSettings);
     const openers = tag.playlist.slice(0, 3);
     expect(openers.every((it) => it.isTheme), `tag-theme openers are theme songs: ${openers.map((it) => it.dance)}`);
@@ -151,6 +151,91 @@ let totalBugs = 0;
   }
   console.log(`  tag theme: ${tagExcursionOpeners} of 150 openers were excursion songs`);
   expect(tagExcursionOpeners > 0, "excursion songs with a theme tag never opened");
+}
+
+/* ---- theme rules (the agreed theme spec, NOTES.md v0.2.4) ---- */
+{
+  console.log("=== Theme rules");
+  const expect = (cond, msg) => {
+    if (!cond) {
+      console.log(`  BUG: ${msg}`);
+      totalBugs++;
+    }
+  };
+  const songs = buildSongs(20);
+  const base = SCENARIOS.find((sc) => sc.name.includes("N=2 (Ballroom/Latin), 3 h, no theme")).settings;
+  const noHustle = { intervalMinutes: 25, jitterMinutes: 0, pool: { Polka: 1, Bachata: 3, "West Coast Swing": 2 } };
+  const opening = base.opening.earlyCount;
+  /** Gaps between songs of a dance, leaving out the openers (which ignore the gaps). */
+  const gaps = (pl, dance) => {
+    const at = pl.filter((it) => it.dance === dance && it.kind !== "final" && it.index >= opening).map((it) => it.index);
+    return at.slice(1).map((x, i) => x - at[i] - 1);
+  };
+
+  // Which themes show the theme minimum gap setting, and its default.
+  const withTheme = (theme, extra = {}) => ({ ...base, ...extra, theme: { fractionMin: 0.15, fractionMax: 0.25, ...theme } });
+  expect(themeMinGapApplies(withTheme({ tags: ["Hollywood"] })), "a tag theme shows the theme minimum gap");
+  expect(themeMinGapApplies(withTheme({ dances: ["Hustle"] }, { excursions: noHustle })), "a single standalone dance shows it");
+  expect(!themeMinGapApplies(withTheme({ dances: ["Foxtrot"] })), "a theme dance in a category does not");
+  expect(!themeMinGapApplies(withTheme({ dances: ["Hustle", "Foxtrot"] }, { excursions: noHustle })), "standalone + category dances do not");
+  expect(themeMinGapFor(base) === 2 && themeMinGapFor({ ...base, minToRepeat: 6 }) === 4, "default: the normal gap minus 2");
+  expect(themeMinGapFor(withTheme({ tags: ["Hollywood"], minGap: 3 })) === 3, "the setting is used when given");
+  const capped = validateSettings(songs, withTheme({ dances: ["Rumba"], fractionMin: 0.2, fractionMax: 0.25 })).warnings;
+  expect(capped.some((w) => w.includes("remove \"Rumba\" from its category") && w.includes("33%")),
+    `a capped theme share suggests taking the theme dance out of its category: ${capped.join(" | ")}`);
+
+  let lowered = 0;
+  let hiddenSongs = 0;
+  let tagSongs = 0;
+  let waltzThemeSongs = 0;
+  const firstExcursion = new Set();
+  for (let seed = 1; seed <= 100; seed++) {
+    // A single standalone dance: the hidden theme category, with the theme minimum gap (2).
+    const hn = withTheme({ dances: ["Hustle"] }, { excursions: noHustle, seed });
+    const r1 = generatePlaylist(songs, hn);
+    const hustles = r1.playlist.filter((it) => it.dance === "Hustle");
+    hiddenSongs += hustles.filter((it) => it.kind === "theme").length;
+    expect(hustles.every((it) => it.kind === "theme" && it.isTheme), "standalone dance songs are hidden-category theme songs");
+    const g1 = gaps(r1.playlist, "Hustle");
+    expect(g1.every((g) => g >= 2), `a single standalone dance keeps the theme minimum gap: ${g1}`);
+    lowered += g1.filter((g) => g < 4).length;
+    expect(checkRules(r1, hn).length === 0, `Hustle night: no broken rules: ${JSON.stringify(checkRules(r1, hn)[0])}`);
+
+    // Several standalone dances + one in a category: the hidden category's shuffle-bag and gap n = 2.
+    const cn = withTheme({ dances: ["Foxtrot", "Hustle", "Night Club Two Step"], fractionMin: 0.25, fractionMax: 0.4 },
+      { excursions: { ...noHustle, pool: { Polka: 1, Bachata: 3, "West Coast Swing": 2 } }, seed });
+    const r2 = generatePlaylist(songs, cn);
+    expect(checkRules(r2, cn).length === 0, `club night: no broken rules: ${JSON.stringify(checkRules(r2, cn)[0])}`);
+    const openers = r2.playlist.slice(0, opening);
+    expect(openers.every((it) => ["Foxtrot", "Hustle", "Night Club Two Step"].includes(it.dance)), "standalone dances open too");
+    // Hidden songs do not take category turns: removing them leaves runs within Max in a row.
+    const regular = r2.playlist.filter((it) => it.kind === "regular");
+    let run = 0;
+    let prev = null;
+    let longest = 0;
+    for (const it of regular.filter((x) => x.index >= opening)) {
+      run = it.category === prev ? run + 1 : 1;
+      prev = it.category;
+      longest = Math.max(longest, run);
+    }
+    expect(longest <= cn.maxInARow, `hidden theme songs leave the category turns alone: run of ${longest}`);
+
+    // A mixed theme: tags and dances counted independently.
+    const mx = withTheme({ dances: ["Waltz"], tags: ["Hollywood"], fractionMin: 0.3, fractionMax: 0.45 }, { seed });
+    const r3 = generatePlaylist(songs, mx);
+    tagSongs += r3.playlist.filter((it) => it.isTheme && it.dance !== "Waltz").length;
+    waltzThemeSongs += r3.playlist.filter((it) => it.isTheme && it.dance === "Waltz" && !(it.song.tags || []).includes("Hollywood")).length;
+
+    // Excursions: the first one also gets the random variation.
+    const ex = { ...base, seed, excursions: { ...base.excursions, jitterMinutes: 3 } };
+    const first = generatePlaylist(songs, ex).playlist.find((it) => it.kind === "excursion");
+    if (first) firstExcursion.add(first.startSec);
+  }
+  console.log(`  Hustle night: ${hiddenSongs} hidden-category songs; ${lowered} repeats closer than the normal gap of 4`);
+  console.log(`  mixed theme: ${tagSongs} tagged theme songs of other dances, ${waltzThemeSongs} untagged Waltz theme songs`);
+  expect(lowered > 0, "a single standalone dance never used its shorter gap");
+  expect(tagSongs > 0 && waltzThemeSongs > 0, "a mixed theme should play both tag and dance theme songs");
+  expect(firstExcursion.size > 3, `the first excursion's time varies: ${firstExcursion.size} different start times`);
 }
 
 for (const sc of SCENARIOS) {
