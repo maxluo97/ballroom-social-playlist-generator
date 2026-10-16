@@ -188,6 +188,7 @@ Also in v0.2 (done): every "add a dance" box accepts only known dances (library 
 **Known concern (not planned work):** with very large libraries (thousands of songs) the library builder redraws the whole review table on every Remove/Restore, which may become sluggish. Revisit only if it is noticeable.
 
 **v0.2.4 (agreed Oct 2026):**
+- **First: revisit theme and excursion behaviour (before themed blocks).** The developer is not sure that excursions, tag-based themes and dance-based themes interact as expected. Write a short plain-language spec together first: theme share, openers, shuffle-bag and spacing, the excursion timer and counts, and mixed themes (dances + tags). Then check the generator against it case by case, with a test for each rule. Themed blocks build on the same theme code, so this comes before them.
 - **Themed blocks** (specified by the developer): `{ tag, count, fixedEvent: bool, placement }`.
   - `fixedEvent: true`: behaves like a fixed event (does not take turns between categories; any dance with the tag; counts for the "no two fixed events back to back" rule).
   - `fixedEvent: false`: still obeys category turns; songs come from the category whose turn it is, restricted to the tag.
