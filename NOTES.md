@@ -205,8 +205,14 @@ Also in v0.2 (done): every "add a dance" box accepts only known dances (library 
   - Themed blocks **keep the spacing rule** even as fixed events. Only line-dance-style fixed events may break spacing.
   - Block songs that match the overall theme count toward the overall theme share.
   - Not enough tagged songs: the block **shrinks**, with a warning.
+  - **Agreed details (developer, Oct 2026):**
+    - *Turn-taking blocks* (`fixedEvent: false`): the block is the next `count` regular songs, each with the tag; the category turns carry on as normal (e.g. Smooth, Smooth, Rhythm, Rhythm, all tagged).
+    - *Rules inside a block:* the shuffle-bag **and** the repeat gap both apply. If no tagged song fits, the block shrinks (warning).
+    - *Interruptions* (per block): "May be interrupted by" checkboxes for excursions, hidden theme songs and fixed events; anything not ticked waits until the block ends. "After an interruption": continue the block (it still plays all `count` songs) or end it early (no warning; the user chose it). Fixed-event blocks hide the fixed-events checkbox (two fixed events are never back to back). Defaults: nothing ticked, continue.
+    - *Several blocks* per night are allowed. A block placed inside the opening songs moves to just after the opening.
+    - *Theme share:* block songs count only if they match the night's theme (no theme, or a block tag that is not a theme tag: they do not count as theme songs).
 - **Covers:** a `work` key per song (normalized title, overridable via a `work` CSV column); option "no two versions of the same work in one night". Spotify has no composition ID; MusicBrainz is a later fallback.
-- (Proposed alongside covers; developer to confirm) **Literal duplicates:** the same recording under different track IDs (single vs album, re-releases). Detect by matching ISRC (stored in songs.csv), flag in the library builder, and never play two of them in one night. (Exact same track ID is already handled: the library merges by ID and the generator never repeats a song.)
+- (Confirmed by the developer for v0.2.4, Oct 2026) **Literal duplicates:** the same recording under different track IDs (single vs album, re-releases). Detect by matching ISRC (stored in songs.csv), flag in the library builder, and never play two of them in one night. (Exact same track ID is already handled: the library merges by ID and the generator never repeats a song.)
 
 **v0.3 (agreed Oct 2026; expected to be a major, challenging milestone — investigate in depth when we get there):**
 - Let individual users log in with their own Spotify accounts (today the app serves only the developer's account). Known constraint to research then: Spotify Development Mode allows at most 5 authorized users per Client ID, and Extended Quota is aimed at large organizations.
