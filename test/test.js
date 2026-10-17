@@ -391,6 +391,73 @@ let totalBugs = 0;
   expect(r3.warnings.some((w) => /versions of the same song allowed/.test(w.message)), "with a warning");
 }
 
+/* ---- themed blocks with chosen songs (the agreed spec, NOTES.md v0.2.4) ---- */
+{
+  console.log("=== Themed blocks with chosen songs");
+  const expect = (cond, msg) => {
+    if (!cond) {
+      console.log(`  BUG: ${msg}`);
+      totalBugs++;
+    }
+  };
+  const base = SCENARIOS.find((sc) => sc.name.includes("N=2 (Ballroom/Latin), 3 h, no theme")).settings;
+  const lib = buildSongs(10).map((sg) => ({ ...sg, isrc: `I${sg.id}` }));
+  const one = (d, k = 0) => lib.filter((sg) => sg.dances.length === 1 && sg.dances[0] === d)[k];
+  // Two Waltzes in a row, a Cha-cha, a Polka (an excursion dance), and a very long Tango.
+  const longTango = { ...one("Tango"), id: "longtango", lengthSec: 400, isrc: "LONG" };
+  const lib2 = [...lib, longTango];
+  const chosen = [one("Waltz", 0), one("Waltz", 1), one("Cha-cha"), one("Polka"), longTango].map((sg) => sg.id);
+  // A duplicate (same recording, another ID) of the first chosen song, and another version of the second.
+  const dup = { ...one("Waltz", 0), id: "dupwaltz", title: "Dup" };
+  const version = { ...one("Waltz", 1), id: "verwaltz", isrc: "VER", title: `${one("Waltz", 1).title} (Live)` };
+  const lib3 = [...lib2, dup, version];
+  const blockOf = (r) => r.playlist.filter((it) => it.blockId === 0);
+
+  let versionPlayed = 0;
+  let relaxed = 0;
+  for (let seed = 1; seed <= 100; seed++) {
+    const settings = { ...base, seed, maxSongSec: 300,
+      themedBlocks: [{ source: "songs", songs: chosen, placement: { mode: "at", at: 0.4 } }] };
+    const r = generatePlaylist(lib3, settings);
+    const b = blockOf(r);
+    expect(b.map((it) => it.song.id).join() === chosen.join(), `plays exactly the chosen songs, in order: ${b.map((x) => x.song.id)}`);
+    expect(b.every((it, i) => i === 0 || it.index === b[i - 1].index + 1), "together (nothing may interrupt by default)");
+    expect(b.every((it) => it.kind === "block" && it.chosen), "outside the category turns");
+    expect(b.at(-1).song.lengthSec === 400, "a chosen song may break the length limits");
+    const ids = r.playlist.map((it) => it.song.id);
+    expect(ids.filter((id) => chosen.includes(id)).length === chosen.length, "chosen songs never play elsewhere");
+    expect(!ids.includes("dupwaltz"), "a duplicate of a chosen song never plays");
+    if (ids.includes("verwaltz")) versionPlayed++;
+    // The first chosen song keeps the normal gap, unless the block waited as long as it may.
+    const first = b[0];
+    const before = r.playlist.slice(Math.max(0, first.index - base.minToRepeat), first.index);
+    const waited = r.playlist.filter((it) => it.index < first.index && it.startSec >= 0.4 * r.targetSec).length;
+    expect(!before.some((it) => it.dance === first.dance) || waited > base.minToRepeat, "the block waits for its first song's gap");
+    expect(checkRules(r, settings).length === 0 || r.warnings.length > 0, `no silently broken rules: ${JSON.stringify(checkRules(r, settings)[0])}`);
+    if (r.warnings.some((w) => /Rule relaxed/.test(w.message))) relaxed++;
+
+    // Interruptions keep the order; a fixed-event chosen block is never next to a fixed event.
+    const often = { ...base, seed, excursions: { ...base.excursions, intervalMinutes: 4 },
+      themedBlocks: [{ source: "songs", songs: chosen, fixedEvent: true, placement: { mode: "at", at: 0.5 }, interruptBy: { excursions: true } }] };
+    const r2 = generatePlaylist(lib2, often);
+    const b2 = blockOf(r2);
+    expect(b2.map((it) => it.song.id).join() === chosen.join(), "interrupted, the block keeps its order");
+    const prev = r2.playlist[b2[0].index - 1];
+    expect(prev.kind !== "fixed", "a fixed-event chosen block is never directly after a fixed event");
+    expect(checkRules(r2, often).length === 0 || r2.warnings.length > 0, `interrupted chosen block: no silently broken rules: ${JSON.stringify(checkRules(r2, often)[0])}`);
+    if (r2.warnings.some((w) => /Rule relaxed/.test(w.message))) relaxed++;
+  }
+  console.log(`  another version of a chosen song played elsewhere in ${versionPlayed} of 100 nights (allowed); a rule relaxed in ${relaxed} of 200 nights`);
+  expect(relaxed <= 10, `chosen-songs blocks should rarely need a rule relaxed: ${relaxed} of 200`);
+
+  // A chosen song that is not in the library is left out, with a warning.
+  const s4 = { ...base, seed: 1, themedBlocks: [{ source: "songs", songs: [chosen[0], "notinthelibrary"], placement: { mode: "at", at: 0.4 } }] };
+  const r4 = generatePlaylist(lib, s4);
+  expect(blockOf(r4).length === 1 && r4.warnings.some((w) => /not in the library/.test(w.message)), "a missing chosen song is left out, with a warning");
+  expect(validateSettings(lib, s4).warnings.some((w) => /not in the library/.test(w)), "and warned about before generating");
+  expect(validateSettings(lib, { ...base, themedBlocks: [{ source: "songs", songs: [] }] }).errors.length > 0, "a chosen-songs block with no songs is an error");
+}
+
 for (const sc of SCENARIOS) {
   const songs = sc.songs ?? buildSongs(sc.perDance);
   // Timing bounds use only the songs that may play (inside any song length limits).

@@ -278,6 +278,12 @@ table.playlist tr.block td.type { color: var(--block); font-weight: 600; }
 .preview-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 body.previewing { padding-bottom: 140px; }
 .preview-button { padding: 0 6px; }
+
+/* Themed blocks: chosen songs */
+.chosen-list, .pick-list { margin: 4px 0 10px; padding-left: 1.6em; }
+.pick-list { list-style: none; padding-left: 0; max-height: 16em; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; }
+.pick-list li { padding: 2px 6px; }
+.chosen-list li { padding: 2px 0; }
 .theme-mark { color: var(--accent); }
 /* sortable column headings */
 th .sort-button { background: none; border: none; padding: 0; font: inherit; font-weight: 600; color: inherit; cursor: pointer; text-align: left; }

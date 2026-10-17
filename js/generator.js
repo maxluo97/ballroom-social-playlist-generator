@@ -28,7 +28,8 @@
  *   fixedEvents          [{ name, dances: [...], count, at: 0..1, notAfter: [names or dances] }]
  *                        each of the `count` songs is one of `dances`
  *   theme                { name, dances, tags, fractionMin, fractionMax, minGap } or null
- *   themedBlocks         [{ tag, count, fixedEvent, placement: { mode: "at"|"random"|"window", at, from, to },
+ *   themedBlocks         [{ name, source: "tag"|"songs", tag, count, songs: [Spotify IDs], fixedEvent,
+ *                           placement: { mode: "at"|"random"|"window", at, from, to },
  *                           interruptBy: { excursions, theme, fixed }, afterInterruption: "continue"|"end" }]
  *   opening              { earlyCount, blacklist: [dances] }
  *   closing              { finalDance }   (null = no designated last dance)
@@ -114,13 +115,20 @@ const THEME_DEFAULTS = {
 
 /** A themed block's settings, filled in (see the themed-block spec, NOTES.md v0.2.4). */
 export const BLOCK_DEFAULTS = {
+  name: "", // shown in the playlist; empty = "<tag> block" or "Chosen songs block"
+  source: "tag", // "tag": songs with the tag; "songs": exactly the chosen songs, in their order
   tag: "",
+  songs: [],
   count: 4,
   fixedEvent: false,
   placement: { mode: "at", at: 0.5, from: 0.3, to: 0.6 },
   interruptBy: { excursions: false, theme: false, fixed: false },
   afterInterruption: "continue",
 };
+/** A themed block's name: the user's, else "<tag> block" or "Chosen songs block". */
+export const blockLabel = (b) =>
+  (b.name && b.name.trim()) || (b.source === "songs" ? "Chosen songs block" : `${b.tag || "Tag"} block`);
+
 /** A random block point is never in the last part of the night. */
 const BLOCK_LATEST = 0.85;
 
@@ -453,15 +461,24 @@ export function validateSettings(rawSongs, userSettings) {
   const blockPlan = themePlan(s);
   const usedDances = new Set([...seen.keys(), ...Object.keys(pool).filter((d) => pool[d] > 0), ...blockPlan.standalone]);
   s.themedBlocks.forEach((b, i) => {
-    const name = b.tag ? `Themed block "${b.tag}"` : `Themed block ${i + 1}`;
-    if (!b.tag) errors.push(`${name} has no tag.`);
-    if (!(b.count >= 1)) errors.push(`${name} needs at least 1 song.`);
+    const chosen = b.source === "songs";
+    const name = b.name && b.name.trim() ? `Themed block "${b.name.trim()}"`
+      : chosen ? `Themed block ${i + 1} (chosen songs)` : b.tag ? `Themed block "${b.tag}"` : `Themed block ${i + 1}`;
+    if (chosen) {
+      if (!b.songs.length) errors.push(`${name} has no songs chosen.`);
+      const ids = new Set(allSongs.map((sg) => sg.id));
+      const missing = b.songs.filter((id) => !ids.has(id)).length;
+      if (missing) warnings.push(`${name}: ${missing} chosen song(s) are not in the library and will be left out.`);
+    } else {
+      if (!b.tag) errors.push(`${name} has no tag.`);
+      if (!(b.count >= 1)) errors.push(`${name} needs at least 1 song.`);
+    }
     const p = b.placement;
     if (p.mode === "at" && !(p.at >= 0 && p.at <= 1)) errors.push(`${name}: its point must be between 0% and 100%.`);
     if (p.mode === "window" && !(p.from >= 0 && p.to <= 1 && p.from <= p.to)) {
       errors.push(`${name}: the window must run from an earlier point to a later one.`);
     }
-    if (!b.tag) return;
+    if (chosen || !b.tag) return;
     const playable = (sg) => sg.dances.some((d) => (b.fixedEvent ? usedDances.has(d) : seen.has(d)));
     const tagged = songs.filter((sg) => sg.tags.includes(b.tag) && playable(sg)).length;
     if (tagged < b.count) {
@@ -519,7 +536,9 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
 
   // Songs outside the length limits are left out entirely, so every rule (including the
   // end-of-night timing, which uses the shortest song) only sees the songs that can play.
-  const songs = resolveSongs(rawSongs, s).filter((sg) => withinLengthLimits(sg, s));
+  const allSongs = resolveSongs(rawSongs, s);
+  const songs = allSongs.filter((sg) => withinLengthLimits(sg, s));
+  const songById = new Map(allSongs.map((sg) => [sg.id, sg])); // chosen songs may break the length limits
   const byDance = new Map();
   for (const sg of songs) {
     for (const d of sg.dances) {
@@ -547,18 +566,23 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
   const history = []; // dance label per slot, used for spacing
   const used = new Set();
   // Duplicates never play in one night; with noRepeatWorks, nor do two versions of one work.
-  const recOf = new Map(songs.map((sg) => [sg.id, recordingKey(sg)]));
-  const workOf = new Map(songs.map((sg) => [sg.id, workKey(sg)]));
+  const recOf = new Map(allSongs.map((sg) => [sg.id, recordingKey(sg)]));
+  const workOf = new Map(allSongs.map((sg) => [sg.id, workKey(sg)]));
+  // Chosen songs of themed blocks are kept for their block, and so are their duplicates.
+  const reservedIds = new Set();
+  const reservedRecordings = new Set();
+  let placingChosen = false; // a chosen song's work does not count toward the works rule
   const usedRecordings = new Set();
   const usedWorks = new Set();
   let worksRelaxed = false; // set while a relaxation level allows versions of the same song
   const markUsed = (sg) => {
     used.add(sg.id);
     usedRecordings.add(recOf.get(sg.id));
-    usedWorks.add(workOf.get(sg.id));
+    if (!placingChosen) usedWorks.add(workOf.get(sg.id));
   };
   const fresh = (sg) =>
     !used.has(sg.id) && !usedRecordings.has(recOf.get(sg.id)) &&
+    !reservedIds.has(sg.id) && !reservedRecordings.has(recOf.get(sg.id)) &&
     (!s.noRepeatWorks || worksRelaxed || !usedWorks.has(workOf.get(sg.id)));
   let elapsed = 0;
   // The theme share is measured over regular, hidden-theme and excursion songs after the opening (the
@@ -649,10 +673,12 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     if (L.bag && normalC.length && bags[c].length === 0) bags[c] = normalC.slice();
     const early = isEarly();
     const gap = Math.floor(s.minToRepeat * L.gapFactor);
+    const avoid = L.gapFactor === 1 ? upcomingDances() : null; // a chosen-songs block's dances, unless relaxing
     const ok = (d) =>
       hasSong(d, L.reuse) &&
       !(L.blacklist && early && blackSet.has(d)) &&
-      gapAllowed(d, gap);
+      gapAllowed(d, gap) &&
+      !(avoid && avoid.has(d));
 
     // Non-theme dances this level may draw from (the bag, unless the bag rule is relaxed).
     const normalPool = L.bag ? bags[c] : normalC;
@@ -801,7 +827,8 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     const early = isEarly();
     hiddenBag = hiddenBag.filter((d) => hasSong(d, false));
     if (!hiddenBag.length) hiddenBag = plan.standalone.filter((d) => hasSong(d, false));
-    const opts = hiddenBag.filter((d) => !(early && blackSet.has(d)) && gapAllowed(d, plan.standaloneGap));
+    const avoid = upcomingDances();
+    const opts = hiddenBag.filter((d) => !(early && blackSet.has(d)) && gapAllowed(d, plan.standaloneGap) && !(avoid && avoid.has(d)));
     if (!opts.length) return false;
     const dance = choice(opts);
     hiddenBag = hiddenBag.filter((d) => d !== dance);
@@ -858,9 +885,11 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     // README: once every counter has reached 0, the pool resets to its starting weights.
     if (!Object.values(pool).some((w) => w > 0)) pool = { ...initialPool };
     const early = isEarly();
+    const avoid = upcomingDances();
     const cands = Object.entries(pool).filter(
       ([d, w]) =>
         w > 0 &&
+        !(avoid && avoid.has(d)) &&
         hasSong(d, false) &&
         !(early && blackSet.has(d)) &&
         gapAllowed(d, s.minToRepeat)
@@ -908,7 +937,12 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
    * song after that time, and never inside the opening (it then waits until the opening is over).
    * A turn-taking block is the next `count` regular songs, each with the tag (category turns as
    * normal); a fixed-event block plays any dance the settings use, with the tag, outside the turns.
-   * Both keep the shuffle-bag and the repeat gap; if no tagged song fits, the block shrinks. */
+   * Both keep the shuffle-bag and the repeat gap; if no tagged song fits, the block shrinks.
+   * A chosen-songs block plays exactly its songs, in their order, outside the category turns; they
+   * ignore the shuffle-bag, the repeat gap among themselves and the length limits. Songs around them
+   * keep the normal gap: the block waits a few songs (at most minToRepeat + 1) until none of its songs
+   * would come too soon after the same dance, and anything that interrupts it avoids the dances of
+   * its next songs. */
   const avgLen = songs.length ? songs.reduce((sum, sg) => sum + sg.lengthSec, 0) / songs.length : 0;
   const openingFrac = targetSec ? Math.min(BLOCK_LATEST, (s.opening.earlyCount * avgLen) / targetSec) : 0;
   const blockDances = [...new Set([...danceToCat.keys(), ...Object.keys(initialPool).filter((d) => initialPool[d] > 0), ...plan.standalone])];
@@ -919,16 +953,56 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
         : p.mode === "window" ? p.from + rng() * Math.max(0, p.to - p.from)
           : p.at;
       const interruptBy = { ...b.interruptBy, fixed: b.interruptBy.fixed && !b.fixedEvent };
-      return { ...b, id, interruptBy, label: `${b.tag} block`, atSec: at * targetSec, started: false, placed: 0 };
+      const block = { ...b, id, interruptBy, label: blockLabel(b), atSec: at * targetSec, started: false, placed: 0 };
+      if (b.source === "songs") {
+        block.list = [];
+        for (const raw of b.songs) {
+          const sg = songById.get(raw);
+          if (!sg) warn(-1, `${block.label}: a chosen song (${raw}) is not in the library, so it was left out.`);
+          else if (songFilter && !songFilter(sg, { dance: null, elapsed: 0, index: -1 })) {
+            warn(-1, `${block.label}: "${sg.title}" cannot be played, so it was left out.`);
+          } else block.list.push(sg);
+        }
+        block.count = block.list.length;
+        for (const sg of block.list) {
+          reservedIds.add(sg.id);
+          reservedRecordings.add(recOf.get(sg.id));
+        }
+      }
+      return block;
     })
-    .filter((b) => b.tag && b.count > 0)
+    .filter((b) => (b.source === "songs" ? b.list.length > 0 : b.tag && b.count > 0))
     .sort((a, b) => a.atSec - b.atSec);
+  /** Whether a chosen-songs block could start now without any of its songs coming too soon after the same dance. */
+  function chosenFit(b) {
+    return b.list.slice(0, s.minToRepeat).every((sg, k) => gapAllowed(chosenDance(sg), s.minToRepeat - k));
+  }
+  /**
+   * The dances other songs should avoid now: while a chosen-songs block plays, those of its next songs
+   * (for interruptions); while one waits to start, those of its first songs (so the wait ends soon).
+   */
+  const upcomingDances = () => {
+    if (active && active.source === "songs") return new Set(active.list.slice(active.placed, active.placed + s.minToRepeat).map(chosenDance));
+    const waiting = !active && blocks.find((b) => b.source === "songs" && !b.started && b.dueSince !== undefined);
+    return waiting ? new Set(waiting.list.slice(0, s.minToRepeat).map(chosenDance)) : null;
+  };
+  /** The dance a chosen song is played as: the first of its dances the settings use. */
+  const chosenDance = (sg) => sg.dances.find((d) => blockDances.includes(d)) || sg.dances[0] || "";
   let active = null; // the block being played
 
   function dueBlock() {
     if (active || playlist.length < s.opening.earlyCount) return null;
     const last = playlist[playlist.length - 1];
-    return blocks.find((b) => !b.started && elapsed >= b.atSec && !(b.fixedEvent && fixedLike(last))) || null;
+    return blocks.find((b) => {
+      if (b.started || elapsed < b.atSec || (b.fixedEvent && fixedLike(last))) return false;
+      if (b.source !== "songs") return true;
+      // A chosen-songs block waits (a few songs at most) until its songs keep the normal gap.
+      b.dueSince ??= playlist.length;
+      if (chosenFit(b)) return true;
+      if (playlist.length - b.dueSince <= s.minToRepeat) return false;
+      warn(playlist.length, `Rule relaxed (spacing) to start "${b.label}": a dance in it played too recently.`);
+      return true;
+    }) || null;
   }
 
   /** Something interrupted the active block: it goes on afterwards, or ends, as the block says. */
@@ -937,6 +1011,16 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
   }
 
   function placeBlockSong(b) {
+    if (b.source === "songs") {
+      const sg = b.list[b.placed];
+      const dance = chosenDance(sg);
+      const c = danceToCat.get(dance);
+      placingChosen = true;
+      push(dance, sg, "block", c === undefined ? null : cats[c].name, b.label);
+      placingChosen = false;
+      Object.assign(playlist[playlist.length - 1], { blockId: b.id, blockLabel: b.label, fixedBlock: !!b.fixedEvent, chosen: true });
+      return true;
+    }
     const withTag = (sg) => (sg.tags || []).includes(b.tag);
     const bagOrTheme = (c) => {
       const normalC = cats[c].dances.filter((d) => !th.dances.has(d));
@@ -944,7 +1028,8 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
       return [...bags[c], ...cats[c].dances.filter((d) => th.dances.has(d))];
     };
     const fits = (d) => gapAllowed(d, s.minToRepeat) && hasSong(d, false, withTag);
-    const mark = () => Object.assign(playlist[playlist.length - 1], { blockTag: b.tag, blockId: b.id });
+    const mark = () =>
+      Object.assign(playlist[playlist.length - 1], { blockTag: b.tag, blockId: b.id, blockLabel: b.label, fixedBlock: !!b.fixedEvent });
     if (!b.fixedEvent) {
       // The category whose turn it is; another one only if the turn's category has no tagged song.
       const tryOrder = [...cycleOrder.slice(cyclePos), ...cycleOrder.slice(0, cyclePos)];
@@ -1084,7 +1169,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
 /** Kinds of songs the theme share is measured over. */
 const SHARE_KINDS = new Set(["regular", "excursion", "theme", "block"]);
 /** Fixed events and fixed-event themed blocks are never back to back. */
-const fixedLike = (it) => !!it && (it.kind === "fixed" || it.kind === "block");
+const fixedLike = (it) => !!it && (it.kind === "fixed" || (it.kind === "block" && !!it.fixedBlock));
 
 /* -------------------------------------------------------------------- stats */
 
@@ -1159,6 +1244,7 @@ export function checkRules(result, userSettings) {
   for (const it of pl) {
     if (it.kind === "final" || it.kind === "fixed" || isOpener(it)) continue;
     for (let j = Math.max(0, it.index - gapFor(it)); j < it.index; j++) {
+      if (it.chosen && pl[j].chosen && pl[j].blockId === it.blockId) continue; // chosen songs among themselves
       if (pl[j].dance === it.dance) {
         v.push({ rule: "minToRepeat", index: it.index, message: `${it.dance} repeated after ${it.index - j - 1} song(s).` });
         break;
@@ -1185,7 +1271,7 @@ export function checkRules(result, userSettings) {
     if (!normal.length) return;
     let remaining = new Set(normal);
     for (const it of pl) {
-      if ((it.kind !== "regular" && it.kind !== "block") || it.category !== c.name || th.dances.has(it.dance)) continue;
+      if ((it.kind !== "regular" && it.kind !== "block") || it.chosen || it.category !== c.name || th.dances.has(it.dance)) continue;
       if (remaining.has(it.dance)) remaining.delete(it.dance);
       else v.push({ rule: "shuffleBag", index: it.index, message: `${c.name}: ${it.dance} repeated before the bag emptied.` });
       if (remaining.size === 0) remaining = new Set(normal);
@@ -1245,7 +1331,7 @@ export function checkRules(result, userSettings) {
     if (it.blockId === undefined) continue;
     if (!byBlock.has(it.blockId)) byBlock.set(it.blockId, []);
     byBlock.get(it.blockId).push(it);
-    if (!(it.song.tags || []).includes(it.blockTag)) {
+    if (!it.chosen && !(it.song.tags || []).includes(it.blockTag)) {
       v.push({ rule: "blockTag", index: it.index, message: `"${it.song.title}" in the ${it.blockTag} block does not have the tag.` });
     }
     if (it.index < s.opening.earlyCount) v.push({ rule: "blockInOpening", index: it.index, message: `${it.blockTag} block song in the opening.` });
@@ -1253,14 +1339,15 @@ export function checkRules(result, userSettings) {
   for (const [id, items] of byBlock) {
     const b = blockDefs[id];
     if (!b) continue;
-    if (items.length > b.count) v.push({ rule: "blockCount", index: items[0].index, message: `${b.tag} block has ${items.length} songs, expected at most ${b.count}.` });
+    const expected = b.source === "songs" ? b.songs.length : b.count;
+    if (items.length > expected) v.push({ rule: "blockCount", index: items[0].index, message: `${items[0].blockLabel || b.tag} has ${items.length} songs, expected at most ${expected}.` });
     const earliest = b.placement.mode === "at" ? b.placement.at : b.placement.mode === "window" ? b.placement.from : 0;
     if (result.targetSec && items[0].startSec < earliest * result.targetSec - 1e-6) {
       v.push({ rule: "blockTime", index: items[0].index, message: `${b.tag} block started before ${(earliest * 100).toFixed(0)}% of the night.` });
     }
   }
   for (const it of pl) {
-    if (it.kind !== "block" || it.index === 0) continue;
+    if (!fixedLike(it) || it.kind !== "block" || it.index === 0) continue;
     const before = pl[it.index - 1];
     if (fixedLike(before) && before.source !== it.source) {
       v.push({ rule: "fixedAdjacent", index: it.index, message: `${it.source} directly after fixed event "${before.source}".` });
@@ -1275,16 +1362,16 @@ export function checkRules(result, userSettings) {
     const wk = workKey(it.song);
     if (recAt.has(rk) && pl[recAt.get(rk)].song.id !== it.song.id) {
       v.push({ rule: "duplicateRecording", index: it.index, message: `"${it.song.title}" is the same recording as #${recAt.get(rk) + 1}.` });
-    } else if (s.noRepeatWorks && workAt.has(wk) && pl[workAt.get(wk)].song.id !== it.song.id) {
+    } else if (s.noRepeatWorks && !it.chosen && workAt.has(wk) && pl[workAt.get(wk)].song.id !== it.song.id) {
       v.push({ rule: "sameWork", index: it.index, message: `"${it.song.title}" is another version of #${workAt.get(wk) + 1} ("${pl[workAt.get(wk)].song.title}").` });
     }
     if (!recAt.has(rk)) recAt.set(rk, it.index);
-    if (!workAt.has(wk)) workAt.set(wk, it.index);
+    if (!workAt.has(wk) && !it.chosen) workAt.set(wk, it.index); // chosen songs: other versions may play
   }
 
   // 6b. song length limits
   for (const it of pl) {
-    if (!withinLengthLimits(it.song, s)) {
+    if (!it.chosen && !withinLengthLimits(it.song, s)) {
       v.push({ rule: "songLength", index: it.index, message: `"${it.song.title}" (${it.song.lengthSec} s) is outside the song length limits.` });
     }
   }

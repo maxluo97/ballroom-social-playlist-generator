@@ -8,9 +8,9 @@
 
 import {
   generatePlaylist, validateSettings, listDances, associationMap, withinLengthLimits, DEFAULT_SETTINGS,
-  themeMinGapFor, themeMinGapApplies, BLOCK_DEFAULTS,
+  themeMinGapFor, themeMinGapApplies, BLOCK_DEFAULTS, blockLabel,
 } from "./generator.js";
-import { workKey, recordingKey } from "./works.js";
+import { workKey, recordingKey, workName } from "./works.js";
 import {
   THEME_TEMPLATE, clone, loadLastSettings, saveLastSettings,
   loadDefaultSettings, workingSettings, parseSettingsFile, settingsFileText,
@@ -517,6 +517,103 @@ function fixedSection(s) {
   );
 }
 
+/**
+ * A chosen-songs block's song list (the agreed spec, NOTES.md v0.2.4): find songs by tag, work, dance
+ * or category (plus text), click to add; reorder with ↑/↓, remove with ×. Edits redraw only this box.
+ */
+function chosenSongsEditor(s, b) {
+  const m = associationMap(s.associations);
+  const dancesOf = (sg) => [...new Set(sg.dances.map(m))];
+  const byId = new Map(state.songs.map((sg) => [sg.id, sg]));
+  // Works in the library, by name.
+  const works = new Map();
+  for (const sg of state.songs) {
+    const k = workKey(sg);
+    if (!works.has(k)) works.set(k, []);
+    works.get(k).push(sg);
+  }
+  const workByName = new Map([...works].map(([k, songs]) => [workName(songs), k]));
+  const filters = { tag: "", dance: "", category: "", work: "", text: "" };
+  const options = (label, values, key) => {
+    const node = el("select", { "aria-label": label, onchange: () => { filters[key] = node.value; drawResults(); } },
+      el("option", { value: "" }, `Any ${label.toLowerCase()}`), values.map((v) => el("option", { value: v }, v)));
+    return node;
+  };
+  const workBox = comboInput({ placeholder: "any work", "aria-label": "Work" }, () => [...workByName.keys()].sort(), (v) => {
+    workBox.input.value = v;
+    filters.work = v;
+    drawResults();
+  });
+  workBox.input.addEventListener("input", () => { filters.work = workBox.input.value; drawResults(); });
+  const textBox = el("input", { type: "text", placeholder: "title / artist…", "aria-label": "Search title or artist",
+    oninput: () => { filters.text = textBox.value.toLowerCase(); drawResults(); } });
+  const results = el("ul", { class: "pick-list" });
+  const list = el("ol", { class: "chosen-list" });
+  const name = (sg) => `${sg.title}${sg.artist ? ` — ${sg.artist}` : ""}`;
+
+  const matches = (sg) => {
+    if (b.songs.includes(sg.id)) return false;
+    const ds = dancesOf(sg);
+    if (filters.tag && !(sg.tags || []).includes(filters.tag)) return false;
+    if (filters.dance && !ds.includes(filters.dance)) return false;
+    if (filters.category) {
+      const cat = s.categories.find((c) => c.name === filters.category);
+      if (!cat || !ds.some((d) => cat.dances.map(m).includes(d))) return false;
+    }
+    if (filters.work) {
+      const k = workByName.get(filters.work);
+      if (k ? workKey(sg) !== k : !workName(works.get(workKey(sg))).toLowerCase().includes(filters.work.toLowerCase())) return false;
+    }
+    if (filters.text && !`${sg.title} ${sg.artist || ""}`.toLowerCase().includes(filters.text)) return false;
+    return true;
+  };
+  const save = () => {
+    drawList();
+    drawResults();
+    changed();
+  };
+  function drawResults() {
+    const found = state.songs.filter(matches);
+    fill(results, found.slice(0, 40).map((sg) =>
+      el("li", {}, el("button", { type: "button", class: "small", "aria-label": `Add ${sg.title}`, onclick: () => {
+        b.songs.push(sg.id);
+        save();
+      } }, "+"), " ", name(sg), el("span", { class: "muted" }, ` · ${dancesOf(sg).join(", ")} · ${hms(sg.lengthSec)}`))),
+      found.length > 40 && el("li", { class: "muted" }, `…and ${found.length - 40} more: narrow the search.`),
+      !found.length && el("li", { class: "muted" }, "No songs match."));
+  }
+  function drawList() {
+    const move = (k, by) => {
+      const [x] = b.songs.splice(k, 1);
+      b.songs.splice(k + by, 0, x);
+      save();
+    };
+    fill(list, b.songs.length ? b.songs.map((id, k) => {
+      const sg = byId.get(id);
+      return el("li", {},
+        sg ? name(sg) : el("span", { class: "swap-warning" }, `Warning: a song that is not in the library (${id})`),
+        sg && el("span", { class: "muted" }, ` · ${dancesOf(sg).join(", ")}`), " ",
+        el("button", { type: "button", class: "icon", title: "Move up", "aria-label": "Move up", disabled: k === 0, onclick: () => move(k, -1) }, "↑"),
+        el("button", { type: "button", class: "icon", title: "Move down", "aria-label": "Move down", disabled: k === b.songs.length - 1, onclick: () => move(k, 1) }, "↓"),
+        removeButton(sg ? sg.title : id, () => {
+          b.songs.splice(k, 1);
+          save();
+        }));
+    }) : [el("li", { class: "muted" }, "No songs chosen yet: find them below.")]);
+  }
+  drawList();
+  drawResults();
+  const categoryNames = s.categories.map((c) => c.name).filter(Boolean);
+  return el("div", { class: "subbox" },
+    el("div", { class: "label" }, `Chosen songs (${b.songs.length ? "in playing order" : "none yet"})`),
+    list,
+    el("div", { class: "label" }, "Find songs"),
+    el("div", { class: "inline-fields" },
+      options("Tag", allTags(), "tag"), options("Dance", resolvedDances(), "dance"), options("Category", categoryNames, "category"),
+      workBox.wrap, textBox),
+    results);
+}
+
 /** Themed blocks (the agreed spec, NOTES.md v0.2.4). */
 function blocksSection(s) {
   s.themedBlocks ??= [];
@@ -538,22 +635,36 @@ function blocksSection(s) {
           el("div", { class: "inline-fields" }, "From", percentSlider(() => p.from, (v) => (p.from = v))),
           el("div", { class: "inline-fields" }, "to", percentSlider(() => p.to, (v) => (p.to = v)), "of the night"))
           : el("p", { class: "help" }, "Somewhere after the opening songs and before the last 15% of the night, different every time.");
+    b.songs ??= [];
+    const chosen = b.source === "songs";
     return el("div", { class: "row" },
       el("div", { class: "row-head" },
-        textInput(() => b.tag, (v) => (b.tag = v), { placeholder: "Tag, e.g. Hollywood", suggest: allTags }),
-        removeButton(`themed block ${b.tag}`, () => {
+        textInput(() => b.name, (v) => (b.name = v), { placeholder: `Block name, e.g. Movie medley (empty: "${blockLabel({ ...b, name: "" })}")` }),
+        removeButton(`themed block ${blockLabel(b)}`, () => {
           s.themedBlocks.splice(i, 1);
           changed(true);
         })),
-      el("div", { class: "inline-fields" },
-        el("label", {}, "Songs", numberInput(() => b.count, (v) => (b.count = v), { min: 1, max: 20 }))),
+      el("div", { class: "inline-fields" }, "Songs from:",
+        select(b.source || "tag", [["tag", "a tag"], ["songs", "songs I choose"]], (v) => {
+          b.source = v;
+          changed(true);
+        }, "Songs from")),
+      chosen ? chosenSongsEditor(s, b) : el("div", {},
+        el("div", { class: "inline-fields" }, "Tag:",
+          textInput(() => b.tag, (v) => (b.tag = v), { placeholder: "e.g. Hollywood", suggest: allTags })),
+        el("div", { class: "inline-fields" },
+          el("label", {}, "Songs", numberInput(() => b.count, (v) => (b.count = v), { min: 1, max: 20 })))),
       tick(!!b.fixedEvent, (v) => {
         b.fixedEvent = v;
         changed(true);
       }, "Plays as a fixed event"),
-      el("p", { class: "help" }, b.fixedEvent
-        ? "Any dance with the tag, outside the category turns. Never directly before or after a fixed event."
-        : "The next songs in the normal category turns, each with the tag."),
+      el("p", { class: "help" }, chosen
+        ? "Plays exactly these songs, in this order, outside the category turns" +
+          (b.fixedEvent ? "; never directly before or after a fixed event." : ".") +
+          " They may break the song length limits."
+        : b.fixedEvent
+          ? "Any dance with the tag, outside the category turns. Never directly before or after a fixed event."
+          : "The next songs in the normal category turns, each with the tag."),
       el("div", { class: "inline-fields" }, "Placement:",
         select(p.mode, [["at", "At a point"], ["random", "At a random point"], ["window", "At a random point between"]], (v) => {
           p.mode = v;
@@ -1127,7 +1238,7 @@ function renderResults() {
   };
 
   const kindLabel = (it) =>
-    it.blockTag ? `${it.blockTag} block${it.kind === "regular" && it.category ? ` (${it.category})` : ""}`
+    it.blockLabel ? `${it.blockLabel}${it.kind === "regular" && it.category ? ` (${it.category})` : ""}`
       : it.kind === "regular" ? it.category
       : it.kind === "excursion" ? "Excursion"
       : it.kind === "theme" ? it.source
@@ -1148,7 +1259,7 @@ function renderResults() {
   const undo = (label, title, onclick) => el("button", { type: "button", class: "small undo", title, "aria-label": title, onclick }, label);
   const activeRow = (it) => {
     const name = `#${it.index + 1} ${it.song.title}`;
-    return el("tr", { class: [it.kind, it.blockTag && "block", it.swapped && "swapped", it.inserted && "inserted"].filter(Boolean).join(" ") },
+    return el("tr", { class: [it.kind, it.blockId !== undefined && "block", it.swapped && "swapped", it.inserted && "inserted"].filter(Boolean).join(" ") },
       el("td", { class: "num" }, String(it.index + 1)),
       el("td", { class: "num" }, hms(it.startSec)),
       el("td", { title: it.song.sourceDances ? `Tagged: ${it.song.sourceDances.join(", ")}` : null }, it.dance),

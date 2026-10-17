@@ -56,6 +56,10 @@ export async function checkAndReplace(r, songs, settings, { onProgress = () => {
   let unresolved = 0;
   for (const it of activeItems(r)) {
     if (rateLimited || !isUnavailable(it.song.id)) continue;
+    if (it.chosen) {
+      unresolved++; // a chosen song stays (with a warning); the user picked it
+      continue;
+    }
     const old = it.song;
     const sub = await availableReplacement(r, it, songs, settings);
     if (!stillCurrent()) return null;
