@@ -1137,7 +1137,9 @@ function generate() {
   clearTimeout(validateTimer);
   renderValidation();
   if (state.errors.length) return;
-  if (hasEdits(state.result) && !confirm("Generate a new playlist? Your changes to the current one (and its locks) will be lost.")) return;
+  if (state.result && !confirm(hasEdits(state.result)
+    ? "Generate a whole new playlist? The current one is replaced entirely, and your changes to it (and its locks) are lost."
+    : "Generate a whole new playlist? The current one is replaced entirely.")) return;
   // Always a fresh random playlist; songs known to be unavailable on Spotify are never picked.
   const r = generatePlaylist(state.songs, { ...state.settings, seed: null }, { songFilter: (sg) => !isUnavailable(sg.id) });
   state.result = prepareGenerated(r, state.settings);
@@ -1305,6 +1307,17 @@ function renderResults() {
     return node;
   };
   const columns = themed ? 8 : 7;
+  /** Undo / Reset all / Lock all / Unlock all / Regenerate unlocked songs (shown above and below the table). */
+  const editButtons = () => [
+    (r.history || []).length > 0 && el("button", { type: "button", class: "undo", onclick: doUndo,
+      title: "Undo the last change" }, "Undo"),
+    hasEdits(r) && el("button", { type: "button", class: "undo", onclick: doResetAll,
+      title: "Undo every change (locks included): back to exactly the playlist the generator made" }, "Reset all"),
+    el("button", { type: "button", class: "small", onclick: doLockAll, title: "Lock every song" }, "Lock all"),
+    active.some((x) => x.locked) && el("button", { type: "button", class: "small", onclick: doUnlockAll, title: "Unlock every song" }, "Unlock all"),
+    active.some((x) => x.locked) && el("button", { type: "button", class: "primary", onclick: doRegenerate,
+      title: "Make a new playlist around the locked songs, which keep their places" }, "Regenerate unlocked songs"),
+  ];
   const groups = groupStates(r);
   /** The header row of an intact block: its name, and moving the whole block. */
   const groupHead = (id, st) => draggable(dropTarget(el("tr", { class: "group-head" },
@@ -1316,7 +1329,9 @@ function renderResults() {
 
   const activeRow = (it) => {
     const name = `#${it.index + 1} ${it.song.title}`;
-    return draggable(dropTarget(el("tr", { class: [it.kind, it.blockId !== undefined && "block", it.swapped && "swapped", it.inserted && "inserted", it.locked && "locked"].filter(Boolean).join(" ") },
+    const st = it.group && groups[it.group];
+    const inGroup = st && st.intact ? ["in-group", st.rows.at(-1) === it && "group-last"] : [];
+    return draggable(dropTarget(el("tr", { class: [it.kind, it.blockId !== undefined && "block", it.swapped && "swapped", it.inserted && "inserted", it.locked && "locked", ...inGroup].filter(Boolean).join(" ") },
       el("td", { class: "num" }, String(it.index + 1)),
       el("td", { class: "num" }, hms(it.startSec)),
       el("td", { title: it.song.sourceDances ? `Tagged: ${it.song.sourceDances.join(", ")}` : null }, it.dance),
@@ -1396,14 +1411,7 @@ function renderResults() {
       el("p", { class: "help" }, "Change the playlist with the buttons on each row, or drag a row (a block by its header line) to move it. " +
         "Undo takes back one change at a time; Reset all takes back every change. " +
         "Lock the songs you want to keep, then Regenerate unlocked songs to redo the rest."),
-      (r.history || []).length > 0 && el("button", { type: "button", class: "undo", onclick: doUndo,
-        title: "Undo the last change" }, "Undo"),
-      hasEdits(r) && el("button", { type: "button", class: "undo", onclick: doResetAll,
-        title: "Undo every change (locks included): back to exactly the playlist the generator made" }, "Reset all"),
-      el("button", { type: "button", class: "small", onclick: doLockAll, title: "Lock every song" }, "Lock all"),
-      active.some((x) => x.locked) && el("button", { type: "button", class: "small", onclick: doUnlockAll, title: "Unlock every song" }, "Unlock all"),
-      active.some((x) => x.locked) && el("button", { type: "button", class: "primary", onclick: doRegenerate,
-        title: "Make a new playlist around the locked songs, which keep their places" }, "Regenerate unlocked songs")),
+      ...editButtons()),
     el("div", { class: "table-wrap" },
       el("table", { class: "playlist" },
         el("thead", {}, el("tr", {},
@@ -1411,7 +1419,8 @@ function renderResults() {
           themed && el("th", { scope: "col" }, "Theme?"),
           el("th", { scope: "col" }, el("span", { class: "visually-hidden" }, "Change")))),
         el("tbody", {}, rowsWithHeads(),
-          dropTarget(el("tr", { class: "drop-end" }, el("td", { colspan: columns, class: "muted" }, "Drop a song here to move it to the end.")), active.length)))));
+          dropTarget(el("tr", { class: "drop-end" }, el("td", { colspan: columns, class: "muted" }, "Drop a song here to move it to the end.")), active.length)))),
+    el("div", { class: "edit-bar" }, ...editButtons()));
 }
 
 /* ------------------------------------------------- edit the playlist by hand */

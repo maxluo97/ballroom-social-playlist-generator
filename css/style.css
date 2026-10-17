@@ -287,7 +287,15 @@ body.previewing { padding-bottom: 140px; }
 
 /* Editing the playlist: locks, drag and drop, block headers */
 table.playlist tr.locked td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
-table.playlist tr.group-head td { background: var(--chip); font-size: 0.9em; padding: 4px 8px; cursor: grab; }
+table.playlist tr.group-head td {
+  background: var(--chip); font-size: 0.9em; padding: 4px 8px; cursor: grab;
+  border: 2px solid var(--accent); border-bottom: none; border-radius: 8px 8px 0 0;
+}
+/* A block's songs: an inset box under its header (tinted, framed left and right, closed under its last song). */
+table.playlist tr.in-group td { background: color-mix(in srgb, var(--chip) 45%, var(--panel)); }
+table.playlist tr.in-group td:first-child { border-left: 2px solid var(--accent); }
+table.playlist tr.in-group td:last-child { border-right: 2px solid var(--accent); }
+table.playlist tr.in-group.group-last td { border-bottom: 2px solid var(--accent); }
 table.playlist tr.group-head .small { margin-left: 6px; }
 table.playlist tr[draggable="true"] { cursor: grab; }
 table.playlist tr.drop-before td { box-shadow: inset 0 3px 0 var(--accent); }
