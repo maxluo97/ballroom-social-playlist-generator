@@ -4,9 +4,10 @@ Hand this file to Claude Code at the start of a session. It summarizes the desig
 
 ## 0. Where we left off (updated 2026-10-17)
 
-- **Released and tagged by the developer:** v0.1, v0.2, v0.2.1, v0.2.2, v0.2.3, and **v0.2.4** (being tagged by the developer after this commit; package.json is 0.2.4). Everything is committed and pushed.
+- **Released and tagged by the developer:** v0.1, v0.2, v0.2.1, v0.2.2, v0.2.3, and **v0.2.4** (tagged; package.json is 0.2.4). The changelog (starting at v0.2.4) and the README check were added after the tag, so they ship with the next version.
 - **v0.2.4 (complete, all manually tested by the developer):** theme and excursion rules per the agreed spec; themed blocks (tag or chosen songs, named); works and duplicates (with corrections in the library builder); song preview in the library builder. Details in section 9.
-- **Next:** not decided yet. The roadmap (section 9) has **v0.3** (individual users log in with their own Spotify accounts; investigate in depth first — Development Mode allows at most 5 users), then later slide export, and a code cleanup + documentation pass before 1.0.
+- **Next:** **v0.3**, focused on flexible user integration with Spotify (individual users log in with their own accounts; investigate in depth first — Development Mode allows at most 5 users), plus the online/phone check, presets online and library-builder speed folded into it. New features (the live viewer, possibly others) go into v0.2.5 or v0.4.x — not decided. See section 9.
+- **Releases:** before each tag, check README.md and add a CHANGELOG.md entry (section 10).
 - **How we work on a new feature:** agree a plain-language spec with the developer first (numbered rules, questions for anything unclear), write it into this file for the developer to commit, then code it, with tests for each rule (`npm test` must pass), then list manual tests for the developer.
 - **Spotify availability check:** verified end to end by the developer (Oct 2026) after the request-limit fix, once Spotify's limit had lifted.
 - **Git:** Claude never runs git commands (not even `git status`); it gives the developer the commands (see section 10).
@@ -251,12 +252,24 @@ Also in v0.2 (done): every "add a dance" box accepts only known dances (library 
   10. Every themed block (tag or chosen songs) can be **named** by the user (`name`; developer, Oct 2026); the name labels its songs in the playlist. Empty: "<tag> block" / "Chosen songs block" (`blockLabel` in js/generator.js).
 - ~~**Song preview in the library builder**~~ (done Oct 2026, tested by the developer: `previewButton` / `showPreview` / `closePreview` in js/library.js, `.preview-dock` in css/style.css; ▶ in front of every title in step 5, incl. removed and blacklisted rows; the playing song’s button reads "▶ playing"; Close removes the player): a ▶ button per review row loads that song into **one** Spotify embedded player docked at the bottom (`https://open.spotify.com/embed/track/<id>` in an iframe; no login code, no API request quota). Helps tell duplicates from versions. Full song if the browser is logged in to Spotify (Premium), otherwise a short preview. Check when building: that it works on http://127.0.0.1:8000, and how much plays when logged in. Not: track `preview_url` (removed for new apps in late 2024), Web Playback SDK (Premium, more scopes, much more code), one player per row (too slow).
 
-**v0.3 (agreed Oct 2026; expected to be a major, challenging milestone — investigate in depth when we get there):**
+**v0.3 (agreed Oct 2026; expected to be a major, challenging milestone — investigate in depth when we get there). Focus (developer, Oct 2026): flexible user integration with Spotify; new features go into v0.2.5 or v0.4.x instead.**
 - Let individual users log in with their own Spotify accounts (today the app serves only the developer's account). Known constraint to research then: Spotify Development Mode allows at most 5 authorized users per Client ID, and Extended Quota is aimed at large organizations.
+- Folded into v0.3 (developer, Oct 2026), since they matter most once other people use the app:
+  - **Check v0.2.4 online and at phone width** (everything since v0.2.3 was tested locally). For phone layout, use the browser's device mode (F12, then Ctrl+Shift+M in Chrome/Edge/Firefox) instead of a real phone; a real phone only once per release for the Spotify login and save.
+  - **Load the `presets/` settings files on the online site**, so a phone can load a prepared night.
+  - **Speed of the library builder** with a full library: it redraws the whole review table after every change (now also works, duplicates and the preview); check with the developer's ~830 songs, and with bigger libraries in mind.
+  - The library builder online (other users have no data folder) — was already planned for v0.3.
 
 **Later (not yet scheduled):**
 - **Before the 1.0 release: a code cleanup pass and documentation** (developer, Oct 2026; version number not decided — the last step before 1.0). Cleanup: remove dead code and leftovers, make naming and comments consistent, split very long files (js/ui.js, js/library.js, js/generator.js) where it helps, normalize line endings (some files mix CRLF and LF). Documentation: bring README.md and the code's header comments up to date, and the user guide (the developer planned to write their own; offer help).
-- **Export the playlist to slides** (details to come from the developer). PDF is the safest cross-platform format for showing (opens identically everywhere) and the simplest to make (one page per slide, saved from the browser); PPTX only if the slides must be editable afterwards. Decide when the details are known (shown on a screen during the event? edited afterwards?).
+- **Live viewer** (v0.2.5 or v0.4.x — to be decided; developer, Oct 2026): something to show and use during the night itself. Two options, to choose between later: (a) a **live "during the event" view** for whoever runs the music — large and simple: current and next dance, tick off what has played, quick swap if a song does not work; (b) the earlier **slide export** idea (below). If (a) works well, a slide export may not be needed at all.
+- (Option (b) of the live viewer) **Export the playlist to slides** (details to come from the developer). PDF is the safest cross-platform format for showing (opens identically everywhere) and the simplest to make (one page per slide, saved from the browser); PPTX only if the slides must be editable afterwards. Decide when the details are known (shown on a screen during the event? edited afterwards?).
+
+**Ideas proposed by Claude (Oct 2026), not yet decided by the developer:** lock rows of a generated playlist and regenerate the rest (also in the original plans: "lockable results"); a must-play list spread evenly through the night (from the original README's future work); a shareable settings link (settings encoded in a URL); drag-and-drop reordering of the generated playlist.
+
+**Backlog (considered, not planned):**
+- **Remember past nights** (developer, Oct 2026: a decent idea on paper, but its value depends heavily on the scene): keep a history of used playlists, with an option like "don't repeat songs played in the last N socials".
+- *Declined:* tempo / BPM per song with tempo rules (developer, Oct 2026: not needed).
 
 **Spotify facts (Feb 2026 Development Mode, checked Oct 2026):** playlist contents can only be read for playlists the user owns or collaborates on (copy others' playlists into your own first). `/playlists/{id}/tracks` is renamed `/items` (response `tracks` -> `items`, `track` -> `item`). Batch `GET /tracks` removed. Search limit max 10. `popularity` removed; `external_ids` (ISRC) removal was reverted. Some developers report 403s on write endpoints in Development Mode.
 
@@ -269,6 +282,7 @@ Also in v0.2 (done): every "add a dance" box accepts only known dances (library 
 - **Explain technical terms briefly**; the developer is a mechanical engineer, new to web development.
 - **Messages in the app:** warnings read "Warning: [reason]"; help lines are short; undo buttons use the `.undo` style; page-link buttons are purple-filled.
 
+- **Releases (developer, Oct 2026):** immediately before the last commit of each version (once per tag), check that **README.md** is up to date, and add that version's entry to **CHANGELOG.md**: only the changes since the previous version, summarized (not commit by commit). The changelog starts at v0.2.4 (a summary of the app at that point); no entries for earlier versions.
 - **v0 = pre-production: no backwards compatibility.** File and settings formats are ours to specify; when a format changes, change it outright instead of keeping code that reads older versions (the developer's instruction, Oct 2026).
 - Commit after every working step.
 - Keep a short notes file (this one) current so each session starts with context.

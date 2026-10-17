@@ -48,8 +48,8 @@ The app is online at **https://maxluo97.github.io/ballroom-social-playlist-gener
 You need a Spotify Premium account and a Spotify developer app (its Client ID goes in `js/config.js`; register both `https://maxluo97.github.io/ballroom-social-playlist-generator/` and `http://127.0.0.1:8000/` as redirect URIs). To run it on your computer you also need [Node.js](https://nodejs.org/).
 
 1. On your computer, run `npm start` and open **http://127.0.0.1:8000/**.
-2. **Build your song library** in the **Library builder** (from the generator page): log in to Spotify, import your single-dance playlists (each playlist's dance is guessed from its name), add individual songs if needed, review the dances and tags, and **save** the library to the project's `data` folder. You must do this at least once; the generator only uses a saved library. To use a new or changed library online, commit and push `data/songs.csv` and `data/removed-songs.csv` (the online site picks them up a few minutes later).
-3. **Set up the night** on the generator page. Settings can be saved to and loaded from files (keep them in `presets/`); **Load default settings** restores `data/default-settings.json`.
+2. **Build your song library** in the **Library builder** (from the generator page): log in to Spotify, import your single-dance playlists (each playlist's dance is guessed from its name), add individual songs if needed, review the dances and tags (and the songs flagged as **Duplicates** or **Versions**; ▶ plays a song), and **save** the library to the project's `data` folder. You must do this at least once; the generator only uses a saved library. To use a new or changed library online, commit and push `data/songs.csv` and `data/removed-songs.csv` (the online site picks them up a few minutes later).
+3. **Set up the night** on the generator page: categories, repetition, excursions, fixed events, themed blocks, the theme, and the opening and closing. Settings can be saved to and loaded from files (keep them in `presets/`); **Load default settings** restores `data/default-settings.json`.
 4. **Generate** a playlist. While you are logged in, its songs are checked on Spotify, and any that cannot be played are replaced automatically. You can swap, insert and remove songs by hand; every change can be undone.
 5. **Save to Spotify** creates the playlist in your account, or **Copy Spotify links** lets you paste the songs into a playlist yourself.
 
@@ -59,17 +59,18 @@ Run `npm test` to check the generator and the library logic.
 
 | File | What it is |
 |---|---|
-| `data/songs.csv` | Your song library: id, title, artist, album, length, dances, tags, isrc, work, recording (the last two only when corrected by hand). |
+| `data/songs.csv` | Your song library: id, title, artist, album, released (the album's year), length, dances, tags, isrc, work, recording (the last two only when corrected by hand). |
 | `data/removed-songs.csv` | Songs you removed from the library (same columns, plus the date removed), so imports do not bring them back and you can restore them. |
 | `data/default-settings.json` | The default settings, in the same format as a saved settings file. |
 | `presets/` | Your saved settings files. |
 | `index.html`, `library.html`, `js/`, `css/` | The app. |
 | `test/`, `tools/` | Tests, and the local web server. |
+| `CHANGELOG.md` | What changed in each release (from v0.2.4 on). |
 
 ---
 
 ## Roadmap
 
-* **v0.3:** let individual users log in with their own Spotify accounts.
-* **Later:** export a playlist to slides.
+* **v0.3:** flexible use with Spotify: individual users log in with their own Spotify accounts.
+* **v0.2.5 or v0.4.x (to be decided):** a **live viewer** for the night itself (or a slide export instead).
 * **Before 1.0:** a code cleanup pass and documentation.
