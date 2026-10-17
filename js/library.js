@@ -933,7 +933,7 @@ function renderReview() {
       "and the dropdown to add one. Highlighted tags came from keyword rules, so check them. " +
       "Remove takes a song out of the library; the app remembers it, so a later import will not quietly bring it back. " +
       "Duplicates are the same recording under another Spotify ID; Versions are other recordings of the same song (by title). " +
-      "Fix wrong matches with the Work box or the duplicate buttons. " +
+      "Fix wrong matches with the Work box or the duplicate buttons; ▶ plays a song in a player at the bottom of the page. " +
       "Click a column heading to sort the table by it (click again to reverse)."),
     availabilityBox(),
     el("div", { class: "inline-fields" }, ...filterButtons, search),
@@ -979,7 +979,7 @@ function reviewRow(r) {
   if (r.removedNow) {
     return el("tr", { class: "removed" },
       el("td", {}, "Removed"),
-      el("td", {}, el("s", {}, s.title)),
+      el("td", {}, previewButton(s), " ", el("s", {}, s.title)),
       el("td", {}, s.artist),
       el("td", {}, s.album || ""),
       el("td", { class: "num" }, formatTime(s.lengthSec)),
@@ -994,7 +994,7 @@ function reviewRow(r) {
     const when = r.removedEntry && r.removedEntry.removed ? ` on ${r.removedEntry.removed}` : "";
     return el("tr", { class: "removed blocked" },
       el("td", {}, r.fromBlacklist ? "Removed earlier" : "Removed before"),
-      el("td", {}, s.title,
+      el("td", {}, previewButton(s), " ", s.title,
         r.fromBlacklist
           ? el("div", { class: "muted", style: "font-size:0.85em" }, `Removed from the library${when}.`)
           : el("div", { class: "swap-warning" }, `Warning: you removed this song from the library${when}. It is left out unless you re-import it.`)),
@@ -1025,7 +1025,7 @@ function reviewRow(r) {
   row = el("tr", { class: !s.dances.length ? "nodance" : null },
     el("td", {}, r.reimported ? (r.fromBlacklist ? "Restored" : "Re-imported")
       : r.status === "new" ? "New" : r.status === "updated" ? `+ ${[...r.added.dances, ...r.added.tags].join(", ")}` : ""),
-    el("td", {}, s.title, availabilityNote(s.id), sameSongNotes(s)),
+    el("td", {}, previewButton(s), " ", s.title, availabilityNote(s.id), sameSongNotes(s)),
     el("td", {}, s.artist),
     el("td", {}, s.album || ""),
     el("td", { class: "num" }, formatTime(s.lengthSec)),
@@ -1040,6 +1040,50 @@ function reviewRow(r) {
         })
       : button("small", "Remove", `Take ${s.title} out of the library`, () => (r.removedNow = true))));
   return row;
+}
+
+/*
+ * Song preview: one Spotify embedded player docked at the bottom of the page (no login code, and it
+ * does not count toward the Spotify request limit). The whole song plays if this browser is logged
+ * in to Spotify (Premium); otherwise Spotify plays a short preview.
+ */
+let previewing = null; // the song in the player
+function previewButton(s) {
+  const id = spotifyTrackId(s.id);
+  if (!id) return null;
+  const playing = previewing && previewing.id === s.id;
+  return el("button", {
+    type: "button", class: playing ? "small primary preview-button" : "small preview-button",
+    title: `Listen to ${s.title}`, "aria-label": `Listen to ${s.title}`,
+    onclick: () => showPreview(s),
+  }, playing ? "▶ playing" : "▶");
+}
+function showPreview(s) {
+  previewing = s;
+  let dock = $("preview-dock");
+  if (!dock) {
+    dock = el("div", { id: "preview-dock", class: "preview-dock", role: "region", "aria-label": "Song preview" });
+    document.body.append(dock);
+  }
+  fill(dock,
+    el("div", { class: "preview-head" },
+      el("span", {}, el("span", { class: "muted" }, "Song preview: "), el("strong", {}, s.title), s.artist ? ` — ${s.artist}` : ""),
+      el("button", { type: "button", class: "small", onclick: closePreview }, "Close")),
+    el("iframe", {
+      src: `https://open.spotify.com/embed/track/${spotifyTrackId(s.id)}`,
+      width: "100%", height: "80", loading: "lazy", title: `Spotify player: ${s.title}`,
+      allow: "autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture",
+      style: "border:0;border-radius:12px",
+    }));
+  document.body.classList.add("previewing");
+  renderReview();
+}
+function closePreview() {
+  previewing = null;
+  const dock = $("preview-dock");
+  if (dock) dock.remove();
+  document.body.classList.remove("previewing");
+  renderReview();
 }
 
 /** Notes under a song's title: duplicates and versions, with the buttons to correct them. */

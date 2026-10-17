@@ -267,6 +267,17 @@ table.playlist tr.fixed td.type { color: var(--fixed); font-weight: 600; }
 table.playlist tr.final td.type { color: var(--final); font-weight: 600; }
 table.playlist tr.theme td.type { color: var(--accent); font-weight: 600; }
 table.playlist tr.block td.type { color: var(--block); font-weight: 600; }
+
+/* Song preview (library builder): one Spotify player docked at the bottom of the page */
+.preview-dock {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  background: var(--panel); border-top: 1px solid var(--border);
+  padding: 8px 16px 10px; box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.12);
+}
+.preview-head { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.preview-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.previewing { padding-bottom: 140px; }
+.preview-button { padding: 0 6px; }
 .theme-mark { color: var(--accent); }
 /* sortable column headings */
 th .sort-button { background: none; border: none; padding: 0; font: inherit; font-weight: 600; color: inherit; cursor: pointer; text-align: left; }
