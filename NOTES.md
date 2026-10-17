@@ -49,6 +49,24 @@ A web app that randomly generates a curated playlist for a dance social, subject
 - Spotify's per-track audio-feature endpoints were restricted for new apps in late 2024, so all dance tags come from our own data.
 - Plan to test each Spotify call in a throwaway page first: login, token, `GET /me`, create empty playlist, add tracks.
 
+**Spotify's guidance for apps (given by the developer from Spotify's documentation, Oct 2026; follow it in all work):**
+- Use the OpenAPI spec (https://developer.spotify.com/reference/web-api/open-api-schema.yaml) for endpoint paths, parameters and response fields; do not guess.
+- Authorization Code with **PKCE** for user data (no secret; never the Implicit Grant). Redirect URIs: HTTPS, except http://127.0.0.1 for local development; never http://localhost or wildcards.
+- Request only the **minimum scopes** needed for the feature.
+- Store tokens securely; never a Client Secret in client code; refresh tokens, and send the user through login again when refreshing fails.
+- On 429: exponential backoff, respect Retry-After; never retry immediately or in tight loops.
+- No deprecated endpoints (`/playlists/{id}/items`, not `/tracks`; `/me/library` over type-specific library endpoints).
+- Handle the documented error codes and pass Spotify's error message on meaningfully.
+- Comply with the Developer Terms: no caching of Spotify content beyond immediate use, attribute content to Spotify, no ML training on Spotify data.
+
+**What the Developer Terms and Policy actually say (read Oct 2026; not legal advice):**
+- *Spotify Content* = "any content, data, information or material made available through the Spotify Platform", **including metadata** (Terms II.8). What counts is where the data came from: title / artist / album / length / ISRC / release year fetched from Spotify are Spotify Content; the developer's dances, tags, work and recording corrections and settings are **not** (the Terms recognise the developer's own content, VIII.1.d).
+- *Storing* (IV.3.a): no "databases of Spotify Content, other than as strictly necessary to operate your" app; "Do not store Spotify Content indefinitely". *Local caching* (IV.3.b): only "temporary caching" of metadata / cover art, as strictly necessary for performance.
+- No exception by number of users: the Terms explicitly cover apps "for private personal use" (III.1.a).
+- Policy II.4: attribute content "as being supplied and made available by Spotify, by using the Spotify Marks", with a link back to the content on Spotify; metadata must not be offered as a standalone product.
+- Policy III.10: "Spotify is for personal, non-commercial use which means it can't be broadcast or played publicly from a business" — relevant background for organisers playing playlists at public socials (a matter for the organiser / venue licence, not the generator).
+- **Conflict with the current design:** data/songs.csv stores Spotify metadata permanently, in a public repository; availability results are kept 7 days. Being addressed first in v0.3.
+
 ## 6. Vocabulary (generalized from the original ballroom README)
 
 | Original | Now |
@@ -277,6 +295,15 @@ Also in v0.2 (done): every "add a dance" box accepts only known dances (library 
 
 **v0.3 (agreed Oct 2026; expected to be a major, challenging milestone — investigate in depth when we get there). Focus (developer, Oct 2026): flexible user integration with Spotify; new features go into v0.2.5 or v0.4.x instead.**
 - Let individual users log in with their own Spotify accounts (today the app serves only the developer's account). Known constraint to research then: Spotify Development Mode allows at most 5 authorized users per Client ID, and Extended Quota is aimed at large organizations.
+- **First: comply with Spotify's rules** (approved by the developer, Oct 2026; see section 5):
+  1. **Storing Spotify Content** (the main design question): keep only Spotify IDs + the developer's own data (dances, tags, work / recording corrections) in songs.csv, and re-read titles, artists, lengths, ISRCs, years from the user's own dance playlists on login (`/playlists/{id}/items`, 100 per request: ~10–20 requests for ~830 songs), kept in the browser only temporarily. Costs to weigh: generating needs a login; the playlists must stay in the account; check that length limits, duplicates (ISRC) and works still work. Also rethink the 7-day availability results and removed-songs.csv (which stores whole songs).
+  2. **Attribution:** show Spotify as the source (Spotify Marks per the Branding Guidelines) and link each song back to Spotify, in the playlist table and the library.
+  3. **Minimum scopes per page:** the generator page only needs to create playlists; reading playlists only the library builder.
+  4. **Exponential backoff** for short 429 waits (still stopping on long ones), respecting Retry-After when readable.
+  5. **Token storage:** review keeping tokens in localStorage (e.g. sessionStorage or shorter-lived).
+  6. **localhost → 127.0.0.1:** switch automatically, since login only works on the registered 127.0.0.1 address.
+  7. **Check every request and field** against Spotify's OpenAPI spec once.
+  8. (Research so far) Development Mode: at most 5 allowlisted users per Client ID (added by email in the dashboard; others get 403), owner needs Premium; Extended Quota only for registered organisations with ≥ 250k monthly users (not an option); since July 2026 up to 25 Client IDs per developer account, sharing one request budget — not confirmed whether spreading users over several Client IDs is allowed.
 - Folded into v0.3 (developer, Oct 2026), since they matter most once other people use the app:
   - **Check v0.2.4 online and at phone width** (everything since v0.2.3 was tested locally). For phone layout, use the browser's device mode (F12, then Ctrl+Shift+M in Chrome/Edge/Firefox) instead of a real phone; a real phone only once per release for the Spotify login and save.
   - **Load the `presets/` settings files on the online site**, so a phone can load a prepared night.
