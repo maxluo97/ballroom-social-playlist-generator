@@ -18,7 +18,8 @@ export async function availableReplacement(r, item, songs, settings, random = Ma
   const inPlaylist = new Set(activeItems(r).map((x) => x.song.id));
   const candidates = songs
     .filter((sg) => spotifyTrackId(sg.id) && !inPlaylist.has(sg.id) && !isUnavailable(sg.id) &&
-      withinLengthLimits(sg, settings) && sg.dances.some((d) => m(d) === item.dance))
+      withinLengthLimits(sg, settings) && sg.dances.some((d) => m(d) === item.dance) &&
+      (!item.blockTag || (sg.tags || []).includes(item.blockTag)))
     .map((sg) => ({ sg, known: isChecked(sg.id), order: random() }))
     // Songs already known to play come first; then unchecked ones, in random order.
     .sort((a, b) => (b.known ? 1 : 0) - (a.known ? 1 : 0) || a.order - b.order);

@@ -180,6 +180,39 @@ export const SCENARIOS = [
     },
   },
   {
+    name: "N=2, 3 h, themed blocks: turn-taking at 40%, fixed-event block in a 45-55% window (clashes with the line dance)",
+    perDance: 10,
+    settings: {
+      ...ballroomLatinBase,
+      themedBlocks: [
+        { tag: "Hollywood", count: 4, placement: { mode: "at", at: 0.4 } },
+        { tag: "Hollywood", count: 3, fixedEvent: true, placement: { mode: "window", from: 0.45, to: 0.55 } },
+      ],
+    },
+  },
+  {
+    name: "N=2, 3 h, themed blocks that may be interrupted (excursions every 5 min, fixed events), random placement",
+    perDance: 10,
+    settings: {
+      ...ballroomLatinBase,
+      excursions: { ...ballroomLatinBase.excursions, intervalMinutes: 5 },
+      themedBlocks: [
+        { tag: "Hollywood", count: 5, placement: { mode: "random" }, interruptBy: { excursions: true, fixed: true } },
+        { tag: "Hollywood", count: 4, fixedEvent: true, placement: { mode: "random" }, interruptBy: { excursions: true }, afterInterruption: "end" },
+      ],
+    },
+  },
+  {
+    name: "N=2, 3 h, themed block + Hollywood theme + standalone theme dance that may interrupt it",
+    perDance: 12,
+    settings: {
+      ...ballroomLatinBase,
+      excursions: { intervalMinutes: 25, pool: { Polka: 1, Bachata: 3, "West Coast Swing": 2 } },
+      theme: { name: "Movie night", dances: ["Hustle"], tags: ["Hollywood"], fractionMin: 0.3, fractionMax: 0.45 },
+      themedBlocks: [{ tag: "Hollywood", count: 4, placement: { mode: "window", from: 0.3, to: 0.6 }, interruptBy: { theme: true } }],
+    },
+  },
+  {
     name: "N=3 (Ballroom/Latin/Club), 3 h, no theme",
     perDance: 8,
     settings: {

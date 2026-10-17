@@ -238,6 +238,100 @@ let totalBugs = 0;
   expect(firstExcursion.size > 3, `the first excursion's time varies: ${firstExcursion.size} different start times`);
 }
 
+/* ---- themed blocks (the agreed spec, NOTES.md v0.2.4) ---- */
+{
+  console.log("=== Themed blocks");
+  const expect = (cond, msg) => {
+    if (!cond) {
+      console.log(`  BUG: ${msg}`);
+      totalBugs++;
+    }
+  };
+  const songs = buildSongs(10);
+  const base = SCENARIOS.find((sc) => sc.name.includes("N=2 (Ballroom/Latin), 3 h, no theme")).settings;
+  const night = (themedBlocks, extra = {}) => ({ ...base, ...extra, themedBlocks });
+  const blockSongs = (r, id = 0) => r.playlist.filter((it) => it.blockId === id);
+  const together = (items) => items.every((it, i) => i === 0 || it.index === items[i - 1].index + 1);
+  const ruleBreaks = (r, settings) => checkRules(r, settings);
+
+  let interruptedContinue = 0;
+  let endedEarly = 0;
+  for (let seed = 1; seed <= 100; seed++) {
+    // A turn-taking block: 4 tagged songs in a row, in the normal category turns, from 40%.
+    const s1 = night([{ tag: "Hollywood", count: 4, placement: { mode: "at", at: 0.4 } }], { seed });
+    const r1 = generatePlaylist(songs, s1);
+    const b1 = blockSongs(r1);
+    expect(b1.length === 4 && together(b1), `a turn-taking block plays its 4 songs together: ${b1.map((x) => x.index)}`);
+    expect(b1.every((it) => it.kind === "regular" && it.song.tags.includes("Hollywood")), "its songs are regular songs with the tag");
+    expect(b1[0].startSec >= 0.4 * r1.targetSec, "it starts at or after its point");
+    expect(ruleBreaks(r1, s1).length === 0, `turn-taking block: no broken rules: ${JSON.stringify(ruleBreaks(r1, s1)[0])}`);
+
+    // A fixed-event block at the same point as the line dance (50%): never back to back with it.
+    const s2 = night([{ tag: "Hollywood", count: 3, fixedEvent: true, placement: { mode: "at", at: 0.5 } }], { seed });
+    const r2 = generatePlaylist(songs, s2);
+    const b2 = blockSongs(r2);
+    expect(b2.length === 3 && together(b2) && b2.every((it) => it.kind === "block"), "a fixed-event block plays together, outside the turns");
+    const before = r2.playlist[b2[0].index - 1];
+    const after = r2.playlist[b2.at(-1).index + 1];
+    expect(before.kind !== "fixed" && (!after || after.kind !== "fixed"), "a fixed-event block is never back to back with a fixed event");
+    expect(ruleBreaks(r2, s2).length === 0, `fixed-event block: no broken rules: ${JSON.stringify(ruleBreaks(r2, s2)[0])}`);
+
+    // A block placed in the opening waits until the opening is over.
+    const s3 = night([{ tag: "Hollywood", count: 2, placement: { mode: "at", at: 0 } }], { seed });
+    const b3 = blockSongs(generatePlaylist(songs, s3));
+    expect(b3[0].index === base.opening.earlyCount, `a block in the opening moves to just after it: starts at #${b3[0].index + 1}`);
+
+    // Interruptions: by default an excursion waits; if allowed, the block continues (or ends, if chosen).
+    const often = { excursions: { ...base.excursions, intervalMinutes: 4 } };
+    const s4 = night([{ tag: "Hollywood", count: 5, placement: { mode: "at", at: 0.3 } }], { ...often, seed });
+    const b4 = blockSongs(generatePlaylist(songs, s4));
+    expect(b4.length === 5 && together(b4), "by default nothing interrupts a block");
+    const s5 = night([{ tag: "Hollywood", count: 5, placement: { mode: "at", at: 0.3 }, interruptBy: { excursions: true } }], { ...often, seed });
+    const r5 = generatePlaylist(songs, s5);
+    const b5 = blockSongs(r5);
+    expect(b5.length === 5, `"continue": the block still plays all its songs: ${b5.length}`);
+    if (!together(b5)) {
+      interruptedContinue++;
+      const gaps = r5.playlist.slice(b5[0].index, b5.at(-1).index + 1).filter((it) => it.blockId !== 0);
+      expect(gaps.every((it) => it.kind === "excursion"), `only an allowed interruption comes between block songs: ${gaps.map((x) => x.kind)}`);
+    }
+    const s6 = night([{ tag: "Hollywood", count: 5, placement: { mode: "at", at: 0.3 }, interruptBy: { excursions: true }, afterInterruption: "end" }], { ...often, seed });
+    const r6 = generatePlaylist(songs, s6);
+    const b6 = blockSongs(r6);
+    if (b6.length < 5) endedEarly++;
+    expect(together(b6) && !r6.warnings.some((w) => /shrank/.test(w.message)), '"end": the block just stops at an interruption, without a warning');
+
+    // Several blocks; a block that comes due during another one waits for it.
+    const s7 = night([
+      { tag: "Hollywood", count: 3, placement: { mode: "at", at: 0.3 } },
+      { tag: "Hollywood", count: 3, fixedEvent: true, placement: { mode: "at", at: 0.3 } },
+    ], { seed });
+    const r7 = generatePlaylist(songs, s7);
+    const [x, y] = [blockSongs(r7, 0), blockSongs(r7, 1)];
+    expect(x.length === 3 && y.length === 3, "several blocks each play");
+    expect(x.at(-1).index < y[0].index || y.at(-1).index < x[0].index, "blocks do not overlap");
+    expect(ruleBreaks(r7, s7).length === 0, `two blocks: no broken rules: ${JSON.stringify(ruleBreaks(r7, s7)[0])}`);
+
+    // Theme share: block songs count only if they match the theme.
+    const s8 = night([{ tag: "Hollywood", count: 4, placement: { mode: "at", at: 0.4 } }],
+      { seed, theme: { name: "Waltz night", dances: ["Waltz"], fractionMin: 0.15, fractionMax: 0.2 } });
+    const b8 = blockSongs(generatePlaylist(songs, s8));
+    expect(b8.every((it) => it.isTheme === (it.dance === "Waltz")), "block songs are theme songs only if they match the theme");
+  }
+  console.log(`  "continue": ${interruptedContinue} of 100 blocks were interrupted and continued; "end": ${endedEarly} of 100 ended early`);
+  expect(interruptedContinue > 0 && endedEarly > 0, "with excursions every 4 minutes, some blocks should be interrupted");
+
+  // Not enough tagged songs: a warning before generating, and the block shrinks with a warning.
+  const pickDance = (d) => songs.find((sg) => sg.dances.length === 1 && sg.dances[0] === d);
+  const few = [...songs.map((sg) => ({ ...sg, tags: [] })), ...["Foxtrot", "Cha-cha"].map((d, i) => ({ ...pickDance(d), id: `rare${i}`, tags: ["Rare"] }))];
+  const s9 = night([{ tag: "Rare", count: 4, placement: { mode: "at", at: 0.4 } }], { seed: 1 });
+  expect(validateSettings(few, s9).warnings.some((w) => w.includes('"Rare" needs 4 songs')), "too few tagged songs is warned about");
+  const r9 = generatePlaylist(few, s9);
+  expect(blockSongs(r9).length < 4 && r9.warnings.some((w) => /shrank to d of 4|could not play/.test(w.message)),
+    `the block shrinks, with a warning: ${blockSongs(r9).length} songs; ${r9.warnings.map((w) => w.message)}`);
+  expect(validateSettings(songs, night([{ tag: "", count: 4 }])).errors.length > 0, "a block without a tag is an error");
+}
+
 for (const sc of SCENARIOS) {
   const songs = sc.songs ?? buildSongs(sc.perDance);
   // Timing bounds use only the songs that may play (inside any song length limits).

@@ -8,7 +8,7 @@
 
 import {
   generatePlaylist, validateSettings, listDances, associationMap, withinLengthLimits, DEFAULT_SETTINGS,
-  themeMinGapFor, themeMinGapApplies,
+  themeMinGapFor, themeMinGapApplies, BLOCK_DEFAULTS,
 } from "./generator.js";
 import {
   THEME_TEMPLATE, clone, loadLastSettings, saveLastSettings,
@@ -507,6 +507,74 @@ function fixedSection(s) {
   );
 }
 
+/** Themed blocks (the agreed spec, NOTES.md v0.2.4). */
+function blocksSection(s) {
+  s.themedBlocks ??= [];
+  const rows = s.themedBlocks.map((b, i) => {
+    b.placement = { ...BLOCK_DEFAULTS.placement, ...(b.placement || {}) };
+    b.interruptBy = { ...BLOCK_DEFAULTS.interruptBy, ...(b.interruptBy || {}) };
+    const p = b.placement;
+    const ib = b.interruptBy;
+    const select = (value, options, onChange, label) => {
+      const node = el("select", { "aria-label": label, onchange: () => onChange(node.value) },
+        options.map(([v, text]) => el("option", { value: v, selected: v === value }, text)));
+      return node;
+    };
+    const tick = (checked, onChange, text) =>
+      el("label", { class: "inline-fields" }, el("input", { type: "checkbox", checked, onchange: (e) => onChange(e.target.checked) }), text);
+    const placement =
+      p.mode === "at" ? el("div", { class: "inline-fields" }, "At", percentSlider(() => p.at, (v) => (p.at = v)), "of the night")
+        : p.mode === "window" ? el("div", {},
+          el("div", { class: "inline-fields" }, "From", percentSlider(() => p.from, (v) => (p.from = v))),
+          el("div", { class: "inline-fields" }, "to", percentSlider(() => p.to, (v) => (p.to = v)), "of the night"))
+          : el("p", { class: "help" }, "Somewhere after the opening songs and before the last 15% of the night, different every time.");
+    return el("div", { class: "row" },
+      el("div", { class: "row-head" },
+        textInput(() => b.tag, (v) => (b.tag = v), { placeholder: "Tag, e.g. Hollywood", suggest: allTags }),
+        removeButton(`themed block ${b.tag}`, () => {
+          s.themedBlocks.splice(i, 1);
+          changed(true);
+        })),
+      el("div", { class: "inline-fields" },
+        el("label", {}, "Songs", numberInput(() => b.count, (v) => (b.count = v), { min: 1, max: 20 }))),
+      tick(!!b.fixedEvent, (v) => {
+        b.fixedEvent = v;
+        changed(true);
+      }, "Plays as a fixed event"),
+      el("p", { class: "help" }, b.fixedEvent
+        ? "Any dance with the tag, outside the category turns. Never directly before or after a fixed event."
+        : "The next songs in the normal category turns, each with the tag."),
+      el("div", { class: "inline-fields" }, "Placement:",
+        select(p.mode, [["at", "At a point"], ["random", "At a random point"], ["window", "At a random point between"]], (v) => {
+          p.mode = v;
+          changed(true);
+        }, "Placement")),
+      placement,
+      el("div", { class: "inline-fields" }, "May be interrupted by:",
+        tick(!!ib.excursions, (v) => ((ib.excursions = v), changed()), "excursions"),
+        tick(!!ib.theme, (v) => ((ib.theme = v), changed()), "theme dances in no category"),
+        !b.fixedEvent && tick(!!ib.fixed, (v) => ((ib.fixed = v), changed()), "fixed events")),
+      el("div", { class: "inline-fields" }, "After an interruption:",
+        select(b.afterInterruption, [["continue", "continue the block"], ["end", "end the block"]], (v) => {
+          b.afterInterruption = v;
+          changed();
+        }, "After an interruption")));
+  });
+  return section(
+    "Themed blocks",
+    live(() => `${s.themedBlocks.length} block(s)`, "span", "summary-note"),
+    el("p", { class: "help" },
+      "A run of songs that all carry one tag, e.g. 4 Hollywood songs at 40% of the night. " +
+        "Blocks keep the shuffle-bag and the gap between repeats; if too few tagged songs fit, a block is shorter. " +
+        "Anything that may not interrupt a block waits until it ends."),
+    el("div", { class: "rows" }, rows),
+    el("div", {}, el("button", { type: "button", class: "small", onclick: () => {
+      s.themedBlocks.push(clone(BLOCK_DEFAULTS));
+      changed(true);
+    } }, "+ Add themed block"))
+  );
+}
+
 function themeSection(s) {
   const toggle = el("input", { type: "checkbox", checked: !!s.theme, onchange: () => {
     if (toggle.checked) s.theme = state.themeStash ?? clone(THEME_TEMPLATE);
@@ -617,6 +685,7 @@ function renderForm() {
     repetitionSection(s),
     excursionsSection(s),
     fixedSection(s),
+    blocksSection(s),
     themeSection(s),
     openingSection(s)
   );
@@ -1048,7 +1117,8 @@ function renderResults() {
   };
 
   const kindLabel = (it) =>
-    it.kind === "regular" ? it.category
+    it.blockTag ? `${it.blockTag} block${it.kind === "regular" && it.category ? ` (${it.category})` : ""}`
+      : it.kind === "regular" ? it.category
       : it.kind === "excursion" ? "Excursion"
       : it.kind === "theme" ? it.source
       : it.kind === "fixed" ? it.source
@@ -1068,7 +1138,7 @@ function renderResults() {
   const undo = (label, title, onclick) => el("button", { type: "button", class: "small undo", title, "aria-label": title, onclick }, label);
   const activeRow = (it) => {
     const name = `#${it.index + 1} ${it.song.title}`;
-    return el("tr", { class: [it.kind, it.swapped && "swapped", it.inserted && "inserted"].filter(Boolean).join(" ") },
+    return el("tr", { class: [it.kind, it.blockTag && "block", it.swapped && "swapped", it.inserted && "inserted"].filter(Boolean).join(" ") },
       el("td", { class: "num" }, String(it.index + 1)),
       el("td", { class: "num" }, hms(it.startSec)),
       el("td", { title: it.song.sourceDances ? `Tagged: ${it.song.sourceDances.join(", ")}` : null }, it.dance),
@@ -1191,6 +1261,7 @@ function openSongPicker({ item = null, insertAt = null }) {
   const reasons = (sg) => {
     const out = [];
     if (swapping && !merged(sg).includes(item.dance)) out.push(`a different dance (${merged(sg).join(", ") || "none"})`);
+    if (swapping && item.blockTag && !(sg.tags || []).includes(item.blockTag)) out.push(`no "${item.blockTag}" tag (this row is in the ${item.blockTag} block)`);
     if (position.has(sg.id)) out.push(`already in this playlist (#${position.get(sg.id) + 1})`);
     if (!withinLengthLimits(sg, s)) out.push("outside the song length limits");
     if (isUnavailable(sg.id)) out.push(unavailableReason(sg.id));

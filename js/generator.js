@@ -28,6 +28,8 @@
  *   fixedEvents          [{ name, dances: [...], count, at: 0..1, notAfter: [names or dances] }]
  *                        each of the `count` songs is one of `dances`
  *   theme                { name, dances, tags, fractionMin, fractionMax, minGap } or null
+ *   themedBlocks         [{ tag, count, fixedEvent, placement: { mode: "at"|"random"|"window", at, from, to },
+ *                           interruptBy: { excursions, theme, fixed }, afterInterruption: "continue"|"end" }]
  *   opening              { earlyCount, blacklist: [dances] }
  *   closing              { finalDance }   (null = no designated last dance)
  *   seed                 integer for reproducible output (null = random)
@@ -63,6 +65,12 @@
  *      the library would still fit, so the night ends within
  *      (target - shortest song, target + longest song - shortest song].
  *   9. Opening: the first `earlyCount` songs avoid the blacklist.
+ *  10. Themed blocks: a run of `count` songs with one tag, from a fixed point, a random point or a
+ *      window (never inside the opening). Turn-taking blocks are regular songs in the normal turns;
+ *      fixed-event blocks (kind 'block') play any dance the settings use, outside the turns, never
+ *      back to back with a fixed event. Shuffle-bag and spacing apply; too few tagged songs shrink
+ *      the block. Excursions, hidden theme songs and fixed events wait during a block unless it may
+ *      be interrupted by them; then it continues or ends. Block rows carry blockTag and blockId.
  *
  * If a rule set cannot be satisfied (e.g. too few songs), rules are relaxed in a fixed order
  * (see LEVELS) and a warning is recorded, instead of failing.
@@ -84,6 +92,7 @@ export const DEFAULT_SETTINGS = {
   excursions: { intervalMinutes: 25, jitterMinutes: 0, pool: {} },
   fixedEvents: [],
   theme: null,
+  themedBlocks: [],
   opening: { earlyCount: 6, blacklist: [] },
   closing: { finalDance: null },
   seed: null,
@@ -97,6 +106,18 @@ const THEME_DEFAULTS = {
   fractionMax: 0.7,
   minGap: null, // theme minimum gap; null = the normal gap (minToRepeat) - 2
 };
+
+/** A themed block's settings, filled in (see the themed-block spec, NOTES.md v0.2.4). */
+export const BLOCK_DEFAULTS = {
+  tag: "",
+  count: 4,
+  fixedEvent: false,
+  placement: { mode: "at", at: 0.5, from: 0.3, to: 0.6 },
+  interruptBy: { excursions: false, theme: false, fixed: false },
+  afterInterruption: "continue",
+};
+/** A random block point is never in the last part of the night. */
+const BLOCK_LATEST = 0.85;
 
 /** Order in which rules are relaxed when no legal choice exists. */
 const LEVELS = [
@@ -145,6 +166,12 @@ export function mergeSettings(user = {}) {
     opening: { ...d.opening, ...(user.opening || {}) },
     closing: { ...d.closing, ...(user.closing || {}) },
     theme: user.theme ? { ...THEME_DEFAULTS, ...user.theme } : null,
+    themedBlocks: (user.themedBlocks ?? d.themedBlocks).map((b) => ({
+      ...BLOCK_DEFAULTS,
+      ...b,
+      placement: { ...BLOCK_DEFAULTS.placement, ...(b.placement || {}) },
+      interruptBy: { ...BLOCK_DEFAULTS.interruptBy, ...(b.interruptBy || {}) },
+    })),
   };
 }
 
@@ -415,6 +442,27 @@ export function validateSettings(rawSongs, userSettings) {
     }
   }
 
+  // Themed blocks: a turn-taking block plays category dances; a fixed-event block any dance the
+  // settings use (categories, excursions, standalone theme dances).
+  const blockPlan = themePlan(s);
+  const usedDances = new Set([...seen.keys(), ...Object.keys(pool).filter((d) => pool[d] > 0), ...blockPlan.standalone]);
+  s.themedBlocks.forEach((b, i) => {
+    const name = b.tag ? `Themed block "${b.tag}"` : `Themed block ${i + 1}`;
+    if (!b.tag) errors.push(`${name} has no tag.`);
+    if (!(b.count >= 1)) errors.push(`${name} needs at least 1 song.`);
+    const p = b.placement;
+    if (p.mode === "at" && !(p.at >= 0 && p.at <= 1)) errors.push(`${name}: its point must be between 0% and 100%.`);
+    if (p.mode === "window" && !(p.from >= 0 && p.to <= 1 && p.from <= p.to)) {
+      errors.push(`${name}: the window must run from an earlier point to a later one.`);
+    }
+    if (!b.tag) return;
+    const playable = (sg) => sg.dances.some((d) => (b.fixedEvent ? usedDances.has(d) : seen.has(d)));
+    const tagged = songs.filter((sg) => sg.tags.includes(b.tag) && playable(sg)).length;
+    if (tagged < b.count) {
+      warnings.push(`${name} needs ${b.count} songs with the tag, but only ${tagged} can play in it; it will be shorter.`);
+    }
+  });
+
   for (const [d, w] of Object.entries(pool)) {
     if (!(w >= 0)) errors.push(`Excursion weight for "${d}" must be 0 or more.`);
     if (w > 0 && countFor(d) === 0) warnings.push(`No songs are tagged "${d}" (excursion).`);
@@ -536,7 +584,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
       startSec: elapsed,
       song,
       dance,
-      kind, // 'regular' | 'excursion' | 'theme' (hidden theme category) | 'fixed' | 'final'
+      kind, // 'regular' | 'excursion' | 'theme' (hidden theme category) | 'block' (fixed-event themed block) | 'fixed' | 'final'
       category,
       source,
       isTheme,
@@ -544,7 +592,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     history.push(dance);
     used.add(song.id);
     elapsed += song.lengthSec;
-    if ((kind === "regular" || kind === "excursion" || kind === "theme") && playlist.length > openingCount) {
+    if (SHARE_KINDS.has(kind) && playlist.length > openingCount) {
       themeBase++;
       if (isTheme) themeCount++;
     }
@@ -722,21 +770,29 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
 
   /** Dance group: the hidden theme category with chance n/(m+n) (always, if no theme dance is in a
    * category), otherwise a theme dance of the current category (no shuffle-bag, normal gap). */
+  /** Whether the dance group's roll picks the hidden theme category (n/(m+n); always without category theme dances). */
+  const hiddenChosen = () => {
+    const n = plan.standalone.length;
+    return n > 0 && (!plan.catDances.length || rng() * (cats.length + n) < n);
+  };
+
+  /** A song from the hidden theme category: its own shuffle-bag, its own gap. */
+  function placeHidden() {
+    const early = isEarly();
+    hiddenBag = hiddenBag.filter((d) => hasSong(d, false));
+    if (!hiddenBag.length) hiddenBag = plan.standalone.filter((d) => hasSong(d, false));
+    const opts = hiddenBag.filter((d) => !(early && blackSet.has(d)) && gapAllowed(d, plan.standaloneGap));
+    if (!opts.length) return false;
+    const dance = choice(opts);
+    hiddenBag = hiddenBag.filter((d) => d !== dance);
+    push(dance, pickSong(dance, false), "theme", null, themeLabel);
+    return true;
+  }
+
   function placeThemeDance() {
     if (!danceWeight) return false;
     const early = isEarly();
-    const n = plan.standalone.length;
-    const hidden = n > 0 && (!plan.catDances.length || rng() * (cats.length + n) < n);
-    if (hidden) {
-      hiddenBag = hiddenBag.filter((d) => hasSong(d, false));
-      if (!hiddenBag.length) hiddenBag = plan.standalone.filter((d) => hasSong(d, false));
-      const opts = hiddenBag.filter((d) => !(early && blackSet.has(d)) && gapAllowed(d, plan.standaloneGap));
-      if (!opts.length) return false;
-      const dance = choice(opts);
-      hiddenBag = hiddenBag.filter((d) => d !== dance);
-      push(dance, pickSong(dance, false), "theme", null, themeLabel);
-      return true;
-    }
+    if (hiddenChosen()) return placeHidden();
     const c = currentCategory();
     if (c === null) return false;
     const opts = cats[c].dances.filter((d) =>
@@ -818,11 +874,80 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     const last = playlist[playlist.length - 1];
     for (const ev of fixed) {
       if (ev.triggered || elapsed < ev.at * targetSec) continue;
-      if (last && last.kind === "fixed") continue; // README: fixed events are never back to back
+      if (fixedLike(last)) continue; // README: fixed events are never back to back
       if (last && ev.notAfter.some((x) => x === last.source || x === last.dance)) continue;
       return ev;
     }
     return null;
+  }
+
+  /* ---- themed blocks (the agreed spec, NOTES.md v0.2.4) ----
+   * Each block gets its start time once per night: a fixed point, a random point after the opening
+   * songs and before the last 15% of the night, or a random point in a window. It starts at the first
+   * song after that time, and never inside the opening (it then waits until the opening is over).
+   * A turn-taking block is the next `count` regular songs, each with the tag (category turns as
+   * normal); a fixed-event block plays any dance the settings use, with the tag, outside the turns.
+   * Both keep the shuffle-bag and the repeat gap; if no tagged song fits, the block shrinks. */
+  const avgLen = songs.length ? songs.reduce((sum, sg) => sum + sg.lengthSec, 0) / songs.length : 0;
+  const openingFrac = targetSec ? Math.min(BLOCK_LATEST, (s.opening.earlyCount * avgLen) / targetSec) : 0;
+  const blockDances = [...new Set([...danceToCat.keys(), ...Object.keys(initialPool).filter((d) => initialPool[d] > 0), ...plan.standalone])];
+  const blocks = s.themedBlocks
+    .map((b, id) => {
+      const p = b.placement;
+      const at = p.mode === "random" ? openingFrac + rng() * (BLOCK_LATEST - openingFrac)
+        : p.mode === "window" ? p.from + rng() * Math.max(0, p.to - p.from)
+          : p.at;
+      const interruptBy = { ...b.interruptBy, fixed: b.interruptBy.fixed && !b.fixedEvent };
+      return { ...b, id, interruptBy, label: `${b.tag} block`, atSec: at * targetSec, started: false, placed: 0 };
+    })
+    .filter((b) => b.tag && b.count > 0)
+    .sort((a, b) => a.atSec - b.atSec);
+  let active = null; // the block being played
+
+  function dueBlock() {
+    if (active || playlist.length < s.opening.earlyCount) return null;
+    const last = playlist[playlist.length - 1];
+    return blocks.find((b) => !b.started && elapsed >= b.atSec && !(b.fixedEvent && fixedLike(last))) || null;
+  }
+
+  /** Something interrupted the active block: it goes on afterwards, or ends, as the block says. */
+  function interrupted() {
+    if (active && active.afterInterruption === "end") active = null;
+  }
+
+  function placeBlockSong(b) {
+    const withTag = (sg) => (sg.tags || []).includes(b.tag);
+    const bagOrTheme = (c) => {
+      const normalC = cats[c].dances.filter((d) => !th.dances.has(d));
+      if (normalC.length && bags[c].length === 0) bags[c] = normalC.slice();
+      return [...bags[c], ...cats[c].dances.filter((d) => th.dances.has(d))];
+    };
+    const fits = (d) => gapAllowed(d, s.minToRepeat) && hasSong(d, false, withTag);
+    const mark = () => Object.assign(playlist[playlist.length - 1], { blockTag: b.tag, blockId: b.id });
+    if (!b.fixedEvent) {
+      // The category whose turn it is; another one only if the turn's category has no tagged song.
+      const tryOrder = [...cycleOrder.slice(cyclePos), ...cycleOrder.slice(0, cyclePos)];
+      for (const c of tryOrder) {
+        if (cats.length > 1 && c === lastRegularCategory && runLen >= s.maxInARow) continue;
+        const opts = bagOrTheme(c).filter(fits);
+        if (!opts.length) continue;
+        const dance = choice(opts);
+        commitRegular(c, dance, pickSong(dance, false, { require: withTag }));
+        mark();
+        return true;
+      }
+      return false;
+    }
+    // Fixed-event block: category dances from their shuffle-bags, other dances the settings use as they are.
+    const inBags = new Set(cats.flatMap((_, c) => bagOrTheme(c)));
+    const opts = blockDances.filter((d) => (!danceToCat.has(d) || inBags.has(d)) && fits(d));
+    if (!opts.length) return false;
+    const dance = choice(opts);
+    const c = danceToCat.get(dance);
+    push(dance, pickSong(dance, false, { require: withTag }), "block", c === undefined ? null : cats[c].name, b.label);
+    if (c !== undefined && !th.dances.has(dance)) bags[c] = bags[c].filter((d) => d !== dance);
+    mark();
+    return true;
   }
 
   /* ---- closing song (reserved first so nothing else takes it) ---- */
@@ -839,9 +964,18 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
   while (playlist.length < 5000 && elapsed + finalReserve + minLen <= targetSec) {
     if (queue.length === 0) {
       const ev = dueFixedEvent();
-      if (ev) {
-        ev.triggered = true;
-        for (let i = 0; i < ev.count; i++) queue.push(ev);
+      const bl = dueBlock();
+      // A fixed event and a block due together: the one set earlier in the night goes first.
+      if (ev && (!bl || ev.at * targetSec <= bl.atSec)) {
+        // During a block, a fixed event waits unless the block may be interrupted by it.
+        if (!active || active.interruptBy.fixed) {
+          ev.triggered = true;
+          for (let i = 0; i < ev.count; i++) queue.push(ev);
+          interrupted();
+        }
+      } else if (bl) {
+        bl.started = true;
+        active = bl;
       }
     }
     if (queue.length) {
@@ -863,7 +997,28 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
       warn(playlist.length, "No theme dance song was left for the theme openers.");
     }
     if (playlist.length < tagOpeners && tryTagOpenerExcursion()) continue;
-    if (elapsed >= nextExcAt && tryExcursion()) continue;
+    // A block starts with one of its own songs; interruptions can only come after that.
+    const mayInterrupt = (what) => !active || (active.placed > 0 && active.interruptBy[what]);
+    if (elapsed >= nextExcAt && mayInterrupt("excursions") && tryExcursion()) {
+      interrupted();
+      continue;
+    }
+    if (active) {
+      // A hidden theme song may interrupt (if the block allows it) when a theme song is due.
+      if (mayInterrupt("theme") && plan.standalone.length && themeMood() === "want" &&
+          !(rng() * (tagWeight + danceWeight) < tagWeight) && hiddenChosen() && placeHidden()) {
+        interrupted();
+        continue;
+      }
+      if (placeBlockSong(active)) {
+        if (++active.placed >= active.count) active = null;
+        continue;
+      }
+      warn(playlist.length, active.placed
+        ? `Themed block "${active.label}" shrank to ${active.placed} of ${active.count} songs: no other song with the tag "${active.tag}" fits the rules.`
+        : `Themed block "${active.label}" could not play: no song with the tag "${active.tag}" fits the rules at that point.`);
+      active = null;
+    }
     // Tag-only openers (and dance openers that ran out of songs) are forced inside placeRegular.
     const openerSlot = th.active && playlist.length < s.opening.earlyCount;
     const mood = themeMood();
@@ -875,6 +1030,10 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
   }
 
   if (queue.length) warn(-1, `Fixed event "${queue[0].name}" was cut short by the end of the night.`);
+  if (active) warn(-1, `Themed block "${active.label}" was cut short by the end of the night (${active.placed} of ${active.count} songs).`);
+  for (const b of blocks) {
+    if (!b.started) warn(-1, `Themed block "${b.label}" never started (the night ended first).`);
+  }
   for (const ev of fixed) {
     if (!ev.triggered) warn(-1, `Fixed event "${ev.name}" never fired (night ended first or it was blocked).`);
   }
@@ -898,6 +1057,11 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
   return result;
 }
 
+/** Kinds of songs the theme share is measured over. */
+const SHARE_KINDS = new Set(["regular", "excursion", "theme", "block"]);
+/** Fixed events and fixed-event themed blocks are never back to back. */
+const fixedLike = (it) => !!it && (it.kind === "fixed" || it.kind === "block");
+
 /* -------------------------------------------------------------------- stats */
 
 export function computeStats(result) {
@@ -910,8 +1074,7 @@ export function computeStats(result) {
   }
   // Theme share is measured over regular, hidden-theme and excursion songs after the opening songs
   // (result.openingCount; fixed events and the final song excluded).
-  const base = pl.filter((it) =>
-    (it.kind === "regular" || it.kind === "excursion" || it.kind === "theme") && it.index >= (result.openingCount || 0));
+  const base = pl.filter((it) => SHARE_KINDS.has(it.kind) && it.index >= (result.openingCount || 0));
   const themeFraction = base.length ? base.filter((it) => it.isTheme).length / base.length : 0;
   let longestRun = 0;
   let run = 0;
@@ -998,7 +1161,7 @@ export function checkRules(result, userSettings) {
     if (!normal.length) return;
     let remaining = new Set(normal);
     for (const it of pl) {
-      if (it.kind !== "regular" || it.category !== c.name || th.dances.has(it.dance)) continue;
+      if ((it.kind !== "regular" && it.kind !== "block") || it.category !== c.name || th.dances.has(it.dance)) continue;
       if (remaining.has(it.dance)) remaining.delete(it.dance);
       else v.push({ rule: "shuffleBag", index: it.index, message: `${c.name}: ${it.dance} repeated before the bag emptied.` });
       if (remaining.size === 0) remaining = new Set(normal);
@@ -1041,11 +1204,42 @@ export function checkRules(result, userSettings) {
     for (const it of items) {
       if (it.index === 0) continue;
       const before = pl[it.index - 1];
-      if (before.kind === "fixed" && before.source !== name) {
+      if (fixedLike(before) && before.source !== name) {
         v.push({ rule: "fixedAdjacent", index: it.index, message: `"${name}" directly after fixed event "${before.source}".` });
       } else if (before.source !== name && (ev.notAfter || []).some((x) => x === before.source || x === before.dance)) {
         v.push({ rule: "notAfter", index: it.index, message: `"${name}" directly after ${before.source ?? before.dance}.` });
       }
+    }
+  }
+
+  // 6a. themed blocks: songs carry the tag, never in the opening, no more songs than asked for, not
+  // before their point (fixed point / window start), and a fixed-event block never directly follows
+  // a fixed event (or another such block)
+  const blockDefs = mergeSettings(userSettings).themedBlocks;
+  const byBlock = new Map();
+  for (const it of pl) {
+    if (it.blockId === undefined) continue;
+    if (!byBlock.has(it.blockId)) byBlock.set(it.blockId, []);
+    byBlock.get(it.blockId).push(it);
+    if (!(it.song.tags || []).includes(it.blockTag)) {
+      v.push({ rule: "blockTag", index: it.index, message: `"${it.song.title}" in the ${it.blockTag} block does not have the tag.` });
+    }
+    if (it.index < s.opening.earlyCount) v.push({ rule: "blockInOpening", index: it.index, message: `${it.blockTag} block song in the opening.` });
+  }
+  for (const [id, items] of byBlock) {
+    const b = blockDefs[id];
+    if (!b) continue;
+    if (items.length > b.count) v.push({ rule: "blockCount", index: items[0].index, message: `${b.tag} block has ${items.length} songs, expected at most ${b.count}.` });
+    const earliest = b.placement.mode === "at" ? b.placement.at : b.placement.mode === "window" ? b.placement.from : 0;
+    if (result.targetSec && items[0].startSec < earliest * result.targetSec - 1e-6) {
+      v.push({ rule: "blockTime", index: items[0].index, message: `${b.tag} block started before ${(earliest * 100).toFixed(0)}% of the night.` });
+    }
+  }
+  for (const it of pl) {
+    if (it.kind !== "block" || it.index === 0) continue;
+    const before = pl[it.index - 1];
+    if (fixedLike(before) && before.source !== it.source) {
+      v.push({ rule: "fixedAdjacent", index: it.index, message: `${it.source} directly after fixed event "${before.source}".` });
     }
   }
 
