@@ -70,7 +70,6 @@ Run `npm test` to check the generator and the library logic.
 
 ## Roadmap
 
-* **v0.2.4:** themed blocks, and works and duplicates (no two versions of the same song, or copies of the same recording, in one night).
 * **v0.3:** let individual users log in with their own Spotify accounts.
 * **Later:** export a playlist to slides.
 * **Before 1.0:** a code cleanup pass and documentation.
