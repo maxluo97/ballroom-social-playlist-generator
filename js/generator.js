@@ -34,6 +34,7 @@
  *   opening              { earlyCount, blacklist: [dances] }
  *   closing              { finalDance }   (null = no designated last dance)
  *   noRepeatWorks        no two versions of the same song (work) in one night (default true)
+ *   mustPlay             [Spotify IDs]: songs spread evenly through the night (see NOTES.md v0.2.5)
  *   seed                 integer for reproducible output (null = random)
  *
  * RULES IMPLEMENTED (numbers follow the README where possible)
@@ -101,6 +102,7 @@ export const DEFAULT_SETTINGS = {
   opening: { earlyCount: 6, blacklist: [] },
   closing: { finalDance: null },
   noRepeatWorks: true,
+  mustPlay: [],
   seed: null,
 };
 
@@ -179,6 +181,7 @@ export function mergeSettings(user = {}) {
     excursions: { ...d.excursions, ...(user.excursions || {}) },
     opening: { ...d.opening, ...(user.opening || {}) },
     closing: { ...d.closing, ...(user.closing || {}) },
+    mustPlay: [...(user.mustPlay ?? d.mustPlay)],
     theme: user.theme ? { ...THEME_DEFAULTS, ...user.theme } : null,
     themedBlocks: (user.themedBlocks ?? d.themedBlocks).map((b) => ({
       ...BLOCK_DEFAULTS,
@@ -486,6 +489,15 @@ export function validateSettings(rawSongs, userSettings) {
     }
   });
 
+  // Must-play songs: in the library, and with a dance the settings let play.
+  for (const id of s.mustPlay) {
+    const sg = allSongs.find((x) => x.id === id);
+    if (!sg) warnings.push(`A must-play song (${id}) is not in the library and will be left out.`);
+    else if (!sg.dances.some((d) => usedDances.has(d))) {
+      warnings.push(`Must-play song "${sg.title}" will never play: its dance (${sg.dances.join(", ")}) is not in a category, an excursion or a theme dance.`);
+    }
+  }
+
   for (const [d, w] of Object.entries(pool)) {
     if (!(w >= 0)) errors.push(`Excursion weight for "${d}" must be 0 or more.`);
     if (w > 0 && countFor(d) === 0) warnings.push(`No songs are tagged "${d}" (excursion).`);
@@ -515,7 +527,9 @@ export function validateSettings(rawSongs, userSettings) {
  * @param rawSongs     array of songs (see vocabulary above)
  * @param userSettings settings object (merged over DEFAULT_SETTINGS)
  * @param options      { songFilter(song, {dance, elapsed, index}) => boolean }  optional hook for
- *                     extra tag-based rules (e.g. "no tempo-change songs in the opening")
+ *                     extra tag-based rules (e.g. "no tempo-change songs in the opening");
+ *                     { locked: { keep: [{ position, row }], skipFixed: [event names], skipBlocks: [block ids] } }
+ *                     regenerates around locked rows (see lockedForRegeneration in js/playlist-edit.js)
  * @returns { playlist, totalSec, targetSec, overtimeSec, seed, warnings, stats }
  */
 export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
@@ -584,6 +598,34 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     !used.has(sg.id) && !usedRecordings.has(recOf.get(sg.id)) &&
     !reservedIds.has(sg.id) && !reservedRecordings.has(recOf.get(sg.id)) &&
     (!s.noRepeatWorks || worksRelaxed || !usedWorks.has(workOf.get(sg.id)));
+  // Locked rows ("Regenerate unlocked songs", the agreed spec, NOTES.md v0.2.5): each keeps its place
+  // and counts as played from the start (no repeats of it; the repeat gap is kept around it).
+  const lockedPlan = options.locked || null;
+  const lockedAt = new Map(); // position -> row
+  let lockedFinal = null;
+  for (const { position, row } of (lockedPlan && lockedPlan.keep) || []) {
+    if (row.kind === "final") lockedFinal = row;
+    else lockedAt.set(position, row);
+    placingChosen = !!(row.chosen || row.mustPlay);
+    markUsed(row.song);
+    placingChosen = false;
+  }
+  // A dance with a locked song skips the shuffle-bag tonight (like a theme dance; it keeps the gap),
+  // so a locked song coming up never leaves its category's bag stuck.
+  const lockedDances = new Set([...lockedAt.values()].filter((row) => row.kind !== "final").map((row) => row.dance));
+  /** Whether a locked song of this dance comes up within the next `gap` places. */
+  const lockedAhead = (dance, gap, from) => {
+    for (let k = 1; k <= gap; k++) {
+      const row = lockedAt.get(from + k);
+      if (row && row.dance === dance) return true;
+    }
+    return false;
+  };
+  /** Whether the next `n` places are free of locked rows (fixed events and blocks need room). */
+  const freeFor = (n) => {
+    for (let k = 0; k < n; k++) if (lockedAt.has(playlist.length + k)) return false;
+    return true;
+  };
   let elapsed = 0;
   // The theme share is measured over regular, hidden-theme and excursion songs after the opening (the
   // opening songs are theme songs anyway, so counting them would hold the theme back afterwards).
@@ -609,7 +651,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     }
     return list.length ? choice(list) : null;
   };
-  const gapAllowed = (dance, gap) => gap <= 0 || !history.slice(-gap).includes(dance);
+  const gapAllowed = (dance, gap) => gap <= 0 || (!history.slice(-gap).includes(dance) && !lockedAhead(dance, gap, playlist.length));
   const isEarly = () => playlist.length < s.opening.earlyCount;
 
   /** Theme steering for the next slot: 'want' | 'avoid' | 'neutral'. */
@@ -669,7 +711,8 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
   function selectDance(c, L, mood, openerForced) {
     const cat = cats[c];
     const themeInC = cat.dances.filter((d) => th.dances.has(d));
-    const normalC = cat.dances.filter((d) => !th.dances.has(d));
+    const normalC = cat.dances.filter((d) => !th.dances.has(d) && !lockedDances.has(d));
+    const lockedInC = cat.dances.filter((d) => !th.dances.has(d) && lockedDances.has(d));
     if (L.bag && normalC.length && bags[c].length === 0) bags[c] = normalC.slice();
     const early = isEarly();
     const gap = Math.floor(s.minToRepeat * L.gapFactor);
@@ -695,7 +738,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     }
 
     const prefer = mood === "avoid" ? notThemeTag : null;
-    const pool = !L.bag ? cat.dances : normalC.length ? bags[c] : themeInC;
+    const pool = !L.bag ? cat.dances : normalC.length || lockedInC.length ? [...bags[c], ...lockedInC] : themeInC;
     const p = pool.filter(ok);
     return p.length ? { dance: choice(p), prefer } : null;
   }
@@ -707,7 +750,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
       blockCount = 0;
     }
     push(dance, song, "regular", cats[c].name, null);
-    if (!th.dances.has(dance)) bags[c] = bags[c].filter((d) => d !== dance);
+    if (!th.dances.has(dance)) bags[c] = bags[c].filter((d) => d !== dance); // (no effect for bag-free dances)
     runLen = c === lastRegularCategory ? runLen + 1 : 1;
     lastRegularCategory = c;
     blockCount++;
@@ -916,7 +959,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
 
   /* ---- fixed events ---- */
   const fixed = s.fixedEvents
-    .map((e) => ({ ...e, count: e.count ?? 1, notAfter: e.notAfter ?? [], triggered: false }))
+    .map((e) => ({ ...e, count: e.count ?? 1, notAfter: e.notAfter ?? [], triggered: !!lockedPlan && lockedPlan.skipFixed.includes(e.name) }))
     .sort((a, b) => a.at - b.at);
   const queue = [];
 
@@ -953,7 +996,8 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
         : p.mode === "window" ? p.from + rng() * Math.max(0, p.to - p.from)
           : p.at;
       const interruptBy = { ...b.interruptBy, fixed: b.interruptBy.fixed && !b.fixedEvent };
-      const block = { ...b, id, interruptBy, label: blockLabel(b), atSec: at * targetSec, started: false, placed: 0 };
+      const kept = !!lockedPlan && lockedPlan.skipBlocks.includes(id); // already in the playlist (locked)
+      const block = { ...b, id, interruptBy, label: blockLabel(b), atSec: at * targetSec, started: kept, placed: 0 };
       if (b.source === "songs") {
         block.list = [];
         for (const raw of b.songs) {
@@ -1056,30 +1100,111 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     return true;
   }
 
+  /* ---- must-play songs (the agreed spec, NOTES.md v0.2.5) ----
+   * Spread evenly after the opening, in random order: song i of k is due at (i+1)/(k+1) of the night.
+   * When due, it plays where it fits the rules (its category's turn, shuffle-bag, gap; excursion and
+   * standalone theme dances: the gap only); after a few songs it plays anyway, with a warning.
+   * Kept for that moment (like chosen songs): never elsewhere, nor its duplicates; versions may play. */
+  const inChosenBlocks = new Set(blocks.flatMap((b) => (b.list || []).map((sg) => sg.id)));
+  const mustPlay = [];
+  for (const raw of s.mustPlay) {
+    const sg = songById.get(raw);
+    if (!sg) {
+      warn(-1, `A must-play song (${raw}) is not in the library, so it was left out.`);
+      continue;
+    }
+    if (inChosenBlocks.has(sg.id)) continue; // it plays in its chosen-songs block, which counts for both
+    if (used.has(sg.id)) continue; // a locked row already plays it
+    const dance = sg.dances.find((d) => blockDances.includes(d));
+    if (!dance) {
+      warn(-1, `Must-play song "${sg.title}" never plays: none of its dances is in a category, an excursion or a theme dance.`);
+      continue;
+    }
+    if (songFilter && !songFilter(sg, { dance, elapsed: 0, index: -1 })) {
+      warn(-1, `Must-play song "${sg.title}" cannot be played, so it was left out.`);
+      continue;
+    }
+    mustPlay.push({ song: sg, dance, placed: false });
+    reservedIds.add(sg.id);
+    reservedRecordings.add(recOf.get(sg.id));
+  }
+  const mustOrder = shuffle(mustPlay);
+  mustOrder.forEach((m, i) => (m.dueAt = Math.max(openingFrac, (i + 1) / (mustOrder.length + 1)) * targetSec));
+  const MUST_PLAY_WAIT = s.minToRepeat + s.maxInARow * Math.max(1, cats.length); // songs, before it plays anyway
+
+  function placeMustPlay() {
+    if (playlist.length < s.opening.earlyCount) return false;
+    const m = mustOrder.find((x) => !x.placed && elapsed >= x.dueAt);
+    if (!m) return false;
+    m.dueSince ??= playlist.length;
+    const c = danceToCat.get(m.dance);
+    let fits = gapAllowed(m.dance, s.minToRepeat);
+    if (fits && c !== undefined) {
+      const normalC = cats[c].dances.filter((d) => !th.dances.has(d));
+      if (normalC.length && bags[c].length === 0) bags[c] = normalC.slice();
+      fits = currentCategory() === c && (th.dances.has(m.dance) || bags[c].includes(m.dance));
+    }
+    // It plays anyway after a few songs, or when the night is nearly over (so it is never left out).
+    const nearlyOver = targetSec - elapsed - finalReserve < m.song.lengthSec + 2 * avgLen;
+    if (!fits && !nearlyOver && playlist.length - m.dueSince <= MUST_PLAY_WAIT) return false;
+    if (!fits) warn(playlist.length, `Rule relaxed to play must-play song "${m.song.title}" (it was due ${playlist.length - m.dueSince} songs earlier).`);
+    placingChosen = true; // other versions of it may play elsewhere
+    if (c !== undefined) commitRegular(c, m.dance, m.song);
+    else if (plan.standalone.includes(m.dance)) push(m.dance, m.song, "theme", null, themeLabel);
+    else push(m.dance, m.song, "excursion", null, null); // does not use up an excursion count
+    placingChosen = false;
+    playlist[playlist.length - 1].mustPlay = true;
+    m.placed = true;
+    return true;
+  }
+
   /* ---- closing song (reserved first so nothing else takes it) ---- */
-  let finalSong = null;
-  if (s.closing.finalDance) {
+  let finalSong = lockedFinal ? lockedFinal.song : null;
+  if (!lockedFinal && s.closing.finalDance) {
     finalSong = pickSong(s.closing.finalDance, false) ?? pickSong(s.closing.finalDance, true);
     if (finalSong) markUsed(finalSong);
     else warn(-1, `No song available for final dance "${s.closing.finalDance}".`);
   }
   const finalReserve = finalSong ? finalSong.lengthSec : 0;
 
+  /**
+   * Put a locked row in its place, as it was (block, chosen / must-play marks and all). Locked songs are
+   * the user's choice: they stand outside the category turns, the shuffle-bags and the excursion counts
+   * (the repeat gap is still kept around them, see lockedAhead).
+   */
+  const KEPT_FIELDS = ["blockId", "blockLabel", "blockTag", "fixedBlock", "chosen", "mustPlay", "groupLabel", "disbanded", "disbandedFrom", "inserted"];
+  function placeLocked(row) {
+    const c = row.kind === "regular" ? danceToCat.get(row.dance) : undefined;
+    placingChosen = !!(row.chosen || row.mustPlay);
+    push(row.dance, row.song, row.kind, c !== undefined ? cats[c].name : row.category ?? null, row.source ?? null);
+    placingChosen = false;
+    const it = playlist[playlist.length - 1];
+    for (const k of KEPT_FIELDS) if (row[k] !== undefined) it[k] = row[k];
+    it.locked = true;
+  }
+
   /* ---- main loop: keep adding songs while even the shortest song would still fit ---- */
   newCycle();
   while (playlist.length < 5000 && elapsed + finalReserve + minLen <= targetSec) {
+    if (lockedAt.has(playlist.length)) {
+      const row = lockedAt.get(playlist.length);
+      lockedAt.delete(playlist.length);
+      placeLocked(row);
+      continue;
+    }
     if (queue.length === 0) {
       const ev = dueFixedEvent();
       const bl = dueBlock();
       // A fixed event and a block due together: the one set earlier in the night goes first.
       if (ev && (!bl || ev.at * targetSec <= bl.atSec)) {
         // During a block, a fixed event waits unless the block may be interrupted by it.
-        if (!active || active.interruptBy.fixed) {
+        // (A fixed event that would land on a locked place waits for the next free place.)
+        if ((!active || active.interruptBy.fixed) && freeFor(ev.count)) {
           ev.triggered = true;
           for (let i = 0; i < ev.count; i++) queue.push(ev);
           interrupted();
         }
-      } else if (bl) {
+      } else if (bl && freeFor(bl.count)) {
         bl.started = true;
         active = bl;
       }
@@ -1128,6 +1253,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
         : `Themed block "${active.label}" could not play: no song with the tag "${active.tag}" fits the rules at that point.`);
       active = null;
     }
+    if (placeMustPlay()) continue;
     // Tag-only openers (and dance openers that ran out of songs) are forced inside placeRegular.
     const openerSlot = th.active && playlist.length < s.opening.earlyCount;
     const mood = themeMood();
@@ -1138,7 +1264,14 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     }
   }
 
+  // Locked songs that no longer fit before the end of the night are kept anyway, at the end.
+  if (lockedAt.size) warn(playlist.length, `${lockedAt.size} locked song(s) no longer fitted in their places before the end of the night, so they were kept at the end.`);
+  for (const position of [...lockedAt.keys()].sort((a, b) => a - b)) placeLocked(lockedAt.get(position));
+  lockedAt.clear();
   if (queue.length) warn(-1, `Fixed event "${queue[0].name}" was cut short by the end of the night.`);
+  for (const m of mustOrder) {
+    if (!m.placed) warn(-1, `Must-play song "${m.song.title}" did not play: the night ended first.`);
+  }
   if (active) warn(-1, `Themed block "${active.label}" was cut short by the end of the night (${active.placed} of ${active.count} songs).`);
   for (const b of blocks) {
     if (!b.started) warn(-1, `Themed block "${b.label}" never started (the night ended first).`);
@@ -1147,7 +1280,10 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     if (!ev.triggered) warn(-1, `Fixed event "${ev.name}" never fired (night ended first or it was blocked).`);
   }
 
-  if (finalSong) {
+  if (lockedFinal) {
+    push(lockedFinal.dance, lockedFinal.song, "final", lockedFinal.category ?? null, null);
+    playlist[playlist.length - 1].locked = true;
+  } else if (finalSong) {
     const d = s.closing.finalDance;
     const c = danceToCat.get(d);
     push(d, finalSong, "final", c === undefined ? null : cats[c].name, null);
@@ -1229,7 +1365,7 @@ export function checkRules(result, userSettings) {
     let run = 0;
     let prev = null;
     for (const it of pl) {
-      if (it.kind !== "regular") continue;
+      if (it.kind !== "regular" || it.locked) continue; // locked songs stand outside the turns
       if (isOpener(it)) {
         prev = null;
         continue;
@@ -1245,6 +1381,7 @@ export function checkRules(result, userSettings) {
     if (it.kind === "final" || it.kind === "fixed" || isOpener(it)) continue;
     for (let j = Math.max(0, it.index - gapFor(it)); j < it.index; j++) {
       if (it.chosen && pl[j].chosen && pl[j].blockId === it.blockId) continue; // chosen songs among themselves
+      if (it.locked && pl[j].locked) continue; // two songs the user locked
       if (pl[j].dance === it.dance) {
         v.push({ rule: "minToRepeat", index: it.index, message: `${it.dance} repeated after ${it.index - j - 1} song(s).` });
         break;
@@ -1267,11 +1404,12 @@ export function checkRules(result, userSettings) {
 
   // 4. shuffle-bag: within each category, a non-theme dance may not repeat until the bag empties
   s.categories.forEach((c) => {
-    const normal = c.dances.filter((d) => !th.dances.has(d));
+    const lockedHere = new Set(pl.filter((it) => it.locked && it.kind !== "final").map((it) => it.dance));
+    const normal = c.dances.filter((d) => !th.dances.has(d) && !lockedHere.has(d));
     if (!normal.length) return;
     let remaining = new Set(normal);
     for (const it of pl) {
-      if ((it.kind !== "regular" && it.kind !== "block") || it.chosen || it.category !== c.name || th.dances.has(it.dance)) continue;
+      if ((it.kind !== "regular" && it.kind !== "block") || it.chosen || it.locked || it.category !== c.name || th.dances.has(it.dance) || lockedHere.has(it.dance)) continue;
       if (remaining.has(it.dance)) remaining.delete(it.dance);
       else v.push({ rule: "shuffleBag", index: it.index, message: `${c.name}: ${it.dance} repeated before the bag emptied.` });
       if (remaining.size === 0) remaining = new Set(normal);
@@ -1282,7 +1420,7 @@ export function checkRules(result, userSettings) {
   if (plan.standalone.length > 1) {
     let remaining = new Set(plan.standalone);
     for (const it of pl) {
-      if (it.kind !== "theme" || isOpener(it)) continue;
+      if (it.kind !== "theme" || isOpener(it) || it.mustPlay) continue;
       if (remaining.has(it.dance)) remaining.delete(it.dance);
       else v.push({ rule: "themeBag", index: it.index, message: `${it.dance} repeated before every standalone theme dance had played.` });
       if (remaining.size === 0) remaining = new Set(plan.standalone);
@@ -1295,6 +1433,7 @@ export function checkRules(result, userSettings) {
   for (const it of pl) {
     if (it.kind !== "excursion") continue;
     if (it.index < tagOpeners && th.hasTag(it.song)) continue;
+    if (it.mustPlay || it.locked) continue; // must-play and locked songs do not use up an excursion count
     if (!Object.values(pool).some((w) => w > 0)) pool = { ...initial };
     if (!(pool[it.dance] > 0)) v.push({ rule: "excursionPool", index: it.index, message: `${it.dance} drawn with no count left in the pool.` });
     else pool[it.dance]--;
@@ -1303,7 +1442,8 @@ export function checkRules(result, userSettings) {
   // 6. fixed events: right count, not before their time, never back to back with another event
   for (const ev of s.fixedEvents) {
     const name = ev.name;
-    const items = pl.filter((it) => it.kind === "fixed" && it.source === name);
+    const items = pl.filter((it) => it.kind === "fixed" && it.source === name && !it.disbanded);
+    if (pl.some((it) => it.source === name && (it.locked || it.disbanded))) continue; // kept (and maybe changed) by the user
     if (items.length !== (ev.count ?? 1)) v.push({ rule: "fixedEvent", index: -1, message: `"${name}" appeared ${items.length}x, expected ${ev.count ?? 1}.` });
     for (const it of items) {
       if (!ev.dances.includes(it.dance)) v.push({ rule: "fixedEventDance", index: it.index, message: `"${name}" played ${it.dance}, which is not one of its dances.` });
@@ -1338,7 +1478,7 @@ export function checkRules(result, userSettings) {
   }
   for (const [id, items] of byBlock) {
     const b = blockDefs[id];
-    if (!b) continue;
+    if (!b || items.some((it) => it.locked)) continue; // kept (and maybe changed) by the user
     const expected = b.source === "songs" ? b.songs.length : b.count;
     if (items.length > expected) v.push({ rule: "blockCount", index: items[0].index, message: `${items[0].blockLabel || b.tag} has ${items.length} songs, expected at most ${expected}.` });
     const earliest = b.placement.mode === "at" ? b.placement.at : b.placement.mode === "window" ? b.placement.from : 0;
@@ -1362,16 +1502,16 @@ export function checkRules(result, userSettings) {
     const wk = workKey(it.song);
     if (recAt.has(rk) && pl[recAt.get(rk)].song.id !== it.song.id) {
       v.push({ rule: "duplicateRecording", index: it.index, message: `"${it.song.title}" is the same recording as #${recAt.get(rk) + 1}.` });
-    } else if (s.noRepeatWorks && !it.chosen && workAt.has(wk) && pl[workAt.get(wk)].song.id !== it.song.id) {
+    } else if (s.noRepeatWorks && !it.chosen && !it.mustPlay && workAt.has(wk) && pl[workAt.get(wk)].song.id !== it.song.id) {
       v.push({ rule: "sameWork", index: it.index, message: `"${it.song.title}" is another version of #${workAt.get(wk) + 1} ("${pl[workAt.get(wk)].song.title}").` });
     }
     if (!recAt.has(rk)) recAt.set(rk, it.index);
-    if (!workAt.has(wk) && !it.chosen) workAt.set(wk, it.index); // chosen songs: other versions may play
+    if (!workAt.has(wk) && !it.chosen && !it.mustPlay) workAt.set(wk, it.index); // chosen / must-play songs: other versions may play
   }
 
   // 6b. song length limits
   for (const it of pl) {
-    if (!it.chosen && !withinLengthLimits(it.song, s)) {
+    if (!it.chosen && !it.mustPlay && !withinLengthLimits(it.song, s)) {
       v.push({ rule: "songLength", index: it.index, message: `"${it.song.title}" (${it.song.lengthSec} s) is outside the song length limits.` });
     }
   }

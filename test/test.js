@@ -458,6 +458,58 @@ let totalBugs = 0;
   expect(validateSettings(lib, { ...base, themedBlocks: [{ source: "songs", songs: [] }] }).errors.length > 0, "a chosen-songs block with no songs is an error");
 }
 
+/* ---- must-play songs (the agreed spec, NOTES.md v0.2.5) ---- */
+{
+  console.log("=== Must-play songs");
+  const expect = (cond, msg) => {
+    if (!cond) {
+      console.log(`  BUG: ${msg}`);
+      totalBugs++;
+    }
+  };
+  const base = SCENARIOS.find((sc) => sc.name.includes("N=2 (Ballroom/Latin), 3 h, no theme")).settings;
+  const lib = buildSongs(10).map((sg) => ({ ...sg, isrc: `I${sg.id}` }));
+  const one = (d, k = 0) => lib.filter((sg) => sg.dances.length === 1 && sg.dances[0] === d)[k];
+  // A Waltz and a Rumba (categories), a Bachata (excursion), a very long Foxtrot, and a Paso Doble
+  // (only a fixed event's dance, so it can never be a must-play).
+  const longFox = { ...one("Foxtrot"), id: "longfox", lengthSec: 420, isrc: "LONGFOX" };
+  const dup = { ...one("Waltz"), id: "dupwaltz" }; // the same recording as the must-play Waltz
+  const lib2 = [...lib, longFox, dup];
+  const must = [one("Waltz"), one("Rumba"), one("Bachata"), longFox].map((sg) => sg.id);
+  let relaxed = 0;
+  let early = 0;
+  for (let seed = 1; seed <= 100; seed++) {
+    const settings = { ...base, seed, maxSongSec: 300, mustPlay: must };
+    const r = generatePlaylist(lib2, settings);
+    const rows = r.playlist.filter((it) => it.mustPlay);
+    expect(rows.length === must.length && new Set(rows.map((x) => x.song.id)).size === must.length, `every must-play song plays once: ${rows.length}`);
+    expect(r.playlist.filter((it) => must.includes(it.song.id)).length === must.length, "and nowhere else");
+    expect(!r.playlist.some((it) => it.song.id === "dupwaltz"), "a duplicate of a must-play song never plays");
+    expect(rows.every((it) => it.index >= base.opening.earlyCount), "never in the opening");
+    expect(r.playlist.some((it) => it.song.id === "longfox"), "a must-play song may break the length limits");
+    const bachata = rows.find((it) => it.song.dances.includes("Bachata"));
+    expect(bachata && bachata.kind === "excursion", "an excursion dance plays outside the turns");
+    // Spread evenly: in random order, but the i-th must-play song (in time) is not before (i+1)/(k+1).
+    rows.forEach((it, i) => { if (it.startSec < ((i + 1) / (must.length + 1)) * r.targetSec - 1) early++; });
+    if (r.warnings.some((w) => /Rule relaxed to play must-play/.test(w.message))) relaxed++;
+    expect(checkRules(r, settings).length === 0 || r.warnings.length > 0, `no silently broken rules: ${JSON.stringify(checkRules(r, settings)[0])}`);
+  }
+  console.log(`  a must-play song needed a rule relaxed in ${relaxed} of 100 nights`);
+  expect(early === 0, `must-play songs are spread evenly (none before its point): ${early} early`);
+  expect(relaxed <= 15, `must-play songs should rarely need a rule relaxed: ${relaxed} of 100`);
+
+  // A dance the settings never let play: warned about, never played.
+  const paso = one("Paso Doble").id;
+  const s2 = { ...base, seed: 1, fixedEvents: [], mustPlay: [paso] };
+  expect(validateSettings(lib, s2).warnings.some((w) => /will never play/.test(w)), "a must-play song with an unused dance is warned about");
+  expect(!generatePlaylist(lib, s2).playlist.some((it) => it.song.id === paso), "and never plays");
+  // In a chosen-songs block too: plays once, in the block.
+  const s3 = { ...base, seed: 2, mustPlay: [must[0]], themedBlocks: [{ source: "songs", songs: [must[0]], placement: { mode: "at", at: 0.5 } }] };
+  const r3 = generatePlaylist(lib, s3);
+  const plays = r3.playlist.filter((it) => it.song.id === must[0]);
+  expect(plays.length === 1 && plays[0].chosen, "a must-play song in a chosen-songs block plays once, in the block");
+}
+
 for (const sc of SCENARIOS) {
   const songs = sc.songs ?? buildSongs(sc.perDance);
   // Timing bounds use only the songs that may play (inside any song length limits).

@@ -23,6 +23,8 @@ import { DANCE_ALIASES, BALLROOM_DANCE_NAMES, canonicalDance, unknownDanceMessag
 import {
   activeItems, activeResult, hasEdits, prepareGenerated,
   swapSong, resetSwap, insertSong, removeItem, restoreItem, resetAll,
+  undo as undoEdit, moveItem, moveBy, moveGroup, moveGroupBy, toggleLock, lockAll, unlockAll,
+  groupStates, typeLabel, lockedForRegeneration,
 } from "./playlist-edit.js";
 import { checkAndReplace } from "./playlist-check.js";
 
@@ -31,6 +33,7 @@ const PROJECT_NAME = "Project library (data/songs.csv)";
 const DEFAULTS_LABEL = "Default settings";
 
 const state = {
+  drag: null, // the row or block being dragged in the playlist
   defaults: null, // from data/default-settings.json
   settings: null,
   settingsLabel: DEFAULTS_LABEL, // where the current settings came from
@@ -521,7 +524,7 @@ function fixedSection(s) {
  * A chosen-songs block's song list (the agreed spec, NOTES.md v0.2.4): find songs by tag, work, dance
  * or category (plus text), click to add; reorder with ↑/↓, remove with ×. Edits redraw only this box.
  */
-function chosenSongsEditor(s, b) {
+function chosenSongsEditor(s, b, key = "songs", ordered = true) {
   const m = associationMap(s.associations);
   const dancesOf = (sg) => [...new Set(sg.dances.map(m))];
   const byId = new Map(state.songs.map((sg) => [sg.id, sg]));
@@ -552,7 +555,7 @@ function chosenSongsEditor(s, b) {
   const name = (sg) => `${sg.title}${sg.artist ? ` — ${sg.artist}` : ""}`;
 
   const matches = (sg) => {
-    if (b.songs.includes(sg.id)) return false;
+    if (b[key].includes(sg.id)) return false;
     const ds = dancesOf(sg);
     if (filters.tag && !(sg.tags || []).includes(filters.tag)) return false;
     if (filters.dance && !ds.includes(filters.dance)) return false;
@@ -576,7 +579,7 @@ function chosenSongsEditor(s, b) {
     const found = state.songs.filter(matches);
     fill(results, found.slice(0, 40).map((sg) =>
       el("li", {}, el("button", { type: "button", class: "small", "aria-label": `Add ${sg.title}`, onclick: () => {
-        b.songs.push(sg.id);
+        b[key].push(sg.id);
         save();
       } }, "+"), " ", name(sg), el("span", { class: "muted" }, ` · ${dancesOf(sg).join(", ")} · ${hms(sg.lengthSec)}`))),
       found.length > 40 && el("li", { class: "muted" }, `…and ${found.length - 40} more: narrow the search.`),
@@ -584,19 +587,19 @@ function chosenSongsEditor(s, b) {
   }
   function drawList() {
     const move = (k, by) => {
-      const [x] = b.songs.splice(k, 1);
-      b.songs.splice(k + by, 0, x);
+      const [x] = b[key].splice(k, 1);
+      b[key].splice(k + by, 0, x);
       save();
     };
-    fill(list, b.songs.length ? b.songs.map((id, k) => {
+    fill(list, b[key].length ? b[key].map((id, k) => {
       const sg = byId.get(id);
       return el("li", {},
         sg ? name(sg) : el("span", { class: "swap-warning" }, `Warning: a song that is not in the library (${id})`),
         sg && el("span", { class: "muted" }, ` · ${dancesOf(sg).join(", ")}`), " ",
-        el("button", { type: "button", class: "icon", title: "Move up", "aria-label": "Move up", disabled: k === 0, onclick: () => move(k, -1) }, "↑"),
-        el("button", { type: "button", class: "icon", title: "Move down", "aria-label": "Move down", disabled: k === b.songs.length - 1, onclick: () => move(k, 1) }, "↓"),
+        ordered && el("button", { type: "button", class: "icon", title: "Move up", "aria-label": "Move up", disabled: k === 0, onclick: () => move(k, -1) }, "↑"),
+        ordered && el("button", { type: "button", class: "icon", title: "Move down", "aria-label": "Move down", disabled: k === b[key].length - 1, onclick: () => move(k, 1) }, "↓"),
         removeButton(sg ? sg.title : id, () => {
-          b.songs.splice(k, 1);
+          b[key].splice(k, 1);
           save();
         }));
     }) : [el("li", { class: "muted" }, "No songs chosen yet: find them below.")]);
@@ -605,13 +608,27 @@ function chosenSongsEditor(s, b) {
   drawResults();
   const categoryNames = s.categories.map((c) => c.name).filter(Boolean);
   return el("div", { class: "subbox" },
-    el("div", { class: "label" }, `Chosen songs (${b.songs.length ? "in playing order" : "none yet"})`),
+    el("div", { class: "label" }, ordered ? `Chosen songs (${b[key].length ? "in playing order" : "none yet"})` : `Songs (${b[key].length})`),
     list,
     el("div", { class: "label" }, "Find songs"),
     el("div", { class: "inline-fields" },
       options("Tag", allTags(), "tag"), options("Dance", resolvedDances(), "dance"), options("Category", categoryNames, "category"),
       workBox.wrap, textBox),
     results);
+}
+
+/** Must-play songs (the agreed spec, NOTES.md v0.2.5). */
+function mustPlaySection(s) {
+  s.mustPlay ??= [];
+  return section(
+    "Must-play songs",
+    live(() => `${s.mustPlay.length} song(s)`, "span", "summary-note"),
+    el("p", { class: "help" },
+      "Songs that must play, spread evenly through the night after the opening, in random order. " +
+        "Each plays where it fits the rules; a song plays only if its dance is in a category or is an excursion. " +
+        "They may break the song length limits."),
+    chosenSongsEditor(s, s, "mustPlay", false)
+  );
 }
 
 /** Themed blocks (the agreed spec, NOTES.md v0.2.4). */
@@ -807,6 +824,7 @@ function renderForm() {
     excursionsSection(s),
     fixedSection(s),
     blocksSection(s),
+    mustPlaySection(s),
     themeSection(s),
     openingSection(s)
   );
@@ -1119,7 +1137,7 @@ function generate() {
   clearTimeout(validateTimer);
   renderValidation();
   if (state.errors.length) return;
-  if (hasEdits(state.result) && !confirm("Generate a new playlist? Your swaps, insertions and removals in the current one will be lost.")) return;
+  if (hasEdits(state.result) && !confirm("Generate a new playlist? Your changes to the current one (and its locks) will be lost.")) return;
   // Always a fresh random playlist; songs known to be unavailable on Spotify are never picked.
   const r = generatePlaylist(state.songs, { ...state.settings, seed: null }, { songFilter: (sg) => !isUnavailable(sg.id) });
   state.result = prepareGenerated(r, state.settings);
@@ -1238,13 +1256,14 @@ function renderResults() {
   };
 
   const kindLabel = (it) =>
-    it.blockLabel ? `${it.blockLabel}${it.kind === "regular" && it.category ? ` (${it.category})` : ""}`
+    typeLabel(it, r, s) ??
+    (it.blockLabel ? `${it.blockLabel}${it.kind === "regular" && it.category ? ` (${it.category})` : ""}`
       : it.kind === "regular" ? it.category
       : it.kind === "excursion" ? "Excursion"
       : it.kind === "theme" ? it.source
       : it.kind === "fixed" ? it.source
       : it.kind === "inserted" ? "Added by you"
-      : "Last dance";
+      : "Last dance");
 
   /** The generator's warnings name positions from generation time; show today's number instead. */
   const warningPrefix = (w) => {
@@ -1257,9 +1276,47 @@ function renderResults() {
   const small = (label, title, onclick) => el("button", { type: "button", class: "small", title, "aria-label": title, onclick }, label);
   /** Buttons that undo a manual change (Reset, Remove an inserted song, Restore) look different. */
   const undo = (label, title, onclick) => el("button", { type: "button", class: "small undo", title, "aria-label": title, onclick }, label);
+  // Drag and drop: drop a row (or a whole block, by its header) onto a row to put it just before that row.
+  const dropTarget = (node, toIndex) => {
+    node.addEventListener("dragover", (e) => {
+      if (!state.drag) return;
+      e.preventDefault();
+      node.classList.add("drop-before");
+    });
+    node.addEventListener("dragleave", () => node.classList.remove("drop-before"));
+    node.addEventListener("drop", (e) => {
+      e.preventDefault();
+      node.classList.remove("drop-before");
+      const d = state.drag;
+      state.drag = null;
+      if (d && d.item) doMove(d.item, toIndex);
+      else if (d && d.group) doMoveGroup(d.group, toIndex);
+    });
+    return node;
+  };
+  const draggable = (node, what) => {
+    node.draggable = true;
+    node.addEventListener("dragstart", (e) => {
+      state.drag = what;
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", "move");
+    });
+    node.addEventListener("dragend", () => (state.drag = null));
+    return node;
+  };
+  const columns = themed ? 8 : 7;
+  const groups = groupStates(r);
+  /** The header row of an intact block: its name, and moving the whole block. */
+  const groupHead = (id, st) => draggable(dropTarget(el("tr", { class: "group-head" },
+    el("td", { colspan: columns },
+      el("span", { class: "drag-handle", title: "Drag to move the whole block", "aria-hidden": "true" }, "⠿ "),
+      el("strong", {}, st.label), el("span", { class: "muted" }, ` · ${st.rows.length} songs · drag this line to move the whole block `),
+      small("Move block up", `Move ${st.label} up`, () => doMoveGroupBy(id, -1)),
+      small("Move block down", `Move ${st.label} down`, () => doMoveGroupBy(id, 1)))), st.rows[0].index), { group: id });
+
   const activeRow = (it) => {
     const name = `#${it.index + 1} ${it.song.title}`;
-    return el("tr", { class: [it.kind, it.blockId !== undefined && "block", it.swapped && "swapped", it.inserted && "inserted"].filter(Boolean).join(" ") },
+    return draggable(dropTarget(el("tr", { class: [it.kind, it.blockId !== undefined && "block", it.swapped && "swapped", it.inserted && "inserted", it.locked && "locked"].filter(Boolean).join(" ") },
       el("td", { class: "num" }, String(it.index + 1)),
       el("td", { class: "num" }, hms(it.startSec)),
       el("td", { title: it.song.sourceDances ? `Tagged: ${it.song.sourceDances.join(", ")}` : null }, it.dance),
@@ -1273,14 +1330,26 @@ function renderResults() {
       el("td", { class: "num" }, hms(it.song.lengthSec)),
       themed && el("td", { class: "theme-mark" }, it.isTheme ? "Yes" : ""),
       el("td", {}, el("div", { class: "row-actions" },
+        el("button", { type: "button", class: it.locked ? "small primary" : "small", "aria-pressed": it.locked ? "true" : "false",
+          title: it.locked ? `Unlock ${name}` : `Lock ${name}: "Regenerate unlocked songs" keeps it in its place`,
+          "aria-label": it.locked ? `Unlock ${name}` : `Lock ${name}`, onclick: () => doToggleLock(it) }, it.locked ? "🔒 Locked" : "Lock"),
+        small("↑", `Move ${name} up`, () => doMoveBy(it, -1)),
+        small("↓", `Move ${name} down`, () => doMoveBy(it, 1)),
         small("Swap", `Choose a different song for ${name}`, () => openSongPicker({ item: it })),
         it.swapped && undo("Reset", `Put back the generator's song (${it.original.song.title})`, () => doResetSwap(it)),
         small("Insert before…", `Insert a song before ${name}`, () => openSongPicker({ insertAt: r.playlist.indexOf(it) })),
         small("Insert after…", `Insert a song after ${name}`, () => openSongPicker({ insertAt: r.playlist.indexOf(it) + 1 })),
         it.inserted
           ? undo("Remove", `Delete ${name} (added by you)`, () => doRemove(it))
-          : small("Remove", `Take ${name} out (it can be restored)`, () => doRemove(it)))));
+          : small("Remove", `Take ${name} out (it can be restored)`, () => doRemove(it))))), it.index), { item: it });
   };
+  /** Each intact block gets a header row before its first song. */
+  const rowsWithHeads = () => r.playlist.flatMap((it) => {
+    if (it.removed) return [removedRow(it)];
+    const st = it.group && groups[it.group];
+    const head = st && st.intact && st.rows[0] === it ? [groupHead(it.group, st)] : [];
+    return [...head, activeRow(it)];
+  });
   const removedRow = (it) =>
     el("tr", { class: "removed" },
       el("td", { class: "num" }, "–"),
@@ -1324,17 +1393,25 @@ function renderResults() {
       el("ul", { class: "msgs" },
         r.editViolations.map((v) => el("li", { class: "warning" }, `After your changes: ${v.index >= 0 ? `#${v.index + 1}: ` : ""}${v.message}`))),
     el("div", { class: "edit-bar" },
-      el("p", { class: "help" }, "Change the playlist with the buttons on each row. Every change can be undone: Reset puts back " +
-        "the generator's song, and removed songs stay listed (small) so you can Restore them."),
+      el("p", { class: "help" }, "Change the playlist with the buttons on each row, or drag a row (a block by its header line) to move it. " +
+        "Undo takes back one change at a time; Reset all takes back every change. " +
+        "Lock the songs you want to keep, then Regenerate unlocked songs to redo the rest."),
+      (r.history || []).length > 0 && el("button", { type: "button", class: "undo", onclick: doUndo,
+        title: "Undo the last change" }, "Undo"),
       hasEdits(r) && el("button", { type: "button", class: "undo", onclick: doResetAll,
-        title: "Undo every swap, insertion and removal: back to exactly the playlist the generator made" }, "Reset all")),
+        title: "Undo every change (locks included): back to exactly the playlist the generator made" }, "Reset all"),
+      el("button", { type: "button", class: "small", onclick: doLockAll, title: "Lock every song" }, "Lock all"),
+      active.some((x) => x.locked) && el("button", { type: "button", class: "small", onclick: doUnlockAll, title: "Unlock every song" }, "Unlock all"),
+      active.some((x) => x.locked) && el("button", { type: "button", class: "primary", onclick: doRegenerate,
+        title: "Make a new playlist around the locked songs, which keep their places" }, "Regenerate unlocked songs")),
     el("div", { class: "table-wrap" },
       el("table", { class: "playlist" },
         el("thead", {}, el("tr", {},
           ["#", "Start", "Dance", "Type", "Title", "Length"].map((h) => el("th", { scope: "col" }, h)),
           themed && el("th", { scope: "col" }, "Theme?"),
           el("th", { scope: "col" }, el("span", { class: "visually-hidden" }, "Change")))),
-        el("tbody", {}, r.playlist.map((it) => (it.removed ? removedRow(it) : activeRow(it)))))));
+        el("tbody", {}, rowsWithHeads(),
+          dropTarget(el("tr", { class: "drop-end" }, el("td", { colspan: columns, class: "muted" }, "Drop a song here to move it to the end.")), active.length)))));
 }
 
 /* ------------------------------------------------- edit the playlist by hand */
@@ -1355,9 +1432,31 @@ const doResetSwap = (item) => (resetSwap(state.result, item, state.settings), ed
 const doRemove = (item) => (removeItem(state.result, item, state.settings), edited());
 const doRestore = (item) => (restoreItem(state.result, item, state.settings), edited());
 function doResetAll() {
-  if (!confirm("Undo all your changes and go back to the playlist exactly as the generator made it?")) return;
+  if (!confirm("Undo all your changes (locks included) and go back to the playlist exactly as the generator made it?")) return;
   resetAll(state.result, state.settings);
   edited();
+}
+const doUndo = () => (undoEdit(state.result, state.settings), edited());
+const doMove = (item, toIndex) => (moveItem(state.result, item, toIndex, state.settings), edited());
+const doMoveBy = (item, by) => (moveBy(state.result, item, by, state.settings), edited());
+const doMoveGroup = (id, toIndex) => (moveGroup(state.result, id, toIndex, state.settings), edited());
+const doMoveGroupBy = (id, by) => (moveGroupBy(state.result, id, by, state.settings), edited());
+const doToggleLock = (item) => (toggleLock(state.result, item, state.settings), edited());
+const doLockAll = () => (lockAll(state.result, state.settings), edited());
+const doUnlockAll = () => (unlockAll(state.result, state.settings), edited());
+
+/** A new playlist around the locked songs (the agreed spec, NOTES.md v0.2.5). */
+function doRegenerate() {
+  clearTimeout(validateTimer);
+  renderValidation();
+  if (state.errors.length) return;
+  if (!confirm("Make a new playlist around the locked songs? Every unlocked song is replaced, and this cannot be undone.")) return;
+  const locked = lockedForRegeneration(state.result);
+  const r = generatePlaylist(state.songs, { ...state.settings, seed: null }, { songFilter: (sg) => !isUnavailable(sg.id), locked });
+  state.result = prepareGenerated(r, state.settings);
+  state.stale = false;
+  renderResults();
+  if (isLoggedIn() && activeItems(r).some((it) => spotifyTrackId(it.song.id))) checkPlaylistOnSpotify(r);
 }
 
 /**

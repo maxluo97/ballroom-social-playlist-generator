@@ -71,6 +71,7 @@ Run `npm test` to check the generator and the library logic.
 
 ## Roadmap
 
-* **v0.3:** flexible use with Spotify: individual users log in with their own Spotify accounts.
-* **v0.2.5 or v0.4.x (to be decided):** a **live viewer** for the night itself (or a slide export instead).
+* **v0.2.5:** lock songs and regenerate the rest; drag-and-drop reordering; a must-play list spread through the night.
+* **v0.3:** flexible use with Spotify: individual users log in with their own Spotify accounts; a shareable settings link.
+* **v0.4:** a **live viewer** for the night itself (or a slide export instead).
 * **Before 1.0:** a code cleanup pass and documentation.
