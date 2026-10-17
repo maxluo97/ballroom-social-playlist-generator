@@ -7,7 +7,7 @@
  * Imports only add to the library; see js/library-merge.js for the exact rules.
  */
 
-import { el, fill, $, chipEditor, comboInput, sortRows, sortHeader } from "./dom.js";
+import { el, fill, $, chipEditor, comboInput, sortRows, sortHeader, spotifyCredit, spotifyListenLink } from "./dom.js";
 import {
   login, logout, isLoggedIn, handleLoginRedirect, getMyPlaylists, getPlaylistTracks,
   getTrack, searchTracks, playlistIdFrom, createPlaylist, addTracksToPlaylist, removeTracksFromPlaylist, getPlaylistTrackIds,
@@ -18,7 +18,7 @@ import {
 } from "./song-details.js";
 import { canSaveToFolder, getFolder, folderHasFile, writeTextFile, rememberedFolderName } from "./folders.js";
 import { RUNNING_LOCALLY } from "./config.js";
-import { spotifyTrackId } from "./data.js";
+import { spotifyTrackId, spotifyLink } from "./data.js";
 import {
   loadSongsFromUrl, parseSongsText, songsToCSV, parseRemovedSongs, removedSongsToCSV, parseLibraryInfo, libraryInfoText, libraryRow,
 } from "./data.js";
@@ -299,7 +299,9 @@ async function refreshLibraryDetails(redraw = true) {
   } catch (err) {
     state.details.error = err.status === 429
       ? "Spotify is limiting requests right now, so the library could not be read; try again later (an hour is a safe start)."
-      : `The library could not be read from Spotify: ${err.message}`;
+      : err.status === 404 || err.status === 403
+        ? "The library playlist was not found in your Spotify account (it may have been deleted). Saving the library (step 6) makes a new one."
+        : `The library could not be read from Spotify: ${err.message}`;
   }
   state.details.refreshing = null;
   if (redraw && state.rows) {
@@ -709,6 +711,7 @@ function renderManual(message) {
   };
 
   fill(box,
+    el("div", { class: "attribution" }, spotifyCredit()),
     el("p", { class: "help" },
       "For songs that are not in a single-dance playlist. A song's dance cannot be guessed from the song alone, so you choose it here. " +
         "Added songs go into the worklist below; ticked songs are added to the review (step 5)."),
@@ -954,6 +957,7 @@ function renderReview() {
       "Fix wrong matches with the Work box or the duplicate buttons; ▶ plays a song in a player at the bottom of the page. " +
       "Click a column heading to sort the table by it (click again to reverse)."),
     detailsBox(),
+    el("div", { class: "attribution" }, spotifyCredit()),
     el("div", { class: "inline-fields" }, ...filterButtons, search),
     el("div", { class: "actions" },
       (state.imports || state.manual.length > 0) && el("button", { type: "button", class: "small", onclick: () => {
@@ -1053,7 +1057,7 @@ function reviewRow(r) {
   row = el("tr", { class: !s.dances.length ? "nodance" : null },
     el("td", {}, r.reimported ? (r.fromBlacklist ? "Restored" : "Re-imported")
       : r.status === "new" ? "New" : r.status === "updated" ? `+ ${[...r.added.dances, ...r.added.tags].join(", ")}` : ""),
-    el("td", {}, previewButton(s), " ", s.title, availabilityNote(s), sameSongNotes(s)),
+    el("td", {}, previewButton(s), " ", !s.unknown && spotifyListenLink(spotifyLink(s.id), s.title), s.title, availabilityNote(s), sameSongNotes(s)),
     el("td", {}, s.artist),
     el("td", {}, s.album || ""),
     el("td", { class: "num" }, formatTime(s.lengthSec)),
@@ -1233,7 +1237,21 @@ async function syncLibraryPlaylist(report) {
     state.libraryPlaylistId = p.id;
   }
   report("Reading the library playlist…");
-  const inPlaylist = new Set(await getPlaylistTrackIds(state.libraryPlaylistId));
+  let current;
+  try {
+    current = await getPlaylistTrackIds(state.libraryPlaylistId);
+  } catch (err) {
+    // Gone from Spotify (or no longer yours): make a new one, after asking. Nothing of yours is lost.
+    if (err.status !== 404 && err.status !== 403) throw err;
+    if (!confirm(`The library playlist could not be found in your Spotify account (it may have been deleted).\n\nCreate a new private “${LIBRARY_PLAYLIST_NAME}” with all your songs?`)) {
+      throw new Error("the library playlist was not found, and no new one was made");
+    }
+    report("Creating a new library playlist in your Spotify account…");
+    const p = await createPlaylist({ name: LIBRARY_PLAYLIST_NAME, description: LIBRARY_PLAYLIST_DESCRIPTION, isPublic: false });
+    state.libraryPlaylistId = p.id;
+    current = [];
+  }
+  const inPlaylist = new Set(current);
   const wanted = new Set(ids);
   const add = ids.filter((id) => !inPlaylist.has(id));
   const remove = [...inPlaylist].filter((id) => !wanted.has(id));

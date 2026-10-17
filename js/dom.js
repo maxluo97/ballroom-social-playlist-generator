@@ -237,3 +237,29 @@ export function chipEditor(list, source, {
   draw();
   return el("div", { class: "chips" }, chips, wrap);
 }
+
+/* ------------------------------------------------------- Spotify attribution */
+/*
+ * Spotify's design guidelines (developer.spotify.com/documentation/design): content from Spotify is
+ * always credited with Spotify's logo — the full logo where there is room (at least 70 px wide), the
+ * icon alone where there is not (at least 21 px) — in black on light backgrounds and white on dark
+ * ones, unchanged, with clear space around it; and song details always link back to Spotify
+ * ("LISTEN ON SPOTIFY"). The official files are in images/spotify/.
+ */
+function spotifyLogo(kind, alt) {
+  // The page follows the system's light / dark setting, so the logo does too.
+  return el("picture", {},
+    el("source", { srcset: `images/spotify/${kind}-white.svg`, media: "(prefers-color-scheme: dark)" }),
+    el("img", { src: `images/spotify/${kind}-black.svg`, alt, class: `spotify-${kind}` }));
+}
+
+/** "Song details from <Spotify logo>": the credit next to anything that shows Spotify's song details. */
+export const spotifyCredit = (text = "Song details from") =>
+  el("span", { class: "spotify-credit" }, text, " ", spotifyLogo("full-logo", "Spotify"));
+
+/** A Spotify icon linking to the song on Spotify ("Listen on Spotify"), or null without a real ID. */
+export function spotifyListenLink(url, name) {
+  if (!url) return null;
+  const label = `Listen on Spotify: ${name}`;
+  return el("a", { href: url, target: "_blank", rel: "noopener", class: "spotify-listen", title: label, "aria-label": label }, spotifyLogo("icon", ""));
+}

@@ -317,3 +317,10 @@ table.playlist tr.nodance td { background: var(--error-bg); }
 .ask { margin-top: 4px; font-size: 0.9em; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 textarea { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
 .result-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+
+/* Spotify attribution: logo sizes and clear space per Spotify's design guidelines (full logo >= 70 px wide, icon >= 21 px). */
+.spotify-credit { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.85em; padding: 6px 0; }
+.spotify-credit img.spotify-full-logo { height: 21px; width: auto; display: block; margin: 0 6px; }
+a.spotify-listen { display: inline-block; vertical-align: middle; padding: 0 6px 0 0; line-height: 0; }
+a.spotify-listen img.spotify-icon { height: 21px; width: 21px; display: block; }
+.attribution { margin: 4px 0; }

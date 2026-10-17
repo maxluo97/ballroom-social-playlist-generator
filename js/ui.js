@@ -17,7 +17,7 @@ import {
 } from "./settings.js";
 import { loadSongsFromUrl, parseLibraryInfo, spotifyLink, spotifyTrackId, parseLength } from "./data.js";
 import { handleLoginRedirect, isLoggedIn, login as spotifyLogin, logout as spotifyLogout, createPlaylist, addTracksToPlaylist } from "./spotify.js";
-import { el, fill, $, comboInput, sortRows, sortHeader, chipEditor as sharedChipEditor } from "./dom.js";
+import { el, fill, $, comboInput, sortRows, sortHeader, chipEditor as sharedChipEditor, spotifyCredit, spotifyListenLink } from "./dom.js";
 import {
   isUnavailable, unavailableReason, withDetails, refreshDetails, detailsNeedRefresh, detailsAgeDays, forgetExpiredDetails,
   clearDetails,
@@ -1045,7 +1045,9 @@ async function refreshLibrary() {
   } catch (err) {
     lib.error = err.status === 429
       ? "Spotify is limiting requests right now, so the library could not be read; try again later (an hour is a safe start)."
-      : `The library could not be read from Spotify: ${err.message}`;
+      : err.status === 404 || err.status === 403
+        ? "The library playlist was not found in your Spotify account (it may have been deleted). Saving the library in the library builder makes a new one; nothing of yours is lost."
+        : `The library could not be read from Spotify: ${err.message}`;
   }
   lib.refreshing = null;
   applyDetails();
@@ -1162,7 +1164,7 @@ function openLibraryView() {
     summary.textContent = `Showing ${Math.min(shown.length, 1000)} of ${shown.length} matching songs (${rows.length} in the library).`;
     fill(tbody, shown.slice(0, 1000).map((r) =>
       el("tr", { class: r.why ? "cannot-play" : null },
-        el("td", {}, r.sg.title),
+        el("td", {}, spotifyListenLink(spotifyLink(r.sg.id), r.sg.title), r.sg.title),
         el("td", { class: "muted" }, r.sg.artist || ""),
         el("td", { class: "num" }, hms(r.sg.lengthSec)),
         el("td", { title: r.merged.join(", ") !== r.sg.dances.join(", ") ? `Counts as: ${r.merged.join(", ")}` : null }, r.sg.dances.join(", ")),
@@ -1186,6 +1188,7 @@ function openLibraryView() {
     el("div", { class: "dialog-head" },
       el("h2", {}, `Song library: ${state.library.name}`),
       el("button", { type: "button", onclick: () => dialog.close() }, "Close")),
+    el("div", { class: "attribution" }, spotifyCredit()),
     el("p", { class: "help" },
       `${rows.length} songs. ` + (cannot ? `${cannot} cannot play with the current settings (marked below). ` : "") +
         "Click a column heading to sort by it (click again to reverse). To change or remove songs, use the library builder."),
@@ -1342,7 +1345,7 @@ function renderResults() {
       el("td", { class: "num" }, hms(it.startSec)),
       el("td", { title: it.song.sourceDances ? `Tagged: ${it.song.sourceDances.join(", ")}` : null }, it.dance),
       el("td", { class: "type" }, kindLabel(it)),
-      el("td", {}, it.song.title, it.song.artist && el("span", { class: "muted" }, ` – ${it.song.artist}`),
+      el("td", {}, spotifyListenLink(spotifyLink(it.song.id), it.song.title), it.song.title, it.song.artist && el("span", { class: "muted" }, ` – ${it.song.artist}`),
         it.swapped && el("span", { class: "swap-note", title: `The generator chose: ${it.original.song.title}` }, " (swapped)"),
         it.autoReplaced && !it.swapped && el("div", { class: "muted", style: "font-size:0.85em" },
           `Replaced “${it.autoReplaced.title}” (${it.autoReplaced.why}).`),
@@ -1414,6 +1417,7 @@ function renderResults() {
         "Undo takes back one change at a time; Reset all takes back every change. " +
         "Lock the songs you want to keep, then Regenerate unlocked songs to redo the rest."),
       ...editButtons()),
+    el("div", { class: "attribution" }, spotifyCredit()),
     el("div", { class: "table-wrap" },
       el("table", { class: "playlist" },
         el("thead", {}, el("tr", {},
@@ -1532,7 +1536,7 @@ function openSongPicker({ item = null, insertAt = null }) {
       shown.slice(0, LIMIT).map(({ sg, why }) =>
         el("tr", { class: why.length ? "not-allowed" : null },
           el("td", {}, el("button", { type: "button", class: "small", onclick: () => pick(sg) }, swapping ? "Use this" : "Insert")),
-          el("td", {}, sg.title, why.length > 0 && el("div", { class: "swap-warning" }, `Warning: ${why.join("; ")}.`)),
+          el("td", {}, spotifyListenLink(spotifyLink(sg.id), sg.title), sg.title, why.length > 0 && el("div", { class: "swap-warning" }, `Warning: ${why.join("; ")}.`)),
           el("td", { class: "muted" }, sg.artist || ""),
           el("td", {}, sg.dances.join(", ")),
           el("td", { class: "num" }, hms(sg.lengthSec)),
@@ -1549,6 +1553,7 @@ function openSongPicker({ item = null, insertAt = null }) {
     el("div", { class: "dialog-head" },
       el("h2", {}, swapping ? `Swap #${item.index + 1}: ${item.dance}` : `Insert a song ${where}`),
       el("button", { type: "button", onclick: () => dialog.close() }, "Close")),
+    el("div", { class: "attribution" }, spotifyCredit()),
     current && el("p", {}, "Now: ", el("strong", {}, current.title), current.artist ? ` – ${current.artist}` : "", ` (${hms(current.lengthSec)})`),
     el("div", { class: "inline-fields" }, search, danceFilter,
       el("button", { type: "button", onclick: () => {
