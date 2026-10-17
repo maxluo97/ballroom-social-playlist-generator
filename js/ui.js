@@ -10,6 +10,7 @@ import {
   generatePlaylist, validateSettings, listDances, associationMap, withinLengthLimits, DEFAULT_SETTINGS,
   themeMinGapFor, themeMinGapApplies, BLOCK_DEFAULTS,
 } from "./generator.js";
+import { workKey, recordingKey } from "./works.js";
 import {
   THEME_TEMPLATE, clone, loadLastSettings, saveLastSettings,
   loadDefaultSettings, workingSettings, parseSettingsFile, settingsFileText,
@@ -405,7 +406,16 @@ function repetitionSection(s) {
     field("Max in a row", numberInput(() => s.maxInARow, (v) => (s.maxInARow = v), { min: 1, max: 10 }),
       "The most songs in a row from one category before switching. Each block is a random length from 1 up to this."),
     field("Songs between repeats", numberInput(() => s.minToRepeat, (v) => (s.minToRepeat = v), { min: 0, max: 20 }),
-      "At least this many other songs between two songs of the same dance.")
+      "At least this many other songs between two songs of the same dance."),
+    el("label", { class: "inline-fields" },
+      el("input", { type: "checkbox", checked: s.noRepeatWorks ?? true, onchange: (e) => {
+        s.noRepeatWorks = e.target.checked;
+        changed();
+      } }),
+      "No two versions of the same song in one night"),
+    el("p", { class: "help" },
+      "Versions are recognised by title (e.g. a cover, a live version or a remaster); fix mistakes in the library builder. " +
+        "The same recording under another Spotify ID never plays twice, whatever this says.")
   );
 }
 
@@ -1251,6 +1261,10 @@ function openSongPicker({ item = null, insertAt = null }) {
   const swapping = !!item;
   const current = swapping ? item.song : null;
   const position = new Map(activeItems(r).map((x) => [x.song.id, x.index]));
+  // Songs already in the playlist (the row being swapped left out), by recording and by work.
+  const others = activeItems(r).filter((x) => x !== item);
+  const recAt = new Map(others.map((x) => [recordingKey(x.song), x.index]));
+  const workAt = new Map(others.map((x) => [workKey(x.song), x.index]));
   const merged = (sg) => [...new Set(sg.dances.map(m))];
 
   // Inserting: optionally narrow to one dance. Swapping: the row's dance.
@@ -1263,6 +1277,8 @@ function openSongPicker({ item = null, insertAt = null }) {
     if (swapping && !merged(sg).includes(item.dance)) out.push(`a different dance (${merged(sg).join(", ") || "none"})`);
     if (swapping && item.blockTag && !(sg.tags || []).includes(item.blockTag)) out.push(`no "${item.blockTag}" tag (this row is in the ${item.blockTag} block)`);
     if (position.has(sg.id)) out.push(`already in this playlist (#${position.get(sg.id) + 1})`);
+    else if (recAt.has(recordingKey(sg))) out.push(`the same recording as #${recAt.get(recordingKey(sg)) + 1}`);
+    else if ((s.noRepeatWorks ?? true) && workAt.has(workKey(sg))) out.push(`another version of #${workAt.get(workKey(sg)) + 1}`);
     if (!withinLengthLimits(sg, s)) out.push("outside the song length limits");
     if (isUnavailable(sg.id)) out.push(unavailableReason(sg.id));
     return out;

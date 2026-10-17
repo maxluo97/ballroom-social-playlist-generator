@@ -5,7 +5,7 @@
  *   - A song is identified by its Spotify track ID.
  *   - Imports only ADD: a playlist's dances and tags are added to its songs; nothing already in
  *     the library is removed or overwritten (your manual edits in songs.csv are safe).
- *     Blank fields (artist, album, isrc, length) are filled in.
+ *     Blank fields (artist, album, isrc, released, length) are filled in.
  *   - A song (same track ID) found in several dance playlists gets all of their dances,
  *     e.g. a song in both a Rumba and a Cha-cha playlist gets both.
  *   - Dance names are put in their standard form ("American Rumba" -> "Rhythm Rumba").
@@ -48,6 +48,8 @@ export function updatedBlacklist(blacklist, rows, today) {
       out.set(s.id, {
         id: s.id, title: s.title, artist: s.artist || "", removed: today, album: s.album || "",
         lengthSec: s.lengthSec, dances: [...(s.dances || [])], tags: [...(s.tags || [])], isrc: s.isrc || "",
+        ...(s.work ? { work: s.work } : {}), ...(s.recording ? { recording: s.recording } : {}),
+        ...(s.released ? { released: s.released } : {}),
       });
     }
     if (r.reimported) out.delete(r.song.id);
@@ -65,7 +67,11 @@ export function blacklistRows(rows, blacklist) {
   for (const e of blacklist.values()) {
     if (present.has(e.id)) continue;
     extra.push({
-      song: { id: e.id, title: e.title, artist: e.artist, album: e.album, lengthSec: e.lengthSec, dances: [...e.dances], tags: [...e.tags], isrc: e.isrc },
+      song: {
+        id: e.id, title: e.title, artist: e.artist, album: e.album, lengthSec: e.lengthSec, dances: [...e.dances], tags: [...e.tags], isrc: e.isrc,
+        ...(e.work ? { work: e.work } : {}), ...(e.recording ? { recording: e.recording } : {}),
+        ...(e.released ? { released: e.released } : {}),
+      },
       status: "blacklisted",
       added: { dances: [], tags: [] },
       guessed: { dances: [], tags: [] },
@@ -127,7 +133,7 @@ export function mergeImport(existing, imports, { tagRules = [] } = {}) {
       rows.push({ song, status: "unchanged", added: { dances: [], tags: [] }, guessed: { dances: [], tags: [] }, sources: [] });
       continue;
     }
-    for (const k of ["artist", "album", "isrc"]) if (!song[k] && e.base[k]) song[k] = e.base[k];
+    for (const k of ["artist", "album", "isrc", "released"]) if (!song[k] && e.base[k]) song[k] = e.base[k];
     if (!(song.lengthSec > 0)) song.lengthSec = e.base.lengthSec;
     const added = {
       dances: addAll(song.dances, e.dances),
@@ -150,6 +156,7 @@ export function mergeImport(existing, imports, { tagRules = [] } = {}) {
     const song = { id, title: b.title, artist: b.artist || "", lengthSec: b.lengthSec, dances, tags };
     if (b.album) song.album = b.album;
     if (b.isrc) song.isrc = b.isrc;
+    if (b.released) song.released = b.released;
     rows.push({
       song,
       status: "new",

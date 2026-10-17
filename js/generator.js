@@ -32,6 +32,7 @@
  *                           interruptBy: { excursions, theme, fixed }, afterInterruption: "continue"|"end" }]
  *   opening              { earlyCount, blacklist: [dances] }
  *   closing              { finalDance }   (null = no designated last dance)
+ *   noRepeatWorks        no two versions of the same song (work) in one night (default true)
  *   seed                 integer for reproducible output (null = random)
  *
  * RULES IMPLEMENTED (numbers follow the README where possible)
@@ -65,6 +66,8 @@
  *      the library would still fit, so the night ends within
  *      (target - shortest song, target + longest song - shortest song].
  *   9. Opening: the first `earlyCount` songs avoid the blacklist.
+ *  9b. Duplicates (same recording under another Spotify ID) never play in one night; with
+ *      noRepeatWorks, neither do two versions of the same work (relaxed as a last resort). See js/works.js.
  *  10. Themed blocks: a run of `count` songs with one tag, from a fixed point, a random point or a
  *      window (never inside the opening). Turn-taking blocks are regular songs in the normal turns;
  *      fixed-event blocks (kind 'block') play any dance the settings use, outside the turns, never
@@ -77,6 +80,7 @@
  */
 
 import { DANCE_ALIASES, BALLROOM_DANCE_NAMES } from "./dance-names.js";
+import { workKey, recordingKey } from "./works.js";
 
 /** Dance names the app knows (plain and ballroom-styled), for spotting typos. */
 const KNOWN_DANCE_NAMES = new Set([...Object.keys(DANCE_ALIASES), ...BALLROOM_DANCE_NAMES]);
@@ -95,6 +99,7 @@ export const DEFAULT_SETTINGS = {
   themedBlocks: [],
   opening: { earlyCount: 6, blacklist: [] },
   closing: { finalDance: null },
+  noRepeatWorks: true,
   seed: null,
 };
 
@@ -121,14 +126,15 @@ const BLOCK_LATEST = 0.85;
 
 /** Order in which rules are relaxed when no legal choice exists. */
 const LEVELS = [
-  { name: "strict",                    bag: true,  themeOpener: true,  longBlock: false, gapFactor: 1,   blacklist: true,  reuse: false },
-  { name: "shuffle-bag rule relaxed",  bag: false, themeOpener: true,  longBlock: false, gapFactor: 1,   blacklist: true,  reuse: false },
-  { name: "theme opener dropped",      bag: false, themeOpener: false, longBlock: false, gapFactor: 1,   blacklist: true,  reuse: false },
-  { name: "maxInARow exceeded",        bag: false, themeOpener: false, longBlock: true,  gapFactor: 1,   blacklist: true,  reuse: false },
-  { name: "spacing halved",            bag: false, themeOpener: false, longBlock: true,  gapFactor: 0.5, blacklist: true,  reuse: false },
-  { name: "spacing ignored",           bag: false, themeOpener: false, longBlock: true,  gapFactor: 0,   blacklist: true,  reuse: false },
-  { name: "opening blacklist ignored", bag: false, themeOpener: false, longBlock: true,  gapFactor: 0,   blacklist: false, reuse: false },
-  { name: "song reuse allowed",        bag: false, themeOpener: false, longBlock: true,  gapFactor: 0,   blacklist: false, reuse: true },
+  { name: "strict",                    bag: true,  themeOpener: true,  longBlock: false, gapFactor: 1,   blacklist: true,  works: false, reuse: false },
+  { name: "shuffle-bag rule relaxed",  bag: false, themeOpener: true,  longBlock: false, gapFactor: 1,   blacklist: true,  works: false, reuse: false },
+  { name: "theme opener dropped",      bag: false, themeOpener: false, longBlock: false, gapFactor: 1,   blacklist: true,  works: false, reuse: false },
+  { name: "maxInARow exceeded",        bag: false, themeOpener: false, longBlock: true,  gapFactor: 1,   blacklist: true,  works: false, reuse: false },
+  { name: "spacing halved",            bag: false, themeOpener: false, longBlock: true,  gapFactor: 0.5, blacklist: true,  works: false, reuse: false },
+  { name: "spacing ignored",           bag: false, themeOpener: false, longBlock: true,  gapFactor: 0,   blacklist: true,  works: false, reuse: false },
+  { name: "opening blacklist ignored", bag: false, themeOpener: false, longBlock: true,  gapFactor: 0,   blacklist: false, works: false, reuse: false },
+  { name: "versions of the same song allowed", bag: false, themeOpener: false, longBlock: true, gapFactor: 0, blacklist: false, works: true, reuse: false },
+  { name: "song reuse allowed",        bag: false, themeOpener: false, longBlock: true,  gapFactor: 0,   blacklist: false, works: true,  reuse: true },
 ];
 
 /* ------------------------------------------------------------------ helpers */
@@ -540,6 +546,20 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
   const playlist = [];
   const history = []; // dance label per slot, used for spacing
   const used = new Set();
+  // Duplicates never play in one night; with noRepeatWorks, nor do two versions of one work.
+  const recOf = new Map(songs.map((sg) => [sg.id, recordingKey(sg)]));
+  const workOf = new Map(songs.map((sg) => [sg.id, workKey(sg)]));
+  const usedRecordings = new Set();
+  const usedWorks = new Set();
+  let worksRelaxed = false; // set while a relaxation level allows versions of the same song
+  const markUsed = (sg) => {
+    used.add(sg.id);
+    usedRecordings.add(recOf.get(sg.id));
+    usedWorks.add(workOf.get(sg.id));
+  };
+  const fresh = (sg) =>
+    !used.has(sg.id) && !usedRecordings.has(recOf.get(sg.id)) &&
+    (!s.noRepeatWorks || worksRelaxed || !usedWorks.has(workOf.get(sg.id)));
   let elapsed = 0;
   // The theme share is measured over regular, hidden-theme and excursion songs after the opening (the
   // opening songs are theme songs anyway, so counting them would hold the theme back afterwards).
@@ -551,7 +571,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
   const availableSongs = (dance, reuse, require = null) =>
     (byDance.get(dance) || []).filter(
       (sg) =>
-        (reuse || !used.has(sg.id)) &&
+        (reuse || fresh(sg)) &&
         (!require || require(sg)) &&
         (!songFilter || songFilter(sg, { dance, elapsed, index: playlist.length }))
     );
@@ -590,7 +610,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
       isTheme,
     });
     history.push(dance);
-    used.add(song.id);
+    markUsed(song);
     elapsed += song.lengthSec;
     if (SHARE_KINDS.has(kind) && playlist.length > openingCount) {
       themeBase++;
@@ -813,9 +833,10 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
         // Falling back to another category is fine, unless it makes that category's run too long.
         const tooLong = cats.length > 1 && c === lastRegularCategory && runLen >= s.maxInARow;
         if (tooLong && !L.longBlock) continue;
+        worksRelaxed = L.works;
         const ch = selectDance(c, L, openerForced ? "want" : mood, openerForced);
-        if (!ch) continue;
-        const song = pickSong(ch.dance, L.reuse, ch);
+        const song = ch && pickSong(ch.dance, L.reuse, ch);
+        worksRelaxed = false;
         if (!song) continue;
         if (li > 0) warn(playlist.length, `Rule relaxed (${L.name}) to place a ${ch.dance} song.`);
         commitRegular(c, ch.dance, song);
@@ -954,7 +975,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
   let finalSong = null;
   if (s.closing.finalDance) {
     finalSong = pickSong(s.closing.finalDance, false) ?? pickSong(s.closing.finalDance, true);
-    if (finalSong) used.add(finalSong.id);
+    if (finalSong) markUsed(finalSong);
     else warn(-1, `No song available for final dance "${s.closing.finalDance}".`);
   }
   const finalReserve = finalSong ? finalSong.lengthSec : 0;
@@ -983,11 +1004,14 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
       // Any of the event's dances; vary them within the event when there is a choice.
       const prev = playlist.length ? playlist[playlist.length - 1] : null;
       const withSongs = (reuse) => ev.dances.filter((d) => hasSong(d, reuse));
+      worksRelaxed = s.noRepeatWorks && withSongs(false).length === 0;
+      if (worksRelaxed && withSongs(false).length) warn(playlist.length, `Rule relaxed (versions of the same song allowed) for fixed event "${ev.name}".`);
       const reuse = withSongs(false).length === 0;
       let options = withSongs(reuse);
       if (prev && prev.source === ev.name && options.length > 1) options = options.filter((d) => d !== prev.dance);
       const dance = options.length ? choice(options) : null;
       const song = dance && pickSong(dance, reuse);
+      worksRelaxed = false;
       if (song) push(dance, song, "fixed", null, ev.name);
       else warn(playlist.length, `No song available for fixed event "${ev.name}".`);
       continue;
@@ -1241,6 +1265,21 @@ export function checkRules(result, userSettings) {
     if (fixedLike(before) && before.source !== it.source) {
       v.push({ rule: "fixedAdjacent", index: it.index, message: `${it.source} directly after fixed event "${before.source}".` });
     }
+  }
+
+  // 6c. duplicates (same recording) never twice; with noRepeatWorks, no two versions of one work
+  const recAt = new Map();
+  const workAt = new Map();
+  for (const it of pl) {
+    const rk = recordingKey(it.song);
+    const wk = workKey(it.song);
+    if (recAt.has(rk) && pl[recAt.get(rk)].song.id !== it.song.id) {
+      v.push({ rule: "duplicateRecording", index: it.index, message: `"${it.song.title}" is the same recording as #${recAt.get(rk) + 1}.` });
+    } else if (s.noRepeatWorks && workAt.has(wk) && pl[workAt.get(wk)].song.id !== it.song.id) {
+      v.push({ rule: "sameWork", index: it.index, message: `"${it.song.title}" is another version of #${workAt.get(wk) + 1} ("${pl[workAt.get(wk)].song.title}").` });
+    }
+    if (!recAt.has(rk)) recAt.set(rk, it.index);
+    if (!workAt.has(wk)) workAt.set(wk, it.index);
   }
 
   // 6b. song length limits

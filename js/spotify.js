@@ -258,7 +258,7 @@ export async function getMyPlaylists(onPage) {
 
 /**
  * A Spotify track object as a library-style song:
- *   { id, title, artist, album, lengthSec, isrc, isPlayable }
+ *   { id, title, artist, album, released (year of the album's release), lengthSec, isrc, isPlayable }
  */
 function trackToSong(t) {
   return {
@@ -266,6 +266,7 @@ function trackToSong(t) {
     title: t.name,
     artist: (t.artists || []).map((a) => a.name).join(", "),
     album: t.album ? t.album.name : "",
+    released: t.album && t.album.release_date ? String(t.album.release_date).slice(0, 4) : "",
     lengthSec: Math.round((t.duration_ms || 0) / 1000),
     isrc: t.external_ids ? t.external_ids.isrc || "" : "",
     isPlayable: t.is_playable ?? null,

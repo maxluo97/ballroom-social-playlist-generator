@@ -110,6 +110,16 @@ console.log("=== Problems caused by edits are reported");
   const already = r.playlist[3].song;
   edit.insertSong(r, 20, already, null, settings);
   check(r.editViolations.some((v) => v.rule === "duplicate"), "inserting a song already in the playlist is reported");
+  // The same recording under another ID, and another version of a song, are reported too.
+  const copy = { ...r.playlist[4].song, id: "dupcopy".padEnd(22, "x"), isrc: "SAMEISRC1" };
+  const r2 = fresh();
+  r2.playlist[4].song.isrc = "SAMEISRC1";
+  edit.insertSong(r2, 30, copy, null, settings);
+  check(r2.editViolations.some((v) => v.rule === "duplicateRecording"), "inserting a duplicate is reported");
+  const r3 = fresh();
+  const cover = { ...r3.playlist[6].song, id: "cover".padEnd(22, "x"), isrc: "OTHER1", title: `${r3.playlist[6].song.title} (Live)` };
+  edit.insertSong(r3, 30, cover, null, settings);
+  check(r3.editViolations.some((v) => v.rule === "sameWork"), "inserting another version of a song is reported");
 }
 
 console.log("=== Reset all");

@@ -37,6 +37,7 @@ Our conception of a dance playlist is as follows:
 8. It may be desired to have a specific **last dance of the night**. If this is the case, the app will leave enough time such that the event will end no later than (longest allowed song − shortest allowed song) past the target length. Note that the last song is also excluded from repetition rules (e.g. it is possible for both the penultimate and ultimate songs to be of the same dance). Songs that are too short or too long for the event can be excluded with **Shortest song allowed** and **Longest song allowed**.
 9. The beginning of a social should be accessible. As such, the first few songs should not be songs that are too difficult and/or too fast. The **Opening length** defines how many songs should be played before the event is considered to have passed the beginning of the night, and the dances listed under **Not allowed in the opening** are always excluded from those songs. By default, Mambo / Salsa and Quickstep are excluded, and the beginning of a social is defined as 6 songs long.
 10. A night may have **themed blocks**: a run of songs that all carry one tag, e.g. four Hollywood songs at 40% of the night. A block either takes part in the normal category turns (its songs are simply the next songs, each with the tag) or **plays as a fixed event** (any dance with the tag, outside the category turns, and never directly before or after another fixed event). It starts **at a point**, **at a random point** (after the opening and before the last 15% of the night), or **at a random point between** two values; a block that would start during the opening waits until the opening is over. Blocks keep the shuffle-bag and the songs-between-repeats rules; if too few tagged songs fit, the block is shorter, with a warning. By default nothing interrupts a block: excursions, fixed events and theme dances in no category wait until it ends. Each block can allow them to interrupt, and then either continue afterwards or end. Block songs count toward the theme share only if they match the night's theme.
+11. The same song should not play twice in a night in another form. **Duplicates** (the same recording under another Spotify ID, e.g. a single and its album version, recognised by the recording code Spotify gives every song, the ISRC) never play in the same night. **Versions** of the same song (covers, live versions, remasters, recognised by title, whoever the artist) do not either, unless **No two versions of the same song in one night** (under Repetition) is switched off; if it cannot be met, it is relaxed as a last resort, with a warning. Titles can mislead (two different songs called "Hello"), so the library builder shows both, with filters, and lets you correct them: a **Work** box per song (pick a work by name to join it, or **Rename work…**), and **Not a duplicate** / **Same recording as…** buttons. A work is named after its oldest version: title and artist.
 
 ---
 
@@ -58,7 +59,7 @@ Run `npm test` to check the generator and the library logic.
 
 | File | What it is |
 |---|---|
-| `data/songs.csv` | Your song library: id, title, artist, album, length, dances, tags, isrc. |
+| `data/songs.csv` | Your song library: id, title, artist, album, length, dances, tags, isrc, work, recording (the last two only when corrected by hand). |
 | `data/removed-songs.csv` | Songs you removed from the library (same columns, plus the date removed), so imports do not bring them back and you can restore them. |
 | `data/default-settings.json` | The default settings, in the same format as a saved settings file. |
 | `presets/` | Your saved settings files. |
@@ -69,6 +70,6 @@ Run `npm test` to check the generator and the library logic.
 
 ## Roadmap
 
-* **v0.2.4:** themed blocks (done) and covers (avoiding several versions of the same song in one night, and the same recording under different Spotify IDs).
+* **v0.2.4:** themed blocks, and works and duplicates (no two versions of the same song, or copies of the same recording, in one night).
 * **v0.3:** let individual users log in with their own Spotify accounts.
 * **Later:** export a playlist to slides.

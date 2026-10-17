@@ -27,6 +27,7 @@ import {
   mergeImport, markPreviouslyRemoved, keptSongs, updatedBlacklist, blacklistChanged, blacklistRows,
 } from "./library-merge.js";
 import { formatTime } from "./generator.js";
+import { workKey, workFromTitle, plainText, recordingKey, ownRecordingKey, sameKeyGroups, workName, joinValue } from "./works.js";
 
 const PROJECT_URL = "data/songs.csv";
 const REMOVED_URL = "data/removed-songs.csv";
@@ -59,6 +60,10 @@ const state = {
   filter: "all",
   search: "",
   reviewSort: { key: null, dir: 1 }, // step 5 table: column heading clicked, and direction
+  pickingRecording: null, // step 5: the song whose "Same recording as…" picker is open
+  // Step 5: songs flagged as duplicates / versions when the review was built. They stay on those
+  // lists while you correct them, so a fix never makes a song you still need to check disappear.
+  flagged: { duplicates: new Set(), versions: new Set() },
 };
 
 const store = {
@@ -525,6 +530,8 @@ function computeRows() {
   // Every other blacklisted song gets a (hidden unless filtered) row too, so it can be restored.
   state.rows = [...merged, ...blacklistRows(merged, state.blacklist)];
   state.filter = "all";
+  updateGroups();
+  state.flagged = { duplicates: new Set(groups.duplicates.keys()), versions: new Set(groups.versions.keys()) };
   renderReview();
 }
 
@@ -846,9 +853,34 @@ const FILTERS = {
   nodance: ["No dance", (r) => !r.song.dances.length],
   unchanged: ["Unchanged", (r) => r.status === "unchanged"],
   unavailable: ["Not available on Spotify", (r) => notAvailable(r.song.id)],
+  duplicates: ["Duplicates", (r) => groups.duplicates.has(r.song.id) || state.flagged.duplicates.has(r.song.id)],
+  versions: ["Versions", (r) => groups.versions.has(r.song.id) || state.flagged.versions.has(r.song.id)],
   removed: ["Removed", (r) => r.removedNow],
   blocked: ["Removed earlier", (r) => r.blocked || r.reimported],
 };
+
+/*
+ * Works and duplicates (the agreed spec, NOTES.md v0.2.4; logic in js/works.js), among the songs
+ * that stay in the library. Recomputed on every redraw of the review table.
+ *   duplicates  song id -> the other songs that are the same recording
+ *   versions    song id -> the other songs of the same work
+ *   works       work key -> { songs, name }   (every work, one song or more; names: see js/works.js)
+ */
+let groups = { duplicates: new Map(), versions: new Map(), works: new Map() };
+function updateGroups() {
+  const kept = (state.rows || []).filter((r) => !r.removedNow && !r.blocked).map((r) => r.song);
+  const works = new Map();
+  for (const s of kept) {
+    const k = workKey(s);
+    if (!works.has(k)) works.set(k, { songs: [] });
+    works.get(k).songs.push(s);
+  }
+  for (const w of works.values()) w.name = workName(w.songs);
+  groups = { duplicates: sameKeyGroups(kept, recordingKey), versions: sameKeyGroups(kept, workKey), works };
+}
+/** The name of the work a song belongs to. */
+const workNameOf = (s) => (groups.works.get(workKey(s)) || { name: workName([s]) }).name;
+const songName = (s) => `“${s.title}”${s.artist ? ` by ${s.artist}` : ""}`;
 
 /** The review table's sortable columns (heading -> the value to sort by). On-screen order only. */
 const statusText = (r) =>
@@ -861,6 +893,7 @@ const REVIEW_COLUMNS = {
   "Length": (r) => r.song.lengthSec,
   "Dances": (r) => r.song.dances.join(", "),
   "Tags": (r) => r.song.tags.join(", "),
+  "Work": (r) => workNameOf(r.song),
   "From playlist(s)": (r) => r.sources.join(", "),
 };
 
@@ -874,14 +907,18 @@ function renderReview() {
     renderOutput();
     return;
   }
+  updateGroups();
   const tbody = el("tbody");
   const search = el("input", { type: "text", placeholder: "search title / artist…", value: state.search, "aria-label": "Search songs" });
+  const grouping = { duplicates: { key: "group", dir: 1 }, versions: { key: "group", dir: 1 } }[state.filter];
+  const groupKey = state.filter === "duplicates" ? (r) => recordingKey(r.song) : (r) => workKey(r.song);
   const drawRows = () => {
     const q = state.search.toLowerCase();
     const matching = rows.filter((r) => shownIn(state.filter, r) && `${r.song.title} ${r.song.artist}`.toLowerCase().includes(q));
-    const shown = sortRows(matching, state.reviewSort, REVIEW_COLUMNS);
+    const shown = state.reviewSort && state.reviewSort.key ? sortRows(matching, state.reviewSort, REVIEW_COLUMNS)
+      : grouping ? sortRows(matching, grouping, { group: groupKey }) : matching;
     fill(tbody, shown.slice(0, 1000).map(reviewRow),
-      shown.length > 1000 && el("tr", {}, el("td", { colspan: 8, class: "muted" }, `…and ${shown.length - 1000} more (use the filter or search).`)));
+      shown.length > 1000 && el("tr", {}, el("td", { colspan: 10, class: "muted" }, `…and ${shown.length - 1000} more (use the filter or search).`)));
   };
   search.addEventListener("input", () => { state.search = search.value; drawRows(); });
 
@@ -895,6 +932,8 @@ function renderReview() {
     el("p", { class: "help" }, "Your whole library is listed here, plus anything imported. Use × to take a dance or tag off a song, " +
       "and the dropdown to add one. Highlighted tags came from keyword rules, so check them. " +
       "Remove takes a song out of the library; the app remembers it, so a later import will not quietly bring it back. " +
+      "Duplicates are the same recording under another Spotify ID; Versions are other recordings of the same song (by title). " +
+      "Fix wrong matches with the Work box or the duplicate buttons. " +
       "Click a column heading to sort the table by it (click again to reverse)."),
     availabilityBox(),
     el("div", { class: "inline-fields" }, ...filterButtons, search),
@@ -946,6 +985,7 @@ function reviewRow(r) {
       el("td", { class: "num" }, formatTime(s.lengthSec)),
       el("td", {}, s.dances.join(", ")),
       el("td", {}, s.tags.join(", ")),
+      el("td", { class: "muted" }, workNameOf(s)),
       el("td", { class: "muted" }, r.sources.join(", ")),
       el("td", {}, button("small undo", "Restore", `Keep ${s.title} in the library`, () => (r.removedNow = false))));
   }
@@ -963,6 +1003,7 @@ function reviewRow(r) {
       el("td", { class: "num" }, s.lengthSec ? formatTime(s.lengthSec) : ""),
       el("td", {}, s.dances.join(", ")),
       el("td", {}, s.tags.join(", ")),
+      el("td", { class: "muted" }, workNameOf(s)),
       el("td", { class: "muted" }, r.sources.join(", ")),
       el("td", {}, r.fromBlacklist
         ? button("small", "Restore", `Put ${s.title} back into the library`, () => restoreFromBlacklist(r))
@@ -984,12 +1025,13 @@ function reviewRow(r) {
   row = el("tr", { class: !s.dances.length ? "nodance" : null },
     el("td", {}, r.reimported ? (r.fromBlacklist ? "Restored" : "Re-imported")
       : r.status === "new" ? "New" : r.status === "updated" ? `+ ${[...r.added.dances, ...r.added.tags].join(", ")}` : ""),
-    el("td", {}, s.title, availabilityNote(s.id)),
+    el("td", {}, s.title, availabilityNote(s.id), sameSongNotes(s)),
     el("td", {}, s.artist),
     el("td", {}, s.album || ""),
     el("td", { class: "num" }, formatTime(s.lengthSec)),
     cell(danceChips(s.dances, `Dances for ${s.title}`, edited), []),
     cell(tagChips(s.tags, `Tags for ${s.title}`, edited), r.guessed.tags),
+    el("td", {}, workEditor(s)),
     el("td", { class: "muted" }, r.sources.join(", ")),
     el("td", {}, r.reimported
       ? button("small undo", r.fromBlacklist ? "Undo restore" : "Undo re-import", `Leave ${s.title} out again`, () => {
@@ -998,6 +1040,94 @@ function reviewRow(r) {
         })
       : button("small", "Remove", `Take ${s.title} out of the library`, () => (r.removedNow = true))));
   return row;
+}
+
+/** Notes under a song's title: duplicates and versions, with the buttons to correct them. */
+function sameSongNotes(s) {
+  const small = (cls, label, title, onclick) =>
+    el("button", { type: "button", class: `small ${cls}`.trim(), title, "aria-label": title, onclick: () => { onclick(); renderReview(); } }, label);
+  const dups = groups.duplicates.get(s.id) || [];
+  const versions = (groups.versions.get(s.id) || []).filter((x) => !dups.includes(x));
+  const out = [];
+  if (s.recording) {
+    // A hand-made correction: say what it is, with its undo.
+    const joined = (state.rows || []).map((r) => r.song).find((x) => x !== s && recordingKey(x) === s.recording && !x.recording);
+    out.push(el("div", { class: "muted", style: "font-size:0.85em" },
+      s.recording === ownRecordingKey(s) ? "Marked as not a duplicate. " : `Marked as the same recording as ${joined ? songName(joined) : "another song"}. `,
+      small("undo", "Undo", `Undo the duplicate correction for ${s.title}`, () => delete s.recording)));
+  }
+  if (dups.length) {
+    out.push(el("div", { class: "swap-warning" }, `Same recording as ${dups.slice(0, 3).map(songName).join(", ")}${dups.length > 3 ? " …" : ""}. `,
+      s.recording !== ownRecordingKey(s) && small("", "Not a duplicate", `${s.title} is not the same recording`, () => (s.recording = ownRecordingKey(s)))));
+  }
+  if (versions.length) {
+    out.push(el("div", { class: "muted", style: "font-size:0.85em" },
+      `Another version: ${versions.slice(0, 3).map(songName).join(", ")}${versions.length > 3 ? " …" : ""}.`));
+  } else if (!groups.versions.has(s.id) && state.flagged.versions.has(s.id)) {
+    out.push(el("div", { class: "muted", style: "font-size:0.85em" }, "No other versions now (flagged when the review started)."));
+  }
+  if (!dups.length && !s.recording && state.flagged.duplicates.has(s.id)) {
+    out.push(el("div", { class: "muted", style: "font-size:0.85em" }, "No duplicates now (flagged when the review started)."));
+  }
+  // "Same recording as…": pick another library song (for duplicates the ISRC misses).
+  if (!s.recording) {
+    if (state.pickingRecording === s.id) {
+      const others = (state.rows || []).filter((r) => r.song !== s && !r.removedNow && !r.blocked).map((r) => r.song);
+      const label = (x) => `${x.title} — ${x.artist || "?"}${x.album ? ` (${x.album})` : ""}`;
+      const byLabel = new Map(others.map((x) => [label(x), x]));
+      const combo = comboInput({ placeholder: "type a title…", "aria-label": `Same recording as (for ${s.title})` }, () => [...byLabel.keys()], (v) => {
+        const target = byLabel.get(v);
+        if (!target) return;
+        s.recording = recordingKey(target);
+        state.pickingRecording = null;
+        renderReview();
+      });
+      out.push(el("div", { class: "inline-fields" }, "Same recording as:", combo.wrap,
+        small("undo", "Cancel", "Cancel", () => (state.pickingRecording = null))));
+      setTimeout(() => combo.input.focus(), 0);
+    } else {
+      out.push(el("div", {}, small("", "Same recording as…", `Mark ${s.title} as the same recording as another song`,
+        () => (state.pickingRecording = s.id))));
+    }
+  }
+  return out;
+}
+
+/**
+ * The Work box: empty = the work worked out from the title (its name is shown in grey). Picking a
+ * work's name from the list joins that work; typing a new name makes a work of its own.
+ * "Rename work…" gives the whole work (all its songs) a new name.
+ */
+function workEditor(s) {
+  const list = s.work ? [s.work] : [];
+  const others = () => [...groups.works.values()].filter((w) => !w.songs.includes(s));
+  const editor = chipEditor(list, () => others().map((w) => w.name).sort(), {
+    placeholder: `auto: ${workNameOf(s)}`,
+    label: `Work for ${s.title}`,
+    // A work's name (as listed) becomes the text that joins it.
+    normalize: (v) => {
+      const w = others().find((x) => x.name === v);
+      return w ? joinValue(w.songs) : v;
+    },
+    onChange: () => {
+      // One work per song: the newest entry wins; none = back to the title's work.
+      const v = list[list.length - 1];
+      if (v && plainText(v) && plainText(v) !== workFromTitle(s.title)) s.work = v;
+      else delete s.work;
+      renderReview();
+    },
+  });
+  const work = groups.works.get(workKey(s));
+  const rename = work && work.songs.length > 1 && el("button", {
+    type: "button", class: "small", title: `Rename the work ${work.name}`, "aria-label": `Rename the work ${work.name}`,
+    onclick: () => {
+      const name = (prompt(`New name for this work (all ${work.songs.length} songs):`, work.name) || "").trim();
+      if (!name || !plainText(name) || name === work.name) return;
+      for (const x of work.songs) x.work = name;
+      renderReview();
+    },
+  }, "Rename work…");
+  return el("div", {}, editor, rename);
 }
 
 /* ------------------------------------------------------------------- 6. Save */

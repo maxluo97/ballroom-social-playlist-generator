@@ -9,6 +9,7 @@ import { songsToCSV, parseSongsText, parseRemovedSongs, removedSongsToCSV } from
 import { buildSampleLibrary } from "../tools/sample-library.js";
 import { playlistIdFrom } from "../js/spotify.js";
 import { sortRows } from "../js/dom.js";
+import { workFromTitle, workKey, recordingKey, ownRecordingKey, sameKeyGroups, workName, joinValue } from "../js/works.js";
 
 let failures = 0;
 const check = (cond, msg) => {
@@ -220,6 +221,61 @@ const firstDiff = lib.findIndex((s, i) => !same(s.dances, back.songs[i].dances) 
   s.title !== back.songs[i].title || s.lengthSec !== back.songs[i].lengthSec || (s.album ?? "") !== (back.songs[i].album ?? ""));
 check(firstDiff === -1, `song ${firstDiff} differs after the round trip`);
 check(back.songs[0].isrc === "USABC1234567", "isrc survives");
+
+console.log("=== Works and duplicates (js/works.js)");
+{
+  // Titles that are the same work, and titles that are not.
+  const sameWork = [
+    ["Fly Me To The Moon (2008 Remaster)", "Fly me to the moon"],
+    ["Hello - Live at Wembley", "Hello"],
+    ["Señorita (feat. Someone)", "Senorita"],
+    ['Moon River - From the film "Breakfast at Tiffany\'s"', "Moon River"],
+    ["Stayin' Alive [Instrumental]", "Stayin Alive"],
+    ["Rock & Roll ft. X", "Rock and Roll"],
+    ["Quizàs, Quizàs, Quizàs", "Quizas Quizas Quizas"],
+  ];
+  for (const [a, b] of sameWork) check(workFromTitle(a) === workFromTitle(b), `same work: "${a}" / "${b}" (${workFromTitle(a)} / ${workFromTitle(b)})`);
+  check(workFromTitle("Moon River") !== workFromTitle("Moon Dance"), "different titles are different works");
+  check(workFromTitle("(Radio Edit)") === "radio edit", "a title that is only brackets keeps its words");
+
+  // Overrides: a work name separates two songs with the same title; the recording key joins/separates.
+  const a = { id: "a", title: "Hello", isrc: "GB1" };
+  const b = { id: "b", title: "Hello", isrc: "us2" };
+  const c = { id: "c", title: "Hello (Live)", isrc: "GB1" };
+  check(workKey(a) === workKey(b) && workKey({ ...b, work: "Hello (Lionel Richie)" }) !== workKey(a), "a work override separates songs");
+  check(recordingKey(a) === recordingKey(c) && recordingKey(a) !== recordingKey(b), "the same ISRC is the same recording");
+  check(recordingKey({ ...c, recording: ownRecordingKey(c) }) !== recordingKey(a), '"Not a duplicate" separates them');
+  check(recordingKey({ ...b, recording: recordingKey(a) }) === recordingKey(a), '"Same recording as…" joins them');
+  check(recordingKey({ id: "x", title: "x" }) !== recordingKey({ id: "y", title: "x" }), "songs without an ISRC are not duplicates");
+  const g = sameKeyGroups([a, b, c], recordingKey);
+  check(g.has("a") && g.has("c") && !g.has("b") && g.get("a")[0] === c, "duplicate groups");
+
+  // Work names: "<title> — <artist>" of the oldest version, unless renamed by hand.
+  const q1 = { id: "q1", title: "Quizás, Quizás, Quizás (Remastered)", artist: "Ibrahim Ferrer", released: "1999" };
+  const q2 = { id: "q2", title: "Quizas Quizas Quizas", artist: "Nat King Cole", released: "1958" };
+  const q3 = { id: "q3", title: "Quizas, Quizas, Quizas", artist: "Someone" };
+  check(workName([q1, q2, q3]) === "Quizas Quizas Quizas — Nat King Cole", `named after the oldest version: ${workName([q1, q2, q3])}`);
+  check(workName([q3]) === "Quizas, Quizas, Quizas — Someone", "a song without a year names its own work");
+  const p = { id: "p", title: "Perhaps, Perhaps, Perhaps", artist: "Doris Day", released: "1965" };
+  // Joining: the stored text makes the keys match, and does not count as a new name.
+  const joined = { ...q1, work: joinValue([p]) };
+  check(workKey(joined) === workKey(p), `joining a work by its name: ${joinValue([p])}`);
+  check(workName([joined, p]) === "Perhaps, Perhaps, Perhaps — Doris Day", `a joined work keeps an automatic name: ${workName([joined, p])}`);
+  // Renaming: every song gets the new name, which is then the name of the work.
+  const renamed = [q1, q2, q3].map((s) => ({ ...s, work: "Quizás (Farrés)" }));
+  check(new Set(renamed.map(workKey)).size === 1 && workName(renamed) === "Quizás (Farrés)", "a renamed work keeps its songs and its new name");
+  check(joinValue(renamed) === "Quizás (Farrés)", "joining a renamed work uses its name");
+  // The release year survives the song files.
+  const y = parseSongsText(songsToCSV([{ id: "4uLU6hMCjMI75M1A2tKUQC", title: "x", artist: "y", lengthSec: 100, dances: ["Swing"], tags: [], released: "1958" }]), "songs.csv").songs[0];
+  check(y.released === "1958", "the release year survives songs.csv");
+
+  // The work and recording overrides survive songs.csv and removed-songs.csv.
+  const lib = [{ id: "4uLU6hMCjMI75M1A2tKUQC", title: "Hello", artist: "X", lengthSec: 200, dances: ["Swing"], tags: [], isrc: "GB1", work: "Hello (Adele)", recording: "id:4uLU6hMCjMI75M1A2tKUQC" }];
+  const back = parseSongsText(songsToCSV(lib), "songs.csv").songs[0];
+  check(back.work === "Hello (Adele)" && back.recording === "id:4uLU6hMCjMI75M1A2tKUQC", "work and recording survive songs.csv");
+  const removed = parseRemovedSongs(removedSongsToCSV([{ ...lib[0], removed: "2026-10-17" }])).get(lib[0].id);
+  check(removed.work === "Hello (Adele)" && removed.recording === lib[0].recording, "and removed-songs.csv");
+}
 
 console.log(failures ? `\nFAILED: ${failures} check(s).` : "\nPASSED: library checks.");
 process.exitCode = failures ? 1 : 0;

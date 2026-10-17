@@ -11,7 +11,10 @@
  *            (ballroom names are standardized on load: "American Rumba" -> "Rhythm Rumba", see dance-names.js)
  *   tags     optional, same separators                      e.g. "Hollywood; tempo change"
  *   album    optional (filled in by the library builder)
+ *   released optional: the year the album came out (filled in by the library builder; names works)
  *   isrc     optional recording code from Spotify (filled in by the library builder)
+ *   work     optional: which song this is a version of, overriding the one worked out from the title
+ *   recording optional: overrides the ISRC for spotting duplicates (see js/works.js)
  */
 
 import { canonicalDance } from "./dance-names.js";
@@ -24,11 +27,14 @@ const HEADER_ALIASES = {
   dances: ["dances", "dance"],
   tags: ["tags", "tag"],
   album: ["album"],
+  released: ["released", "year"],
   isrc: ["isrc"],
+  work: ["work"],
+  recording: ["recording"],
 };
 
 /** Column order used when writing the song library (see songsToCSV). */
-const LIBRARY_COLUMNS = ["id", "title", "artist", "album", "length", "dances", "tags", "isrc"];
+const LIBRARY_COLUMNS = ["id", "title", "artist", "album", "released", "length", "dances", "tags", "isrc", "work", "recording"];
 
 /** Returns { songs, problems }. Never cached, so a freshly saved file is always read. */
 export async function loadSongsFromUrl(url) {
@@ -53,6 +59,7 @@ export function parseSongsText(text, filename = "") {
     return {
       id: get("id"), title: get("title"), artist: get("artist"), length: get("length"),
       dances: get("dances"), tags: get("tags"), album: get("album"), isrc: get("isrc"),
+      work: get("work"), recording: get("recording"), released: get("released"),
     };
   });
   return fromRecords(records, "row", 2);
@@ -82,6 +89,9 @@ function fromRecords(records, noun, firstNumber = 1) {
     const song = { id, title: r.title, artist: r.artist || "", lengthSec, dances, tags: splitList(r.tags) };
     if (r.album) song.album = r.album;
     if (r.isrc) song.isrc = r.isrc;
+    if (r.released) song.released = String(r.released);
+    if (r.work) song.work = r.work;
+    if (r.recording) song.recording = r.recording;
     songs.push(song);
   });
   return { songs, problems };
@@ -143,9 +153,9 @@ export function parseCSV(text) {
  * removed-songs.csv keeps the whole song (the same columns as songs.csv) plus the date it was
  * removed, so a removed song can be restored exactly as it was.
  */
-const REMOVED_COLUMNS = ["id", "title", "artist", "removed", "album", "length", "dances", "tags", "isrc"];
+const REMOVED_COLUMNS = ["id", "title", "artist", "removed", "album", "released", "length", "dances", "tags", "isrc", "work", "recording"];
 
-/** Parse data/removed-songs.csv. Returns a Map id -> { id, title, artist, removed, album, lengthSec, dances, tags, isrc }. */
+/** Parse data/removed-songs.csv. Returns a Map id -> { id, title, artist, removed, album, lengthSec, dances, tags, isrc, work?, recording? }. */
 export function parseRemovedSongs(text) {
   const rows = parseCSV(String(text).replace(/^﻿/, "").trim());
   const out = new Map();
@@ -166,6 +176,9 @@ export function parseRemovedSongs(text) {
       dances: [...new Set(splitList(get("dances")).map(canonicalDance))],
       tags: splitList(get("tags")),
       isrc: get("isrc"),
+      ...(get("released") ? { released: get("released") } : {}),
+      ...(get("work") ? { work: get("work") } : {}),
+      ...(get("recording") ? { recording: get("recording") } : {}),
     });
   }
   return out;
@@ -209,10 +222,13 @@ export function songsToCSV(songs) {
       title: s.title,
       artist: s.artist ?? "",
       album: s.album ?? "",
+      released: s.released ?? "",
       length: mmss(s.lengthSec),
       dances: (s.dances || []).join("; "),
       tags: (s.tags || []).join("; "),
       isrc: s.isrc ?? "",
+      work: s.work ?? "",
+      recording: s.recording ?? "",
     };
     lines.push(LIBRARY_COLUMNS.map((c) => esc(row[c])).join(","));
   }

@@ -332,6 +332,65 @@ let totalBugs = 0;
   expect(validateSettings(songs, night([{ tag: "", count: 4 }])).errors.length > 0, "a block without a tag is an error");
 }
 
+/* ---- works and duplicates (the agreed spec, NOTES.md v0.2.4) ---- */
+{
+  console.log("=== Works and duplicates");
+  const expect = (cond, msg) => {
+    if (!cond) {
+      console.log(`  BUG: ${msg}`);
+      totalBugs++;
+    }
+  };
+  const base = SCENARIOS.find((sc) => sc.name.includes("N=2 (Ballroom/Latin), 3 h, no theme")).settings;
+  // 3 of the Waltz songs are the same work,
+  // and 2 of them (different IDs) the same recording.
+  const lib = buildSongs(10).map((sg) => ({ ...sg, isrc: `ISRC${sg.id}` }));
+  const waltz = lib.filter((sg) => sg.dances.length === 1 && sg.dances[0] === "Waltz").slice(0, 3);
+  waltz[0].title = "Moon River";
+  waltz[1].title = "Moon River - 2011 Remaster";
+  waltz[2].title = "Moon River (Live)";
+  waltz[2].isrc = waltz[1].isrc; // the same recording as waltz[1], under another ID
+  const ids = waltz.map((sg) => sg.id);
+  const count = (r, list) => r.playlist.filter((it) => list.includes(it.song.id)).length;
+
+  let bothWorksWhenOff = 0;
+  let separated = 0;
+  for (let seed = 1; seed <= 150; seed++) {
+    const on = { ...base, seed };
+    const r1 = generatePlaylist(lib, on);
+    expect(count(r1, ids) <= 1, `no two versions of one work in a night: ${count(r1, ids)}`);
+    expect(!checkRules(r1, on).some((v) => v.rule === "sameWork" || v.rule === "duplicateRecording"), "no works/duplicates rule breaks");
+
+    const off = { ...base, seed, noRepeatWorks: false };
+    const r2 = generatePlaylist(lib, off);
+    expect(count(r2, [ids[1], ids[2]]) <= 1, "duplicates never play together, even with the works rule off");
+    if (count(r2, ids) === 2) bothWorksWhenOff++;
+
+    // Overrides: a different work name, and "Not a duplicate", separate the songs again.
+    const split = lib.map((sg) => (sg.id === ids[2] ? { ...sg, work: "Another song", recording: `id:${sg.id}` } : sg.id === ids[1] ? { ...sg, work: "Third song" } : sg));
+    if (count(generatePlaylist(split, on), ids) >= 2) separated++;
+  }
+  console.log(`  works rule off: two versions in ${bothWorksWhenOff} of 150 nights; overrides separated them in ${separated} of 150`);
+  expect(bothWorksWhenOff > 0, "with the works rule off, two versions of one work can play");
+  expect(separated > 0, "work and recording overrides separate songs");
+
+  // "Same recording as…": a recording override joins two songs that have no ISRC in common.
+  const joined = lib.map((sg) => (sg.id === ids[0] ? { ...sg, title: "Something else", recording: `isrc:${waltz[1].isrc.toUpperCase()}` } : sg));
+  for (let seed = 1; seed <= 50; seed++) {
+    expect(count(generatePlaylist(joined, { ...base, seed, noRepeatWorks: false }), [ids[0], ids[1], ids[2]]) <= 1,
+      "songs joined as the same recording never play together");
+  }
+
+  // Last resort: a fixed event whose only songs are versions of one work still plays, with a warning.
+  const ev = { name: "Moon River x2", dances: ["Moon River dance"], count: 2, at: 0.5 };
+  const onlyVersions = [...lib, ...["Moon River", "Moon River (Remastered)"].map((title, i) => ({
+    id: `mr${i}`, title, lengthSec: 200, dances: ["Moon River dance"], tags: [], isrc: `MR${i}`,
+  }))];
+  const r3 = generatePlaylist(onlyVersions, { ...base, seed: 1, fixedEvents: [ev] });
+  expect(r3.playlist.filter((it) => it.source === ev.name).length === 2, "the fixed event plays both versions as a last resort");
+  expect(r3.warnings.some((w) => /versions of the same song allowed/.test(w.message)), "with a warning");
+}
+
 for (const sc of SCENARIOS) {
   const songs = sc.songs ?? buildSongs(sc.perDance);
   // Timing bounds use only the songs that may play (inside any song length limits).

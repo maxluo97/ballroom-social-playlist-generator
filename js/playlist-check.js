@@ -11,15 +11,20 @@ import { activeItems, hasEdits, asPlaylistSong, isThemeSong, recompute, rebaseli
 import { checkSongs, isUnavailable, unavailableReason, isChecked, RECHECK_AFTER_DAYS } from "./availability.js";
 import { associationMap, withinLengthLimits } from "./generator.js";
 import { spotifyTrackId } from "./data.js";
+import { workKey, recordingKey } from "./works.js";
 
 /** Another song of the same dance that fits the settings, is not in the playlist, and plays on Spotify. */
 export async function availableReplacement(r, item, songs, settings, random = Math.random) {
   const m = associationMap(settings.associations);
   const inPlaylist = new Set(activeItems(r).map((x) => x.song.id));
+  const others = activeItems(r).filter((x) => x !== item).map((x) => x.song);
+  const recordings = new Set(others.map(recordingKey));
+  const works = settings.noRepeatWorks === false ? new Set() : new Set(others.map(workKey));
   const candidates = songs
     .filter((sg) => spotifyTrackId(sg.id) && !inPlaylist.has(sg.id) && !isUnavailable(sg.id) &&
       withinLengthLimits(sg, settings) && sg.dances.some((d) => m(d) === item.dance) &&
-      (!item.blockTag || (sg.tags || []).includes(item.blockTag)))
+      (!item.blockTag || (sg.tags || []).includes(item.blockTag)) &&
+      !recordings.has(recordingKey(sg)) && !works.has(workKey(sg)))
     .map((sg) => ({ sg, known: isChecked(sg.id), order: random() }))
     // Songs already known to play come first; then unchecked ones, in random order.
     .sort((a, b) => (b.known ? 1 : 0) - (a.known ? 1 : 0) || a.order - b.order);
