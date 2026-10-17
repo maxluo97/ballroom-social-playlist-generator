@@ -318,20 +318,33 @@ export async function getPlaylistTracks(playlistId, onPage) {
 /**
  * The library playlist's songs, with Spotify's details and whether each can play in the user's
  * country (`GET /playlists/{id}/items?market=from_token`, 50 per request; see js/song-details.js).
- * With a market, Spotify may "relink" a song to another version; the library keeps the original ID
- * (`linked_from`), and Spotify plays the other version itself.
+ * With a market, Spotify may "relink" a song to another version (the library keeps the original ID,
+ * and Spotify plays the other version itself). The original ID comes from `linked_from`, which the
+ * OpenAPI spec marks deprecated; so if `libraryIds` is given and a song comes back under an ID the
+ * library does not know, the playlist is read once more without a market (no relinking: the original
+ * IDs) and the two are matched by position.
  * Returns [{ id, title, artist, album, released, lengthSec, isrc, isPlayable, reason }].
  */
-export async function getLibraryPlaylistSongs(playlistId, onPage) {
-  const entries = await allPages(`/playlists/${encodeURIComponent(playlistId)}/items?limit=50&market=from_token&additional_types=track`, onPage);
+export async function getLibraryPlaylistSongs(playlistId, onPage, libraryIds = null) {
+  const base = `/playlists/${encodeURIComponent(playlistId)}/items?limit=50&additional_types=track`;
+  const entries = await allPages(`${base}&market=from_token`, onPage);
   const songs = [];
-  for (const e of entries) {
+  entries.forEach((e, position) => {
     const t = e && (e.item ?? e.track); // `item` is current; `track` is the deprecated name
-    if (!t || e.is_local || t.type !== "track" || !t.id) continue;
+    if (!t || e.is_local || t.type !== "track" || !t.id) return;
     const id = (t.linked_from && t.linked_from.id) || t.id;
-    songs.push({ ...trackToSong(t), id, reason: (t.restrictions && t.restrictions.reason) || "" });
+    songs.push({ ...trackToSong(t), id, position, reason: (t.restrictions && t.restrictions.reason) || "" });
+  });
+  const known = libraryIds && new Set(libraryIds);
+  if (known && songs.some((sg) => !known.has(sg.id))) {
+    const plain = await allPages(base); // without a market: Spotify returns the original IDs
+    for (const sg of songs) {
+      if (known.has(sg.id)) continue;
+      const t = plain[sg.position] && (plain[sg.position].item ?? plain[sg.position].track);
+      if (t && t.id && known.has(t.id)) sg.id = t.id;
+    }
   }
-  return songs;
+  return songs.map(({ position, ...sg }) => sg);
 }
 
 /**

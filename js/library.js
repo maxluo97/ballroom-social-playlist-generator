@@ -266,7 +266,9 @@ async function loadProject() {
     const { songs, problems } = await loadSongsFromUrl(PROJECT_URL);
     state.libraryPlaylistId = await loadLibraryInfo();
     // Spotify's details (titles, lengths, …) are not in songs.csv: read them from the library playlist.
+    state.pendingRows = songs;
     if (isLoggedIn() && state.libraryPlaylistId && detailsNeedRefresh(state.libraryPlaylistId)) await refreshLibraryDetails(false);
+    state.pendingRows = null;
     setExisting(withDetails(songs), "data/songs.csv", problems);
     // What is saved right now: changes are measured against this.
     state.savedKey = filesKey(currentFiles());
@@ -288,6 +290,9 @@ async function loadLibraryInfo() {
   }
 }
 
+/** The song IDs of the library as it is now (or as loaded, before the review is built). */
+const libraryIdsNow = () => (state.rows ? keptSongs(state.rows) : state.pendingRows || []).map((s) => s.id);
+
 /** Read Spotify's details of the library from the library playlist (about one request per 50 songs). */
 async function refreshLibraryDetails(redraw = true) {
   if (!state.libraryPlaylistId || !isLoggedIn()) return;
@@ -298,7 +303,7 @@ async function refreshLibraryDetails(redraw = true) {
       state.details.refreshing = { done, total };
       const p = $("details-progress");
       if (p) p.textContent = `Reading your library from Spotify… ${done} of ${total} songs`;
-    });
+    }, libraryIdsNow());
   } catch (err) {
     state.details.error = err.status === 429
       ? "Spotify is limiting requests right now, so the library could not be read; try again later (an hour is a safe start)."

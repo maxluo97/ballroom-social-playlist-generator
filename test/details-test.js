@@ -21,6 +21,7 @@ const items = Array.from({ length: 120 }, (_, i) => {
   const n = i + 1;
   if (n === 7) return { item: track(7, { is_playable: false, restrictions: { reason: "market" } }) };
   if (n === 8) return { item: track(8, { id: id(9999), linked_from: { id: id(8) } }) };
+  if (n === 9) return { item: track(9), relinkedTo: id(8888) }; // relinked with a market, but no linked_from
   return { item: track(n) };
 });
 let requests = 0;
@@ -34,8 +35,9 @@ globalThis.fetch = async (url) => {
   const u = new URL(String(url));
   const offset = Number(u.searchParams.get("offset") || 0);
   const limit = Number(u.searchParams.get("limit") || 50);
-  const page = items.slice(offset, offset + limit);
-  const next = offset + limit < items.length ? `${u.origin}${u.pathname}?limit=${limit}&offset=${offset + limit}&market=from_token` : null;
+  const withMarket = u.searchParams.has("market");
+  const page = items.slice(offset, offset + limit).map((e) => (withMarket && e.relinkedTo ? { item: { ...e.item, id: e.relinkedTo } } : e));
+  const next = offset + limit < items.length ? `${u.origin}${u.pathname}?limit=${limit}&offset=${offset + limit}${withMarket ? "&market=from_token" : ""}` : null;
   return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ items: page, total: items.length, next }) };
 };
 
@@ -63,7 +65,15 @@ console.log("=== Reading the library playlist");
   check(details.isUnavailable(id(7)) && details.unavailableReason(id(7)) === "cannot be played on Spotify (not licensed in your country)",
     "is_playable false: unavailable, with the reason");
   check(!details.isUnavailable(id(1)) && details.isChecked(id(1)), "a playable song");
-  check(details.detailsOf(id(8)) && !details.detailsOf(id(9999)), "a relinked song keeps its original ID");
+  check(details.detailsOf(id(8)) && !details.detailsOf(id(9999)), "a relinked song keeps its original ID (linked_from)");
+  check(details.detailsOf(id(8888)) && !details.detailsOf(id(9)), "without the library's IDs, a relink without linked_from cannot be undone");
+
+  // With the library's IDs: the playlist is read once more without a market, and matched by position.
+  requests = 0;
+  const libraryIds = Array.from({ length: 120 }, (_, i) => id(i + 1));
+  await details.refreshDetails("PL", null, libraryIds);
+  check(details.detailsOf(id(9)) && !details.detailsOf(id(8888)), "a relink without linked_from keeps the original ID (second read)");
+  check(requests === 6, `the second read happens only then: ${requests} requests (3 + 3)`);
 }
 
 console.log("=== Library rows with details");

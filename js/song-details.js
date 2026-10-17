@@ -74,9 +74,12 @@ export function forgetExpiredDetails() {
   }
 }
 
-/** Read the library playlist's songs from Spotify and keep their details here. Returns the count. */
-export async function refreshDetails(playlistId, onProgress) {
-  const songs = await getLibraryPlaylistSongs(playlistId, onProgress);
+/**
+ * Read the library playlist's songs from Spotify and keep their details here. `libraryIds` (the
+ * library's song IDs) lets a song that Spotify relinked to another version keep its own ID. Returns the count.
+ */
+export async function refreshDetails(playlistId, onProgress, libraryIds = null) {
+  const songs = await getLibraryPlaylistSongs(playlistId, onProgress, libraryIds);
   const map = {};
   for (const sg of songs) {
     map[sg.id] = { title: sg.title, artist: sg.artist, album: sg.album, released: sg.released, lengthSec: sg.lengthSec,

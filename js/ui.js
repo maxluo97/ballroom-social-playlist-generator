@@ -1047,7 +1047,7 @@ async function refreshLibrary() {
       lib.refreshing = { done, total };
       const p = $("refresh-progress");
       if (p) p.textContent = `Reading your library from Spotify… ${done} of ${total} songs`;
-    });
+    }, (state.rows || []).map((r) => r.id));
   } catch (err) {
     lib.error = err.status === 429
       ? "Spotify is limiting requests right now, so the library could not be read; try again later (an hour is a safe start)."
