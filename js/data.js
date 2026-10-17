@@ -1,100 +1,84 @@
 /**
- * data.js — loading the song library (JSON or CSV) into the song format the generator uses:
- *   { id, title, artist, lengthSec, dances: [...], tags: [...] }
+ * data.js — the song library files and their format.
  *
- * CSV format (first row = headers, case-insensitive, extra columns ignored):
- *   id       Spotify track ID (also accepted: "track id", "spotify id", "trackId")
- *   title    song title (also: "name", "song")
- *   artist   optional
- *   length   "3:25" or seconds (also: "duration", "lengthSec")
- *   dances   one or more dances separated by ";" or "|"   e.g. "Smooth Waltz; Standard Waltz"
- *            (ballroom names are standardized on load: "American Rumba" -> "Rhythm Rumba", see dance-names.js)
- *   tags     optional, same separators                      e.g. "Hollywood; tempo change"
- *   album    optional (filled in by the library builder)
- *   released optional: the year the album came out (filled in by the library builder; names works)
- *   isrc     optional recording code from Spotify (filled in by the library builder)
- *   work     optional: which song this is a version of, overriding the one worked out from the title
+ * The library files hold only Spotify IDs and the user's own data: Spotify's Developer Terms do not
+ * allow storing Spotify Content (titles, artists, lengths, …) indefinitely. Spotify's details are
+ * read from the library playlist and kept in the browser only temporarily (js/song-details.js);
+ * withDetails() there turns these rows into full songs for the generator.
+ *
+ * data/songs.csv (first row = headers, case-insensitive, extra columns ignored):
+ *   id        Spotify track ID (also accepted: a "spotify:track:" URI or an open.spotify.com link)
+ *   dances    one or more dances separated by ";" or "|"   e.g. "Smooth Waltz; Standard Waltz"
+ *             (ballroom names are standardized on load: "American Rumba" -> "Rhythm Rumba", see dance-names.js)
+ *   tags      optional, same separators                      e.g. "Hollywood; tempo change"
+ *   work      optional: which song this is a version of, overriding the one worked out from the title
  *   recording optional: overrides the ISRC for spotting duplicates (see js/works.js)
+ * data/removed-songs.csv: the same, plus "removed" (the date). data/library.json: the library
+ * playlist's ID ({ "playlistId": "…" }).
  */
 
 import { canonicalDance } from "./dance-names.js";
 
 const HEADER_ALIASES = {
   id: ["id", "track id", "trackid", "spotify id", "spotify_id", "spotifyid", "track_id"],
-  title: ["title", "name", "song", "song title"],
-  artist: ["artist", "artists"],
-  length: ["length", "lengthsec", "length_sec", "duration", "time"],
   dances: ["dances", "dance"],
   tags: ["tags", "tag"],
-  album: ["album"],
-  released: ["released", "year"],
-  isrc: ["isrc"],
   work: ["work"],
   recording: ["recording"],
 };
 
 /** Column order used when writing the song library (see songsToCSV). */
-const LIBRARY_COLUMNS = ["id", "title", "artist", "album", "released", "length", "dances", "tags", "isrc", "work", "recording"];
+const LIBRARY_COLUMNS = ["id", "dances", "tags", "work", "recording"];
 
-/** Returns { songs, problems }. Never cached, so a freshly saved file is always read. */
+/** Returns { songs, problems }: library rows (no Spotify details). Never cached, so a freshly saved file is always read. */
 export async function loadSongsFromUrl(url) {
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`Could not load ${url} (HTTP ${res.status}).`);
   return parseSongsText(await res.text(), url);
 }
 
-/** Parse a JSON or CSV file's text. Returns { songs, problems }. */
-export function parseSongsText(text, filename = "") {
-  const trimmed = text.replace(/^﻿/, "").trim();
-  if (/\.json$/i.test(filename) || trimmed.startsWith("[")) return fromRecords(JSON.parse(trimmed), "item");
-  const rows = parseCSV(trimmed);
+/** Parse songs.csv's text into library rows. Returns { songs, problems }. */
+export function parseSongsText(text) {
+  const rows = parseCSV(text.replace(/^\uFEFF/, "").trim());
   if (rows.length < 2) return { songs: [], problems: ["The CSV file has no data rows."] };
   const headers = rows[0].map((h) => h.trim().toLowerCase());
   const col = {};
   for (const [key, aliases] of Object.entries(HEADER_ALIASES)) col[key] = headers.findIndex((h) => aliases.includes(h));
-  const missing = ["title", "length", "dances"].filter((k) => col[k] < 0);
+  const missing = ["id", "dances"].filter((k) => col[k] < 0);
   if (missing.length) return { songs: [], problems: [`The CSV file is missing column(s): ${missing.join(", ")}.`] };
   const records = rows.slice(1).map((r) => {
     const get = (k) => (col[k] >= 0 ? (r[col[k]] ?? "").trim() : "");
-    return {
-      id: get("id"), title: get("title"), artist: get("artist"), length: get("length"),
-      dances: get("dances"), tags: get("tags"), album: get("album"), isrc: get("isrc"),
-      work: get("work"), recording: get("recording"), released: get("released"),
-    };
+    return { id: get("id"), dances: get("dances"), tags: get("tags"), work: get("work"), recording: get("recording") };
   });
   return fromRecords(records, "row", 2);
 }
 
-/** Normalize records from JSON or CSV; skips unusable ones and reports why. */
+/** Normalize records; skips unusable ones and reports why. */
 function fromRecords(records, noun, firstNumber = 1) {
   const songs = [];
   const problems = [];
   const ids = new Set();
   records.forEach((r, i) => {
     const where = `${noun} ${i + firstNumber}`;
-    if (!r || (!r.title && !r.dances)) return; // blank line
-    const lengthSec = parseLength(r.lengthSec ?? r.length);
+    if (!r || (!r.id && !r.dances)) return; // blank line
+    const id = spotifyTrackId(r.id);
     // Standard dance names ("American Rumba" -> "Rhythm Rumba"); duplicates removed.
-    const dances = [...new Set(splitList(r.dances ?? r.dance).map(canonicalDance))];
-    if (!r.title) return problems.push(`${where}: no title.`);
-    if (!(lengthSec > 0)) return problems.push(`${where} ("${r.title}"): length missing or not understood.`);
-    if (!dances.length) return problems.push(`${where} ("${r.title}"): no dances.`);
-    const rawId = String(r.id || "").trim();
-    let id = spotifyTrackId(rawId) ?? (rawId || `row${i + firstNumber}`);
-    if (ids.has(id)) {
-      problems.push(`${where} ("${r.title}"): duplicate id ${id}; kept both.`);
-      id = `${id}#${i}`;
-    }
+    const dances = [...new Set(splitList(r.dances).map(canonicalDance))];
+    if (!id) return problems.push(`${where}: "${r.id}" is not a Spotify track ID.`);
+    if (!dances.length) return problems.push(`${where} (${id}): no dances.`);
+    if (ids.has(id)) return problems.push(`${where}: ${id} is listed twice; the second one was left out.`);
     ids.add(id);
-    const song = { id, title: r.title, artist: r.artist || "", lengthSec, dances, tags: splitList(r.tags) };
-    if (r.album) song.album = r.album;
-    if (r.isrc) song.isrc = r.isrc;
-    if (r.released) song.released = String(r.released);
-    if (r.work) song.work = r.work;
-    if (r.recording) song.recording = r.recording;
-    songs.push(song);
+    songs.push(libraryRow({ id, dances, tags: splitList(r.tags), work: r.work, recording: r.recording }));
   });
   return { songs, problems };
+}
+
+/** A library row: the ID and the user's own data only (what the library files may store). */
+export function libraryRow(s) {
+  const row = { id: s.id, dances: [...(s.dances || [])], tags: [...(s.tags || [])] };
+  if (s.work) row.work = s.work;
+  if (s.recording) row.recording = s.recording;
+  return row;
 }
 
 function splitList(v) {
@@ -150,12 +134,12 @@ export function parseCSV(text) {
 /* ------------------------------------------- removed songs (data/removed-songs.csv) */
 
 /*
- * removed-songs.csv keeps the whole song (the same columns as songs.csv) plus the date it was
- * removed, so a removed song can be restored exactly as it was.
+ * removed-songs.csv keeps the song's library row (the same columns as songs.csv) plus the date it
+ * was removed, so a removed song can be restored with its dances, tags and corrections.
  */
-const REMOVED_COLUMNS = ["id", "title", "artist", "removed", "album", "released", "length", "dances", "tags", "isrc", "work", "recording"];
+const REMOVED_COLUMNS = ["id", "removed", "dances", "tags", "work", "recording"];
 
-/** Parse data/removed-songs.csv. Returns a Map id -> { id, title, artist, removed, album, lengthSec, dances, tags, isrc, work?, recording? }. */
+/** Parse data/removed-songs.csv. Returns a Map id -> { id, removed, dances, tags, work?, recording? }. */
 export function parseRemovedSongs(text) {
   const rows = parseCSV(String(text).replace(/^﻿/, "").trim());
   const out = new Map();
@@ -167,18 +151,8 @@ export function parseRemovedSongs(text) {
     const id = spotifyTrackId(get("id")) ?? get("id");
     if (!id) continue;
     out.set(id, {
-      id,
-      title: get("title"),
-      artist: get("artist"),
+      ...libraryRow({ id, dances: [...new Set(splitList(get("dances")).map(canonicalDance))], tags: splitList(get("tags")), work: get("work"), recording: get("recording") }),
       removed: get("removed"),
-      album: get("album"),
-      lengthSec: parseLength(get("length")),
-      dances: [...new Set(splitList(get("dances")).map(canonicalDance))],
-      tags: splitList(get("tags")),
-      isrc: get("isrc"),
-      ...(get("released") ? { released: get("released") } : {}),
-      ...(get("work") ? { work: get("work") } : {}),
-      ...(get("recording") ? { recording: get("recording") } : {}),
     });
   }
   return out;
@@ -187,7 +161,6 @@ export function parseRemovedSongs(text) {
 /** Removed songs -> CSV text for data/removed-songs.csv. */
 export function removedSongsToCSV(entries) {
   const cell = (e, c) => {
-    if (c === "length") return e.lengthSec > 0 ? mmss(e.lengthSec) : "";
     if (c === "dances" || c === "tags") return (e[c] || []).join("; ");
     return e[c] ?? "";
   };
@@ -211,40 +184,28 @@ export function spotifyLink(id) {
 }
 
 const esc = (v) => (/[",\n\r]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
-const mmss = (sec) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, "0")}`;
 
-/** Song library -> CSV text in the format parseSongsText reads (lists joined with "; "). */
+/** Song library -> CSV text in the format parseSongsText reads (lists joined with "; "). Only IDs and the user's own data. */
 export function songsToCSV(songs) {
   const lines = [LIBRARY_COLUMNS.join(",")];
   for (const s of songs) {
-    const row = {
-      id: s.id,
-      title: s.title,
-      artist: s.artist ?? "",
-      album: s.album ?? "",
-      released: s.released ?? "",
-      length: mmss(s.lengthSec),
-      dances: (s.dances || []).join("; "),
-      tags: (s.tags || []).join("; "),
-      isrc: s.isrc ?? "",
-      work: s.work ?? "",
-      recording: s.recording ?? "",
-    };
-    lines.push(LIBRARY_COLUMNS.map((c) => esc(row[c])).join(","));
+    const r = libraryRow(s);
+    const row = { id: r.id, dances: r.dances.join("; "), tags: r.tags.join("; "), work: r.work ?? "", recording: r.recording ?? "" };
+    lines.push(LIBRARY_COLUMNS.map((k) => esc(row[k])).join(","));
   }
   return lines.join("\n") + "\n";
 }
 
-/** Playlist -> CSV text (for download). */
-export function playlistToCSV(result) {
-  const lines = [["#", "start", "dance", "type", "title", "artist", "length", "spotify id", "spotify link"].join(",")];
-  for (const it of result.playlist) {
-    const fmt = mmss;
-    lines.push(
-      [it.index + 1, fmt(it.startSec), it.dance, it.category ?? it.source ?? it.kind, it.song.title, it.song.artist ?? "", fmt(it.song.lengthSec), it.song.id, spotifyLink(it.song.id) ?? ""]
-        .map(esc)
-        .join(",")
-    );
+/* ---------------------------------------------- the library playlist (data/library.json) */
+
+/** Read data/library.json: { playlistId } (the library playlist's ID, or null). */
+export function parseLibraryInfo(text) {
+  try {
+    const d = JSON.parse(String(text).replace(/^\uFEFF/, ""));
+    return { playlistId: d && typeof d.playlistId === "string" && d.playlistId ? d.playlistId : null };
+  } catch {
+    return { playlistId: null };
   }
-  return lines.join("\n") + "\n";
 }
+
+export const libraryInfoText = (info) => JSON.stringify({ playlistId: info.playlistId || null }, null, 2) + "\n";

@@ -82,7 +82,7 @@ check(same(tangoFlag("Milonga night"), []), "milonga: Argentine, not flagged");
 check(same(tangoFlag("Waltz"), []), "other bare dances: not flagged");
 
 for (const [input, expected] of canon) check(canonicalDance(input) === expected, `canonicalDance("${input}") = "${canonicalDance(input)}", expected "${expected}"`);
-const csv = parseSongsText("id,title,length,dances\nx,Song,3:00,American Rumba; Rhythm Rumba; Intl Cha Cha\n", "t.csv");
+const csv = parseSongsText("id,dances\n4uLU6hMCjMI75M1A2tKUQC,American Rumba; Rhythm Rumba; Intl Cha Cha\n");
 check(same(csv.songs[0].dances, ["Rhythm Rumba", "Latin Cha-cha"]), `CSV dances standardized and de-duplicated: ${csv.songs[0].dances}`);
 
 console.log("=== Merging imports into a library");
@@ -141,8 +141,8 @@ console.log("=== Removing songs (blacklist)");
     { id: tid(1), title: "Keep me", artist: "A", lengthSec: 180, dances: ["Smooth Waltz"], tags: [] },
     { id: tid(2), title: "Remove me", artist: "B", lengthSec: 180, dances: ["Smooth Waltz"], tags: [] },
   ];
-  const black = parseRemovedSongs(`id,title,artist,removed\n${tid(3)},"Gone, once",C,2026-10-01\n`);
-  check(black.size === 1 && black.get(tid(3)).title === "Gone, once" && black.get(tid(3)).removed === "2026-10-01", "removed-songs.csv parsed");
+  const black = parseRemovedSongs(`id,removed,dances\n${tid(3)},2026-10-01,Smooth Waltz\n`);
+  check(black.size === 1 && black.get(tid(3)).removed === "2026-10-01" && same(black.get(tid(3)).dances, ["Smooth Waltz"]), "removed-songs.csv parsed");
   const rows = markPreviouslyRemoved(mergeImport(lib, [
     { playlistName: "Waltzes", dances: ["Smooth Waltz"], tags: [], songs: [sp(tid(3), "Gone, once"), sp(tid(4), "Brand new")] },
   ]), black);
@@ -158,9 +158,9 @@ console.log("=== Removing songs (blacklist)");
   check(blacklistChanged(rows) && same(next.map((e) => e.id), [tid(2)]) && next[0].removed === "2026-10-20",
     `blacklist: + removed song, - re-imported song: ${JSON.stringify(next)}`);
   const back = parseRemovedSongs(removedSongsToCSV(next));
-  check(back.get(tid(2)).title === "Remove me" && back.get(tid(2)).removed === "2026-10-20", "removed-songs.csv round trip");
-  check(back.get(tid(2)).lengthSec === 180 && same(back.get(tid(2)).dances, ["Smooth Waltz"]),
-    "the whole song is kept in removed-songs.csv (length, dances), so it can be restored as it was");
+  check(back.get(tid(2)).removed === "2026-10-20" && same(back.get(tid(2)).dances, ["Smooth Waltz"]), "removed-songs.csv round trip (dances kept)");
+  check(back.get(tid(2)).title === undefined && back.get(tid(2)).lengthSec === undefined && !removedSongsToCSV(next).includes("Remove me"),
+    "removed-songs.csv holds no Spotify details (title, length)");
 
   // Restoring from the blacklist: every blacklisted song not otherwise present gets a row.
   check(blacklistRows(markPreviouslyRemoved(mergeImport(lib, []), back), back).length === 0,
@@ -209,18 +209,21 @@ const manual = mergeImport([{ id: "A", title: "Old", artist: "", lengthSec: 180,
 check(same(manual[0].song.dances, ["Smooth Waltz", "Latin Rumba"]) && same(manual[0].song.tags, ["Favourite"]), "hand-added dance and tag added to an existing song");
 check(manual[1].status === "new" && same(manual[1].song.dances, ["Rhythm Swing"]), "hand-added new song");
 
-console.log("=== CSV round trip (songsToCSV -> parseSongsText)");
-const lib = buildSampleLibrary();
+console.log("=== CSV round trip (songsToCSV -> parseSongsText): IDs and the user's own data only");
+const lib = buildSampleLibrary().map((s, i) => ({ ...s, id: `s${i}`.padEnd(22, "x") }));
 lib[0].title = 'Tricky, "quoted" title';
 lib[0].album = "Album, with comma";
 lib[0].isrc = "USABC1234567";
-const back = parseSongsText(songsToCSV(lib), "songs.csv");
+const text = songsToCSV(lib);
+const back = parseSongsText(text);
 check(back.problems.length === 0, `problems: ${back.problems.join("; ")}`);
 check(back.songs.length === lib.length, `count ${back.songs.length} vs ${lib.length}`);
-const firstDiff = lib.findIndex((s, i) => !same(s.dances, back.songs[i].dances) || !same(s.tags, back.songs[i].tags) ||
-  s.title !== back.songs[i].title || s.lengthSec !== back.songs[i].lengthSec || (s.album ?? "") !== (back.songs[i].album ?? ""));
+const firstDiff = lib.findIndex((s, i) => s.id !== back.songs[i].id || !same(s.dances, back.songs[i].dances) || !same(s.tags, back.songs[i].tags));
 check(firstDiff === -1, `song ${firstDiff} differs after the round trip`);
-check(back.songs[0].isrc === "USABC1234567", "isrc survives");
+check(text.split("\n")[0] === "id,dances,tags,work,recording", `songs.csv columns: ${text.split("\n")[0]}`);
+check(!text.includes("Tricky") && !text.includes("Album, with comma") && !text.includes("USABC1234567") && back.songs[0].title === undefined,
+  "songs.csv holds no Spotify details (title, album, ISRC)");
+check(parseSongsText("id,dances\nnot-an-id,Waltz\n").problems.length === 1, "a row without a Spotify track ID is reported");
 
 console.log("=== Works and duplicates (js/works.js)");
 {
@@ -265,13 +268,10 @@ console.log("=== Works and duplicates (js/works.js)");
   const renamed = [q1, q2, q3].map((s) => ({ ...s, work: "Quizás (Farrés)" }));
   check(new Set(renamed.map(workKey)).size === 1 && workName(renamed) === "Quizás (Farrés)", "a renamed work keeps its songs and its new name");
   check(joinValue(renamed) === "Quizás (Farrés)", "joining a renamed work uses its name");
-  // The release year survives the song files.
-  const y = parseSongsText(songsToCSV([{ id: "4uLU6hMCjMI75M1A2tKUQC", title: "x", artist: "y", lengthSec: 100, dances: ["Swing"], tags: [], released: "1958" }]), "songs.csv").songs[0];
-  check(y.released === "1958", "the release year survives songs.csv");
 
   // The work and recording overrides survive songs.csv and removed-songs.csv.
   const lib = [{ id: "4uLU6hMCjMI75M1A2tKUQC", title: "Hello", artist: "X", lengthSec: 200, dances: ["Swing"], tags: [], isrc: "GB1", work: "Hello (Adele)", recording: "id:4uLU6hMCjMI75M1A2tKUQC" }];
-  const back = parseSongsText(songsToCSV(lib), "songs.csv").songs[0];
+  const back = parseSongsText(songsToCSV(lib)).songs[0];
   check(back.work === "Hello (Adele)" && back.recording === "id:4uLU6hMCjMI75M1A2tKUQC", "work and recording survive songs.csv");
   const removed = parseRemovedSongs(removedSongsToCSV([{ ...lib[0], removed: "2026-10-17" }])).get(lib[0].id);
   check(removed.work === "Hello (Adele)" && removed.recording === lib[0].recording, "and removed-songs.csv");

@@ -1,34 +1,11 @@
 /**
- * playlist-test.js — editing a generated playlist by hand (js/playlist-edit.js) and checking it on
- * Spotify with automatic replacement (js/playlist-check.js, against a fake Spotify).
+ * playlist-test.js — editing a generated playlist by hand (js/playlist-edit.js): swaps, moves, undo,
+ * blocks, locks and regenerating.
  * Run with:   npm test
  */
 
-// A fake browser storage with a valid-looking login; a fake Spotify where some songs are gone.
-const memory = { "dpg.spotify.tokens.v1": JSON.stringify({ accessToken: "x", refreshToken: "y", expiresAt: Date.now() + 3600e3 }) };
-globalThis.localStorage = {
-  getItem: (k) => memory[k] ?? null,
-  setItem: (k, v) => (memory[k] = String(v)),
-  removeItem: (k) => delete memory[k],
-};
-const gone = new Set(); // track IDs the fake Spotify reports as missing
-const limited = new Set(); // track IDs for which the fake Spotify says "too many requests, wait an hour"
-globalThis.fetch = async (url) => {
-  const id = String(url).match(/tracks\/([^?]+)/)[1];
-  if (limited.has(id)) {
-    return { ok: false, status: 429, headers: { get: (h) => (h === "Retry-After" ? "3600" : null) },
-      json: async () => ({ error: { status: 429, message: "quota exceeded" } }) };
-  }
-  const missing = gone.has(id);
-  return {
-    ok: !missing, status: missing ? 404 : 200, headers: { get: () => null },
-    json: async () => (missing ? { error: { status: 404, message: "Non existing id" } } : { id, name: "x", is_playable: true }),
-  };
-};
-
 const { generatePlaylist, checkRules } = await import("../js/generator.js");
 const edit = await import("../js/playlist-edit.js");
-const { checkAndReplace } = await import("../js/playlist-check.js");
 const { buildSampleLibrary } = await import("../tools/sample-library.js");
 const { APP_DEFAULTS } = await import("./defaults.js");
 
@@ -255,36 +232,6 @@ console.log("=== Lock and regenerate, many nights");
     check(silent === 0, `${what}: no rule broken silently: ${silent} nights`);
     if (!heavy) check(warned <= 5, `${what}: rules rarely need relaxing: ${warned} of 100 nights`);
   }
-}
-
-console.log("=== Spotify check replaces unavailable songs");
-{
-  const r = fresh();
-  const victim = r.playlist.find((x) => x.kind === "regular");
-  const victimId = victim.song.id;
-  gone.add(victimId);
-  const result = await checkAndReplace(r, songs, settings);
-  check(result && result.replaced === 1 && result.unresolved === 0, `one song replaced: ${JSON.stringify(result)}`);
-  check(victim.song.id !== victimId && victim.song.dances.includes(victim.dance), "replaced by a song of the same dance");
-  check(victim.autoReplaced && !victim.swapped && !edit.hasEdits(r), "a replacement is the generator's choice, not an edit");
-  check(!ids(r).includes(victimId) && new Set(ids(r)).size === ids(r).length, "the unavailable song is gone; no duplicates");
-  check(r.editViolations.length === 0 && timesConsistent(r), "no reported problems after replacing");
-  check(checkRules(edit.activeResult(r), settings).every((v) => r.baselineViolations.includes(edit.violationKey(v, edit.activeItems(r)))),
-    "the replaced playlist still follows the rules it followed when generated");
-}
-
-console.log("=== Spotify limiting requests: songs are reported as unchecked, not as playable");
-{
-  // A different night, so its songs have not all been checked already.
-  const r = edit.prepareGenerated(generatePlaylist(songs, { ...settings, seed: 99 }), settings);
-  for (const it of edit.activeItems(r).slice(0, 3)) limited.add(it.song.id);
-  const result = await checkAndReplace(r, songs, settings, { force: true });
-  check(result.rateLimited && result.rateLimited.retryAfter === 3600, `the limit is reported: ${JSON.stringify(result.rateLimited)}`);
-  check(result.unchecked > 0, `songs Spotify did not answer for are counted as unchecked: ${result.unchecked}`);
-  check(result.replaced === 0, "nothing is replaced because of a song that merely could not be checked");
-  limited.clear();
-  const again = await checkAndReplace(r, songs, settings, { force: true });
-  check(!again.rateLimited && again.unchecked === 0, `"Check again" after the limit has passed checks everything: ${JSON.stringify(again)}`);
 }
 
 console.log(failures ? `\nFAILED: ${failures} check(s).` : "\nPASSED: playlist editing checks.");

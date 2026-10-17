@@ -15,10 +15,12 @@ import {
   THEME_TEMPLATE, clone, loadLastSettings, saveLastSettings,
   loadDefaultSettings, workingSettings, parseSettingsFile, settingsFileText,
 } from "./settings.js";
-import { loadSongsFromUrl, playlistToCSV, spotifyLink, spotifyTrackId, parseLength } from "./data.js";
+import { loadSongsFromUrl, parseLibraryInfo, spotifyLink, spotifyTrackId, parseLength } from "./data.js";
 import { handleLoginRedirect, isLoggedIn, login as spotifyLogin, createPlaylist, addTracksToPlaylist } from "./spotify.js";
 import { el, fill, $, comboInput, sortRows, sortHeader, chipEditor as sharedChipEditor } from "./dom.js";
-import { checkSongs, isUnavailable, unavailableReason, isChecked, checkFailed } from "./availability.js";
+import {
+  isUnavailable, unavailableReason, withDetails, refreshDetails, detailsNeedRefresh, detailsAgeDays, forgetExpiredDetails,
+} from "./song-details.js";
 import { DANCE_ALIASES, BALLROOM_DANCE_NAMES, canonicalDance, unknownDanceMessage } from "./dance-names.js";
 import {
   activeItems, activeResult, hasEdits, prepareGenerated,
@@ -26,7 +28,6 @@ import {
   undo as undoEdit, moveItem, moveBy, moveGroup, moveGroupBy, toggleLock, lockAll, unlockAll,
   groupStates, typeLabel, lockedForRegeneration,
 } from "./playlist-edit.js";
-import { checkAndReplace } from "./playlist-check.js";
 
 const PROJECT_URL = "data/songs.csv";
 const PROJECT_NAME = "Project library (data/songs.csv)";
@@ -837,7 +838,7 @@ function renderValidation() {
     ? validateSettings(state.songs, state.settings)
     : { errors: ["No song library is loaded."], warnings: [] };
   state.errors = errors;
-  $("generate").disabled = errors.length > 0;
+  $("generate").disabled = errors.length > 0 || !state.songs.length;
   $("validation").replaceChildren(
     ...(errors.length || warnings.length
       ? [el("ul", { class: "msgs" },
@@ -964,38 +965,85 @@ function renderSettingsBar() {
 /* ----------------------------------------------------------------- library */
 
 /*
- * The song library is always data/songs.csv, made and saved with the library builder. Nothing is
- * kept in the browser, so there is never any doubt which library is in use. Until data/songs.csv
- * exists, the page points to the library builder.
+ * The song library is always data/songs.csv (Spotify IDs and your own data), made and saved with the
+ * library builder. Spotify's details (titles, lengths, whether a song can play) are read from the
+ * library playlist named in data/library.json, and kept in this browser only temporarily
+ * (js/song-details.js). Generating needs them, so it needs a Spotify login.
  */
 
-function setLibrary(songs, name, problems) {
-  state.songs = songs;
-  state.library = { name, problems };
+const LIBRARY_INFO_URL = "data/library.json";
+
+/** Rebuild the songs the generator uses from the library rows and the details now known. */
+function applyDetails() {
+  const all = withDetails(state.rows || []);
+  state.songs = all.filter((sg) => !sg.unknown);
+  state.library.unknown = all.length - state.songs.length;
+}
+
+function setLibrary(rows, name, problems, playlistId) {
+  state.rows = rows;
+  state.library = { name, problems, playlistId, unknown: 0, refreshing: null, error: null };
+  applyDetails();
   state.result = null;
   renderLibrary();
   renderResults();
   refresh();
 }
 
-/** The project library (data/songs.csv), or null if it does not exist yet. */
+/** The project library (data/songs.csv and data/library.json), or null if it does not exist yet. */
 async function fetchProjectLibrary() {
   try {
-    return await loadSongsFromUrl(PROJECT_URL);
+    const lib = await loadSongsFromUrl(PROJECT_URL);
+    let info = { playlistId: null };
+    try {
+      const res = await fetch(LIBRARY_INFO_URL, { cache: "no-store" });
+      if (res.ok) info = parseLibraryInfo(await res.text());
+    } catch {
+      /* no library playlist yet */
+    }
+    return { ...lib, playlistId: info.playlistId };
   } catch {
     return null;
   }
 }
 
-/** Startup: data/songs.csv, or nothing (with directions to the library builder). */
+/** Startup: data/songs.csv, or nothing (with directions to the library builder); then Spotify's details. */
 async function loadStartingLibrary() {
+  forgetExpiredDetails(); // Spotify's details are only kept temporarily
   const project = await fetchProjectLibrary();
-  if (project) return setLibrary(project.songs, PROJECT_NAME, project.problems);
-  setLibrary([], "", []);
+  if (!project) return setLibrary([], "", [], null);
+  setLibrary(project.songs, PROJECT_NAME, project.problems, project.playlistId);
+  if (isLoggedIn() && project.playlistId && detailsNeedRefresh(project.playlistId)) await refreshLibrary();
+}
+
+/** Read Spotify's details of the library from the library playlist (about one request per 50 songs). */
+async function refreshLibrary() {
+  const lib = state.library;
+  if (!lib.playlistId || !isLoggedIn()) return;
+  lib.refreshing = { done: 0, total: state.rows.length };
+  lib.error = null;
+  renderLibrary();
+  try {
+    await refreshDetails(lib.playlistId, (done, total) => {
+      lib.refreshing = { done, total };
+      const p = $("refresh-progress");
+      if (p) p.textContent = `Reading your library from Spotify… ${done} of ${total} songs`;
+    });
+  } catch (err) {
+    lib.error = err.status === 429
+      ? "Spotify is limiting requests right now, so the library could not be read; try again later (an hour is a safe start)."
+      : `The library could not be read from Spotify: ${err.message}`;
+  }
+  lib.refreshing = null;
+  applyDetails();
+  state.result = null;
+  renderLibrary();
+  renderResults();
+  refresh();
 }
 
 function renderLibrary() {
-  const { name, problems } = state.library;
+  const { name, problems, playlistId, unknown, refreshing, error } = state.library;
   const builder = el("a", { href: "library.html", class: "button-link small" }, "Library builder");
   if (!name) {
     // No data/songs.csv yet: the library has to be built (and saved) in the library builder first.
@@ -1005,11 +1053,27 @@ function renderLibrary() {
           "library builder and save it there; the generator then uses it automatically.")),
       el("div", { class: "library-line" }, builder));
   }
+  const age = detailsAgeDays();
+  const ageText = age === null ? "" : age < 1 ? "today" : `${Math.floor(age)} day(s) ago`;
+  const status =
+    !playlistId ? el("li", { class: "warning" }, "The library has no library playlist yet: open the library builder and save the library once, which creates it.")
+      : !isLoggedIn() ? el("li", { class: "warning" }, "Log in to Spotify to load your library: its titles, lengths and availability are read from Spotify. ",
+        el("button", { type: "button", class: "small", onclick: () => spotifyLogin() }, "Log in with Spotify"))
+        : error ? el("li", { class: "error" }, error)
+          : null;
   fill($("library"),
     el("div", { class: "library-line" },
       el("span", {}, "Song library: ", el("strong", {}, name), ` — ${state.songs.length} songs, ${rawDances().length} dances`),
+      refreshing
+        ? el("span", { class: "muted", id: "refresh-progress" }, `Reading your library from Spotify… ${refreshing.done} of ${refreshing.total} songs`)
+        : isLoggedIn() && playlistId && el("span", { class: "muted" }, ageText ? `details from Spotify, read ${ageText}` : "",
+          el("button", { type: "button", class: "small", onclick: refreshLibrary, title: "Read the titles, lengths and availability again from Spotify" }, "Refresh from Spotify")),
       el("button", { type: "button", class: "small", onclick: openLibraryView, disabled: !state.songs.length }, "View library"),
       builder),
+    status && el("ul", { class: "msgs" }, status),
+    unknown > 0 && isLoggedIn() && !refreshing && el("ul", { class: "msgs" }, el("li", { class: "warning" },
+      `${unknown} song(s) of the library are not in the library playlist on Spotify, so their details are unknown and they cannot be generated. ` +
+        "Saving the library in the library builder puts them back.")),
     problems.length > 0 &&
       el("details", {},
         el("summary", {}, `${problems.length} row(s) skipped or changed while loading`),
@@ -1129,8 +1193,9 @@ function openLibraryView() {
 /* ----------------------------------------------------------------- results */
 
 /*
- * The playlist can be edited by hand and is checked on Spotify; the logic for both lives in
- * js/playlist-edit.js and js/playlist-check.js. This file shows the results and calls them.
+ * The playlist can be edited by hand; the logic lives in js/playlist-edit.js. This file shows the
+ * results and calls it. Whether songs can play comes from the library refresh (js/song-details.js):
+ * songs that cannot play are never picked, so there is no check after generating.
  */
 
 function generate() {
@@ -1145,71 +1210,6 @@ function generate() {
   state.result = prepareGenerated(r, state.settings);
   state.stale = false;
   renderResults();
-  // Check the new playlist's songs on Spotify (and replace unavailable ones), if logged in.
-  if (isLoggedIn() && activeItems(r).some((it) => spotifyTrackId(it.song.id))) checkPlaylistOnSpotify(r);
-}
-
-/* ------------------------------------------- check the playlist on Spotify */
-
-/** Check the playlist on Spotify (see js/playlist-check.js), showing progress, then redraw. */
-async function checkPlaylistOnSpotify(r, force = false) {
-  r.check = { running: true, done: 0, total: activeItems(r).filter((it) => spotifyTrackId(it.song.id)).length };
-  renderResults();
-  const stillCurrent = () => state.result === r;
-  const done = await checkAndReplace(r, state.songs, state.settings, {
-    stillCurrent,
-    force, // "Check again" looks up every song; after generating, recently checked songs are skipped
-    onProgress: (n, total) => {
-      r.check.done = n;
-      const progress = $("check-progress");
-      if (progress) progress.textContent = `Checking songs on Spotify… ${n} of ${total}`;
-    },
-  });
-  if (done && stillCurrent()) renderResults();
-}
-
-/** Check one song a user swapped or inserted (no automatic replacement: the user chose it). */
-function checkChosenSong(song) {
-  const r = state.result;
-  if (!isLoggedIn() || !spotifyTrackId(song.id) || isChecked(song.id)) return;
-  checkSongs([song.id]).then(() => state.result === r && renderResults());
-}
-
-/** The "checked on Spotify" line under the playlist summary. */
-function spotifyCheckLine(r) {
-  const withIds = activeItems(r).filter((it) => spotifyTrackId(it.song.id));
-  if (!withIds.length) return null;
-  const c = r.check;
-  if (c && c.running) return el("p", { class: "muted", id: "check-progress" }, `Checking songs on Spotify… ${c.done} of ${c.total}`);
-  const again = (label) => el("button", { type: "button", class: "small", onclick: () => {
-    if (isLoggedIn()) return checkPlaylistOnSpotify(r, true);
-    r.checkAfterLogin = true;
-    try {
-      sessionStorage.setItem(PENDING_RESULT_KEY, JSON.stringify(r));
-    } catch {
-      /* too large or unavailable */
-    }
-    spotifyLogin();
-  } }, label);
-  if (!c) {
-    return el("p", { class: "inline-fields muted" }, "These songs have not been checked on Spotify yet.",
-      again(isLoggedIn() ? "Check on Spotify" : "Log in and check on Spotify"));
-  }
-  const unchecked = c.unchecked || 0;
-  const parts = [`Checked on Spotify: ${c.total} songs.`];
-  if (!c.replaced && !c.unresolved && !unchecked) parts.push("All of them can be played.");
-  if (c.replaced) parts.push(`${c.replaced} unavailable song(s) were replaced with available ones of the same dance (marked below).`);
-  if (c.unresolved) parts.push(`${c.unresolved} unavailable song(s) could not be replaced (marked below); swap or remove them.`);
-  if (!unchecked) return el("p", { class: "inline-fields muted" }, parts.join(" "), again("Check again"));
-  // Songs Spotify did not answer for are NOT known to be playable: say so clearly.
-  // Spotify often does not say how long the limit lasts (browsers hide that part of its answer).
-  const wait = c.rateLimited && c.rateLimited.retryAfter ? ` in about ${Math.ceil(c.rateLimited.retryAfter / 60)} minute(s)`
-    : c.rateLimited ? " later; Spotify does not say how long the limit lasts, so an hour is a safe start" : " later";
-  return el("ul", { class: "msgs" }, el("li", { class: "warning" },
-    `${parts.join(" ")} ${unchecked} song(s) could not be checked` +
-      (c.rateLimited ? " because Spotify is limiting requests right now" : "") +
-      ` (marked below), so they may not play. Try “Check again”${wait}. `,
-    again("Check again")));
 }
 
 function renderResults() {
@@ -1233,14 +1233,11 @@ function renderResults() {
         btn.textContent = done;
         setTimeout(() => (btn.textContent = label), 2000);
       } catch {
-        alert("Copying failed in this browser. Use “Download CSV” instead.");
+        alert("Copying failed in this browser.");
       }
     } }, label);
     return btn;
   };
-
-  const copyList = copyButton("Copy song list", () =>
-    active.map((it, i) => `${i + 1}. ${it.song.title}${it.song.artist ? ` – ${it.song.artist}` : ""} (${it.dance})`).join("\n"));
 
   // Spotify links, in playlist order. Songs without a real Spotify ID are left out (and reported).
   const links = active.map((it) => spotifyLink(it.song.id));
@@ -1251,11 +1248,6 @@ function renderResults() {
     copyLinks.disabled = true;
     copyLinks.title = "No song in this playlist has a Spotify track ID.";
   }
-
-  const download = () => {
-    const stamp = new Date().toISOString().slice(0, 16).replace("T", "_").replace(":", "");
-    downloadFile(`playlist-${stamp}.csv`, playlistToCSV(activeResult(r)), "text/csv");
-  };
 
   const kindLabel = (it) =>
     typeLabel(it, r, s) ??
@@ -1340,8 +1332,7 @@ function renderResults() {
         it.swapped && el("span", { class: "swap-note", title: `The generator chose: ${it.original.song.title}` }, " (swapped)"),
         it.autoReplaced && !it.swapped && el("div", { class: "muted", style: "font-size:0.85em" },
           `Replaced “${it.autoReplaced.title}” (${it.autoReplaced.why}).`),
-        isUnavailable(it.song.id) && el("div", { class: "swap-warning" }, `Warning: ${unavailableReason(it.song.id)}.`),
-        checkFailed(it.song.id) && el("div", { class: "swap-warning" }, "Warning: could not be checked on Spotify, so it may not play.")),
+        isUnavailable(it.song.id) && el("div", { class: "swap-warning" }, `Warning: ${unavailableReason(it.song.id)}.`)),
       el("td", { class: "num" }, hms(it.song.lengthSec)),
       themed && el("td", { class: "theme-mark" }, it.isTheme ? "Yes" : ""),
       el("td", {}, el("div", { class: "row-actions" },
@@ -1384,12 +1375,9 @@ function renderResults() {
       el("span", {}, "Songs: ", el("b", {}, String(active.length)), removedCount ? ` (${removedCount} removed)` : ""),
       el("span", {}, "Length: ", el("b", {}, hms(r.totalSec)), ` (target ${hms(r.targetSec)}, ${diff >= 0 ? "+" : ""}${hms(diff)})`),
       themed && el("span", {}, "Theme share: ", el("b", {}, pct(r.stats.themeFraction)))),
-    spotifyCheckLine(r),
     el("div", { class: "result-actions" },
-      el("button", { type: "button", class: "primary", onclick: generate, disabled: state.errors.length > 0 }, "Generate another"),
-      copyLinks,
-      copyList,
-      el("button", { type: "button", onclick: download }, "Download CSV")),
+      el("button", { type: "button", class: "primary", onclick: generate, disabled: state.errors.length > 0 || !state.songs.length }, "Generate another"),
+      copyLinks),
     linkCount > 0 && saveToSpotifyBox(activeResult(r), links.filter(Boolean).map(spotifyTrackId)),
     linkCount > 0 &&
       el("p", { class: "help" },
@@ -1430,12 +1418,10 @@ const edited = () => renderResults();
 const doSwap = (item, song, dance) => {
   swapSong(state.result, item, song, dance, state.settings);
   edited();
-  checkChosenSong(song);
 };
 const doInsert = (position, song, dance) => {
   insertSong(state.result, position, song, dance, state.settings);
   edited();
-  checkChosenSong(song);
 };
 const doResetSwap = (item) => (resetSwap(state.result, item, state.settings), edited());
 const doRemove = (item) => (removeItem(state.result, item, state.settings), edited());
@@ -1465,7 +1451,6 @@ function doRegenerate() {
   state.result = prepareGenerated(r, state.settings);
   state.stale = false;
   renderResults();
-  if (isLoggedIn() && activeItems(r).some((it) => spotifyTrackId(it.song.id))) checkPlaylistOnSpotify(r);
 }
 
 /**
@@ -1598,10 +1583,7 @@ function saveToSpotifyBox(r, trackIds) {
   const name = el("input", { type: "text", value: `Dance social ${today}`, "aria-label": "Playlist name", style: "flex:1 1 16em" });
   const isPublic = el("input", { type: "checkbox" });
   const status = el("div", { "aria-live": "polite" });
-  // Wait for the Spotify check (and its replacements) before the playlist can be created.
-  const checking = !!(state.result && state.result.check && state.result.check.running);
-  const create = el("button", { type: "button", class: "primary", disabled: checking,
-    title: checking ? "Waiting for the Spotify check to finish" : null }, `Create playlist (${trackIds.length} songs)`);
+  const create = el("button", { type: "button", class: "primary" }, `Create playlist (${trackIds.length} songs)`);
   const say = (kind, ...content) => fill(status, el("ul", { class: "msgs" }, el("li", { class: kind }, ...content)));
   const openLink = (url) => url && el("a", { href: url, target: "_blank", rel: "noopener" }, "Open in Spotify");
   const fallback = " You can still use “Copy Spotify links” and paste them into a playlist by hand.";
@@ -1637,15 +1619,11 @@ function saveToSpotifyBox(r, trackIds) {
     el("div", { class: "subbox-title" }, "Save to Spotify"),
     el("div", { class: "inline-fields" }, "Name:", name),
     el("label", { class: "inline-fields" }, isPublic, "Public (shows on your Spotify profile); otherwise private"),
-    el("div", { class: "inline-fields" }, create,
-      checking && el("span", { class: "muted" }, "Waiting for the Spotify check to finish…")),
+    el("div", { class: "inline-fields" }, create),
     status);
 }
 
-/**
- * After a login trip started from the results ("Save to Spotify" or "Log in and check"), bring the
- * generated playlist back, and check its songs on Spotify if that has not happened yet.
- */
+/** After a login trip started from the results ("Save to Spotify"), bring the generated playlist back. */
 function restorePendingResult() {
   let saved = null;
   try {
@@ -1655,12 +1633,9 @@ function restorePendingResult() {
     /* nothing to restore */
   }
   if (saved && Array.isArray(saved.playlist)) {
-    if (saved.check && saved.check.running) delete saved.check; // a check cut short by the login trip
-    delete saved.checkAfterLogin;
     state.result = saved;
     state.stale = false;
     renderResults();
-    if (isLoggedIn() && !saved.check) checkPlaylistOnSpotify(saved);
   }
 }
 

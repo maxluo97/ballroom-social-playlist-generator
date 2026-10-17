@@ -289,24 +289,43 @@ export async function getPlaylistTracks(playlistId, onPage) {
 }
 
 /**
- * Whether a track can still be played in the user's country (`GET /tracks/{id}?market=from_token`).
- * With a market, Spotify reports `is_playable`, and may "relink" an unavailable track to another
- * version, which then comes back under a different ID. Spotify asks apps to keep using the original
- * ID (it substitutes the other version itself), so a relink is information, not something to fix.
- * Returns { status: "ok" | "relinked" | "unplayable" | "missing" | "error", reason?, playsAs?, message? }.
+ * The library playlist's songs, with Spotify's details and whether each can play in the user's
+ * country (`GET /playlists/{id}/items?market=from_token`, 50 per request; see js/song-details.js).
+ * With a market, Spotify may "relink" a song to another version; the library keeps the original ID
+ * (`linked_from`), and Spotify plays the other version itself.
+ * Returns [{ id, title, artist, album, released, lengthSec, isrc, isPlayable, reason }].
  */
-export async function checkTrackAvailability(trackId) {
-  try {
-    const t = await api(`/tracks/${encodeURIComponent(trackId)}?market=from_token`);
-    // Only a real track answer counts; anything else is "could not be checked", never "fine".
-    if (!t || !t.id) return { status: "error", message: "Spotify did not send the track." };
-    if (t.is_playable === false) return { status: "unplayable", reason: (t.restrictions && t.restrictions.reason) || "" };
-    if (t.id !== trackId) return { status: "relinked", playsAs: `${t.name} – ${(t.artists || []).map((a) => a.name).join(", ")}` };
-    return { status: "ok" };
-  } catch (err) {
-    if (err.status === 404 || err.status === 400) return { status: "missing" };
-    return { status: "error", message: err.message, rateLimited: err.status === 429, retryAfter: (err.details && err.details.retryAfter) || 0 };
+export async function getLibraryPlaylistSongs(playlistId, onPage) {
+  const entries = await allPages(`/playlists/${encodeURIComponent(playlistId)}/items?limit=50&market=from_token&additional_types=track`, onPage);
+  const songs = [];
+  for (const e of entries) {
+    const t = e && (e.item ?? e.track); // `item` is current; `track` is the deprecated name
+    if (!t || e.is_local || t.type !== "track" || !t.id) continue;
+    const id = (t.linked_from && t.linked_from.id) || t.id;
+    songs.push({ ...trackToSong(t), id, reason: (t.restrictions && t.restrictions.reason) || "" });
   }
+  return songs;
+}
+
+/**
+ * Remove tracks from a playlist (`DELETE /playlists/{id}/items`, at most 100 per request).
+ * `onProgress(removed, total)` reports progress. Returns the number removed.
+ */
+export async function removeTracksFromPlaylist(playlistId, trackIds, onProgress) {
+  let removed = 0;
+  for (let i = 0; i < trackIds.length; i += 100) {
+    const items = trackIds.slice(i, i + 100).map((id) => ({ uri: `spotify:track:${id}` }));
+    await api(`/playlists/${encodeURIComponent(playlistId)}/items`, { method: "DELETE", body: { items } });
+    removed += items.length;
+    if (onProgress) onProgress(removed, trackIds.length);
+  }
+  return removed;
+}
+
+/** The track IDs in a playlist (for keeping the library playlist in step). */
+export async function getPlaylistTrackIds(playlistId) {
+  const entries = await allPages(`/playlists/${encodeURIComponent(playlistId)}/items?limit=50&additional_types=track`);
+  return entries.map((e) => e && (e.item ?? e.track)).filter((x) => x && x.type === "track" && x.id).map((x) => x.id);
 }
 
 /** One song by its track ID (`GET /tracks/{id}`; the several-at-once endpoint was removed). */

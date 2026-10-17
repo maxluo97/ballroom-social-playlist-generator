@@ -13,13 +13,14 @@
  *     highlight them for checking.
  */
 
+import { libraryRow } from "./data.js";
 import { canonicalDance } from "./dance-names.js";
 
 const lower = (s) => String(s ?? "").toLowerCase();
 
 /* ---------------------------------------------------- removed songs (blacklist) */
 /*
- * Songs removed from the library are listed in data/removed-songs.csv: { id, title, artist, removed }.
+ * Songs removed from the library are listed in data/removed-songs.csv: their library row plus the date removed.
  * Review rows can carry: removedNow (taken out in this session; restorable), blocked (a new import
  * of a previously removed song; left out unless re-imported), reimported (blocked, then re-imported).
  */
@@ -43,14 +44,8 @@ export function updatedBlacklist(blacklist, rows, today) {
   const out = new Map(blacklist);
   for (const r of rows) {
     if (r.removedNow) {
-      const s = r.song;
-      // The whole song is kept, so it can be restored later with its dances and tags.
-      out.set(s.id, {
-        id: s.id, title: s.title, artist: s.artist || "", removed: today, album: s.album || "",
-        lengthSec: s.lengthSec, dances: [...(s.dances || [])], tags: [...(s.tags || [])], isrc: s.isrc || "",
-        ...(s.work ? { work: s.work } : {}), ...(s.recording ? { recording: s.recording } : {}),
-        ...(s.released ? { released: s.released } : {}),
-      });
+      // The library row is kept (no Spotify details), so it can be restored with its dances and tags.
+      out.set(r.song.id, { ...libraryRow(r.song), removed: today });
     }
     if (r.reimported) out.delete(r.song.id);
   }
@@ -67,11 +62,7 @@ export function blacklistRows(rows, blacklist) {
   for (const e of blacklist.values()) {
     if (present.has(e.id)) continue;
     extra.push({
-      song: {
-        id: e.id, title: e.title, artist: e.artist, album: e.album, lengthSec: e.lengthSec, dances: [...e.dances], tags: [...e.tags], isrc: e.isrc,
-        ...(e.work ? { work: e.work } : {}), ...(e.recording ? { recording: e.recording } : {}),
-        ...(e.released ? { released: e.released } : {}),
-      },
+      song: libraryRow(e), // Spotify's details are added for display (js/song-details.js)
       status: "blacklisted",
       added: { dances: [], tags: [] },
       guessed: { dances: [], tags: [] },

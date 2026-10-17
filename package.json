@@ -6,6 +6,6 @@
   "type": "module",
   "scripts": {
     "start": "node tools/serve.js",
-    "test": "node test/test.js && node test/library-test.js && node test/availability-test.js && node test/playlist-test.js"
+    "test": "node test/test.js && node test/library-test.js && node test/details-test.js && node test/playlist-test.js"
   }
 }
