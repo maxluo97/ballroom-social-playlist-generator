@@ -11,7 +11,9 @@ import { el, fill, $, chipEditor, comboInput, sortRows, sortHeader, spotifyCredi
 import {
   login, logout, isLoggedIn, hasScopes, checkAccess, handleLoginRedirect, getMyPlaylists, getPlaylistTracks,
   getTrack, searchTracks, playlistIdFrom, createPlaylist, addTracksToPlaylist, removeTracksFromPlaylist, getPlaylistTrackIds,
+  getPlaylistOwnerId,
 } from "./spotify.js";
+import { loadUserLibrary, saveUserLibrary, markDownloaded, changedSinceDownload } from "./library-store.js";
 import {
   isUnavailable, unavailableReason, isChecked, withDetails, rememberDetails, refreshDetails, detailsNeedRefresh,
   detailsAgeDays, forgetExpiredDetails, reloadDetails, clearDetails,
@@ -39,7 +41,6 @@ const LIBRARY_INFO_URL = "data/library.json";
 const LIBRARY_PLAYLIST_NAME = "Dance library (managed by the playlist generator)";
 const LIBRARY_PLAYLIST_DESCRIPTION =
   "Used by the dance playlist generator to read your song library. Changes here are overwritten when the library is saved.";
-const REMOVED_URL = "data/removed-songs.csv";
 const DATA_FOLDER_KEY = "dpg-data-folder"; // remembered folder for "Save to the data folder"
 const RULES_KEY = "dpg.tagRules.v2"; // [{ keyword, tag }]
 const DEFAULT_RULES = [
@@ -70,6 +71,9 @@ const state = {
   search: "",
   reviewSort: { key: null, dir: 1 }, // step 5 table: column heading clicked, and direction
   pickingRecording: null, // step 5: the song whose "Same recording as…" picker is open
+  userId: null, // the logged-in Spotify account (each account has its own library in this browser)
+  playlistMaybeForeign: false, // the library playlist came from the shared library or files: check it is yours
+  saved: null, // this account's library as last saved in this browser (see js/library-store.js)
   libraryPlaylistId: null, // from data/library.json
   details: { refreshing: null, error: null }, // reading Spotify's details of the library
   // Step 5: songs flagged as duplicates / versions when the review was built. They stay on those
@@ -248,7 +252,8 @@ const tagChips = (list, label, onChange) => chipEditor(list, knownTags, { placeh
 /* ---------------------------------------------------------------- 1. Spotify */
 
 function renderSpotify(message) {
-  const signOut = () => { logout(); clearDetails(); state.notAllowed = false; renderSpotify(); renderPlaylists(); renderManual(); };
+  // The library on this page belongs to the account: logging out starts the page afresh.
+  const signOut = () => { logout(); clearDetails(); location.reload(); };
   fill($("spotify"),
     el("p", {}, isLoggedIn() ? el("strong", {}, "Logged in to Spotify.") : "Not logged in."),
     message && errorBox(message),
@@ -265,26 +270,84 @@ function renderSpotify(message) {
 
 /* ------------------------------------------------------- 2. Starting library */
 
-async function loadProject() {
+/*
+ * Each Spotify account's library lives in this browser (js/library-store.js). A new library starts
+ * from the shared library (the site owner's data/ folder: songs with their dances and tags; the
+ * owner's library playlist is only reused if it is yours) or empty; files are backups.
+ */
+
+/** Startup (logged in): this account's library in this browser, if there is one. */
+async function loadStart() {
+  state.saved = loadUserLibrary(state.userId);
+  if (state.saved) return useLibrary(state.saved, "Your library (this browser)", []);
+  setExisting([], "", []);
+}
+
+/** Work on a library (rows of IDs and your data, removed songs, the library playlist's ID). */
+async function useLibrary(lib, name, problems, { savedNow = true } = {}) {
+  state.libraryPlaylistId = lib.playlistId;
+  state.blacklist = lib.removed instanceof Map ? lib.removed : new Map();
+  await resolvePlaylistOwner();
+  // Spotify's details (titles, lengths, …) are not stored: read them from the library playlist.
+  state.pendingRows = lib.rows;
+  if (isLoggedIn() && state.libraryPlaylistId && detailsNeedRefresh(state.libraryPlaylistId)) await refreshLibraryDetails(false);
+  state.pendingRows = null;
+  setExisting(withDetails(lib.rows), name, problems);
+  // Changes are measured against what is saved in this browser (a library from elsewhere is unsaved).
+  state.savedKey = savedNow ? filesKey(currentFiles()) : null;
+  renderOutput();
+}
+
+/** A library playlist from the shared library or from files is only used if it is in your account. */
+async function resolvePlaylistOwner() {
+  if (!state.playlistMaybeForeign) return;
+  state.playlistMaybeForeign = false;
+  if (!state.libraryPlaylistId) return;
+  const owner = await getPlaylistOwnerId(state.libraryPlaylistId);
+  if (!owner || owner !== state.userId) state.libraryPlaylistId = null; // your first save makes your own
+}
+
+/** Start from the shared library (data/ on the site): its songs with their dances and tags. */
+async function startFromShared() {
+  if (state.saved && !confirm("Start again from the shared library? The library on this page is replaced (your saved library stays in this browser until you save).")) return;
   try {
     const { songs, problems } = await loadSongsFromUrl(PROJECT_URL);
     state.libraryPlaylistId = await loadLibraryInfo();
-    // Spotify's details (titles, lengths, …) are not in songs.csv: read them from the library playlist.
-    state.pendingRows = songs;
-    if (isLoggedIn() && state.libraryPlaylistId && detailsNeedRefresh(state.libraryPlaylistId)) await refreshLibraryDetails(false);
-    state.pendingRows = null;
-    setExisting(withDetails(songs), "data/songs.csv", problems);
-    // What is saved right now: changes are measured against this.
-    state.savedKey = filesKey(currentFiles());
-    state.downloadedKey = null;
-    renderOutput();
-  } catch {
-    setExisting([], "", []);
-    state.savedKey = null;
+    state.playlistMaybeForeign = true;
+    await useLibrary({ rows: songs, removed: new Map(), playlistId: state.libraryPlaylistId }, "the shared library", problems, { savedNow: false });
+  } catch (err) {
+    alert(`The shared library could not be loaded: ${err.message}`);
   }
 }
 
-/** The library playlist's ID (data/library.json), or null. */
+function startEmpty() {
+  if (state.saved && !confirm("Start an empty library? The library on this page is replaced (your saved library stays in this browser until you save).")) return;
+  state.libraryPlaylistId = state.saved ? state.saved.playlistId : null; // keep your library playlist
+  state.blacklist = new Map();
+  setExisting([], "an empty library", []);
+  state.savedKey = null;
+  renderOutput();
+}
+
+/** Load a backup: songs.csv (needed), removed-songs.csv and library.json (optional). */
+async function loadLibraryFiles(files) {
+  const byName = Object.fromEntries([...files].map((x) => [x.name.toLowerCase().replace(/ \(\d+\)(?=\.)/, ""), x]));
+  const songsFile = byName["songs.csv"] || [...files].find((x) => /\.csv$/i.test(x.name) && !/removed/i.test(x.name));
+  if (!songsFile) return alert("Choose your songs.csv (and, if you have them, removed-songs.csv and library.json).");
+  try {
+    const { songs, problems } = parseSongsText(await songsFile.text());
+    const removedFile = byName["removed-songs.csv"] || [...files].find((x) => /removed/i.test(x.name));
+    const infoFile = byName["library.json"] || [...files].find((x) => /\.json$/i.test(x.name));
+    const removed = removedFile ? parseRemovedSongs(await removedFile.text()) : new Map();
+    const playlistId = infoFile ? parseLibraryInfo(await infoFile.text()).playlistId : null;
+    state.playlistMaybeForeign = true;
+    await useLibrary({ rows: songs, removed, playlistId }, songsFile.name, problems, { savedNow: false });
+  } catch (err) {
+    alert(`Could not read the files: ${err.message}`);
+  }
+}
+
+/** The shared library's playlist ID (data/library.json), or null. */
 async function loadLibraryInfo() {
   try {
     const res = await fetch(LIBRARY_INFO_URL, { cache: "no-store" });
@@ -333,37 +396,29 @@ function setExisting(songs, name, problems) {
   computeRows(); // the review shows the whole library straight away (so songs can be removed)
 }
 
-/** Songs removed from the library before (data/removed-songs.csv): Map id -> { id, title, artist, removed }. */
-async function loadRemoved() {
-  try {
-    const res = await fetch(REMOVED_URL, { cache: "no-store" });
-    state.blacklist = res.ok ? parseRemovedSongs(await res.text()) : new Map();
-  } catch {
-    state.blacklist = new Map();
-  }
-}
-
 function renderExisting(problems = []) {
-  const file = el("input", { type: "file", accept: ".csv", hidden: true });
-  file.addEventListener("change", async () => {
-    const f = file.files[0];
-    if (!f) return;
-    try {
-      const { songs, problems } = parseSongsText(await f.text());
-      setExisting(withDetails(songs), f.name, problems);
-    } catch (err) {
-      alert(`Could not read ${f.name}: ${err.message}`);
-    }
-  });
+  if (!state.userId) {
+    return fill($("existing"), el("p", { class: "muted" },
+      "Log in first (step 1): your library is kept in this browser, for your Spotify account."));
+  }
+  const file = el("input", { type: "file", accept: ".csv,.json", multiple: true, hidden: true });
+  file.addEventListener("change", () => file.files.length && loadLibraryFiles(file.files));
+  const saved = state.saved;
   fill($("existing"),
     el("p", {}, state.existingName
       ? ["Starting from ", el("strong", {}, state.existingName), `: ${state.existing.length} songs. Imported songs are added to it; nothing in it is removed.`]
-      : "No data/songs.csv yet, so the library starts empty."),
+      : "You do not have a library in this browser yet. Start from the shared library (songs already sorted into dances and tagged), or start empty and build your own."),
+    saved && el("p", { class: "muted" }, `Your library in this browser: ${saved.rows.length} songs, saved ${new Date(saved.savedAt).toLocaleString()}` +
+      (saved.downloadedAt ? `; last backup downloaded ${new Date(saved.downloadedAt).toLocaleString()}.` : "; no backup downloaded yet.")),
+    state.existingName === "the shared library" && el("p", { class: "help" },
+      "If this is your first library, the songs' titles appear after your first save (step 6), which puts them in a playlist in your Spotify account."),
     problems.length > 0 && el("ul", { class: "msgs" }, problems.map((p) => el("li", { class: "warning" }, p))),
     el("div", { class: "actions" },
-      el("button", { type: "button", class: "small", onclick: () => file.click() }, "Start from a different CSV…"),
-      el("button", { type: "button", class: "small", onclick: loadProject }, "Reload data/songs.csv"),
-      el("button", { type: "button", class: "small", onclick: () => setExisting([], "", []) }, "Start empty"),
+      el("button", { type: "button", class: saved ? "small" : "primary", onclick: startFromShared }, "Start from the shared library"),
+      el("button", { type: "button", class: "small", onclick: startEmpty }, "Start empty"),
+      el("button", { type: "button", class: "small", onclick: () => file.click() }, "Load library files…"),
+      saved && state.existingName !== "Your library (this browser)" &&
+        el("button", { type: "button", class: "small undo", onclick: () => useLibrary(state.saved, "Your library (this browser)", []) }, "Back to your saved library"),
       file));
 }
 
@@ -1289,48 +1344,21 @@ async function syncBeforeSaving(report) {
     return { ok: true, message: await syncLibraryPlaylist(report) };
   } catch (err) {
     const why = err.status === 429 ? "Spotify is limiting requests right now" : err.message;
-    return { ok: false, message: `The library playlist could not be updated (${why}); your files were saved anyway. Save again later to finish it.` };
+    return { ok: false, message: `The library playlist could not be updated (${why}); your library was saved anyway. Save again later to finish it.` };
   }
 }
 
-/** Quick check (no file access): has the library changed since it was loaded, saved or downloaded? */
+/** Has the library on this page changed since it was saved in this browser? */
 function looksUnsaved() {
   if (!state.rows) return false;
-  const now = filesKey(currentFiles());
-  return now !== state.savedKey && now !== state.downloadedKey;
+  return filesKey(currentFiles()) !== state.savedKey;
 }
 
-/**
- * "Back to the generator": only once both files are in the data folder, and with a warning if the
- * library on this page differs from what is saved there (checked against the actual files).
- */
-async function backToGenerator(event) {
+/** "Back to the generator": with a warning if the library on this page is not saved. */
+function backToGenerator(event) {
   event.preventDefault();
-  if (!state.rows) return goToGenerator();
-  const read = async (url) => {
-    try {
-      const res = await fetch(url, { cache: "no-store" });
-      return res.ok ? await res.text() : null;
-    } catch {
-      return null;
-    }
-  };
-  const [songsText, removedText] = await Promise.all([read(PROJECT_URL), read(REMOVED_URL)]);
-  const missing = [songsText === null && "songs.csv", removedText === null && "removed-songs.csv"].filter(Boolean);
-  if (missing.length) {
-    alert(`Save your library before going back to the generator: ${missing.join(" and ")} ` +
-      `${missing.length > 1 ? "are" : "is"} not in the data folder yet.\n\n` +
-      "Use “Save to the data folder” in step 6 (or download both files and put them in the data folder).");
-    $("output").scrollIntoView({ behavior: "smooth" });
-    return;
-  }
-  // Compare the saved files with the library here (both written the same way, so equal means saved).
-  const saved = {
-    songs: songsToCSV(parseSongsText(songsText).songs),
-    removed: removedSongsToCSV([...parseRemovedSongs(removedText).values()]),
-  };
-  if (filesKey(saved) !== filesKey(currentFiles()) &&
-    !confirm("Your changes to the library are not saved in the data folder. If you go back to the generator now, they will be lost.\n\nLeave without saving?")) {
+  if (looksUnsaved() &&
+    !confirm("Your changes to the library are not saved. If you go back to the generator now, they will be lost.\n\nLeave without saving?")) {
     $("output").scrollIntoView({ behavior: "smooth" });
     return;
   }
@@ -1343,17 +1371,18 @@ function goToGenerator() {
 }
 
 function renderOutput() {
+  if (!state.userId) return fill($("output"), el("p", { class: "muted" }, "Log in first (step 1)."));
   if (!state.rows || !state.rows.length) return fill($("output"), el("p", { class: "muted" }, "Nothing to save yet."));
-  const files = currentFiles();
   const count = keptSongs(state.rows).length;
   const removedNow = state.rows.filter((r) => r.removedNow).length;
   const blocked = state.rows.filter((r) => r.blocked && !r.fromBlacklist).length;
   const restored = state.rows.filter((r) => r.fromBlacklist && r.reimported).length;
   const noDance = keptSongs(state.rows).filter((s) => !s.dances.length).length;
   const unsaved = looksUnsaved();
+  const today = () => new Date().toISOString().slice(0, 10);
 
   const download = (name, text) => {
-    const blob = new Blob([text], { type: "text/csv" });
+    const blob = new Blob([text], { type: name.endsWith(".json") ? "application/json" : "text/csv" });
     const a = el("a", { href: URL.createObjectURL(blob), download: name });
     document.body.append(a);
     a.click();
@@ -1364,21 +1393,44 @@ function renderOutput() {
     const p = $("save-progress");
     if (p) p.textContent = text;
   };
-  const downloadBoth = async () => {
-    if (isLoggedIn() && !agreeToLibraryPlaylist()) return;
+
+  /** Save: the library playlist brought in step, then the library kept in this browser. */
+  const save = async () => {
+    await resolvePlaylistOwner();
+    if (!agreeToLibraryPlaylist()) return;
     const sync = await syncBeforeSaving(report);
-    const now = currentFiles(); // the library playlist's ID may be new
-    download("songs.csv", now.songs);
-    download("removed-songs.csv", now.removed);
-    download("library.json", now.info);
-    state.downloadedKey = filesKey(now);
-    state.saveMessage = sync.message;
+    try {
+      saveUserLibrary(state.userId, {
+        rows: keptSongs(state.rows),
+        removed: updatedBlacklist(state.blacklist, state.rows, today()),
+        playlistId: state.libraryPlaylistId,
+      });
+    } catch (err) {
+      return alert(`The library could not be kept in this browser (${err.message}). Download a backup (below) so nothing is lost.`);
+    }
+    if (sync.ok) await refreshLibraryDetails(false);
+    state.saved = loadUserLibrary(state.userId);
+    await useLibrary(state.saved, "Your library (this browser)", []);
+    state.saveMessage = `Saved ${count} songs in this browser at ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}. ${sync.message}`;
     state.saveOk = sync.ok;
     renderOutput();
   };
 
-  // Chrome / Edge: write both files straight into the project's data folder (picked once, then remembered).
-  const saveToFolder = async (choose) => {
+  /** A backup: the three files, as the library is saved. */
+  const downloadBackup = () => {
+    if (unsaved && !confirm("You have unsaved changes. Download the library as it is on this page (with the changes)?")) return;
+    const files = currentFiles();
+    download("songs.csv", files.songs);
+    download("removed-songs.csv", files.removed);
+    download("library.json", files.info);
+    if (!unsaved) markDownloaded(state.userId);
+    state.saved = loadUserLibrary(state.userId);
+    renderOutput();
+  };
+
+  // On the computer (Chrome / Edge): publish the saved library as the shared library, into the project's data folder.
+  const publish = async (choose) => {
+    if (unsaved) return alert("Save the library first (above); then publish it.");
     let folder;
     try {
       folder = await getFolder(DATA_FOLDER_KEY, {
@@ -1390,86 +1442,61 @@ function renderOutput() {
       return alert(`Could not open the folder: ${err.message}`);
     }
     if (!folder) return;
-    if (isLoggedIn() && !agreeToLibraryPlaylist()) return;
-    const sync = await syncBeforeSaving(report);
-    const now = currentFiles(); // the library playlist's ID may be new
+    const files = currentFiles();
     try {
-      await writeTextFile(folder, "songs.csv", now.songs);
-      await writeTextFile(folder, "removed-songs.csv", now.removed);
-      await writeTextFile(folder, "library.json", now.info);
+      await writeTextFile(folder, "songs.csv", files.songs);
+      await writeTextFile(folder, "removed-songs.csv", files.removed);
+      await writeTextFile(folder, "library.json", files.info);
     } catch (err) {
       return alert(`Could not save: ${err.message}`);
     }
     state.dataFolderName = folder.name;
-    // Start again from the files just saved, with Spotify's details read afresh from the library playlist.
-    if (sync.ok) await refreshLibraryDetails(false);
-    await loadRemoved();
-    await loadProject();
-    state.saveMessage = `Saved ${count} songs to ${folder.name}/songs.csv (with removed-songs.csv and library.json) ` +
-      `at ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}. ${sync.message}`;
-    state.saveOk = sync.ok;
+    state.saveMessage = `Published ${count} songs as the shared library in ${folder.name}/ at ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}. ` +
+      "Commit and push data/ so the online site offers it.";
+    state.saveOk = true;
     renderOutput();
   };
 
+  const saved = state.saved;
   fill($("output"),
     el("p", {}, `The library will have ${count} songs.` +
       (removedNow ? ` ${removedNow} removed now.` : "") +
       (blocked ? ` ${blocked} previously removed song(s) from the import left out.` : "") +
       (restored ? ` ${restored} restored from the removed songs.` : "")),
     noDance > 0 && el("ul", { class: "msgs" }, el("li", { class: "warning" },
-      `${noDance} song(s) have no dance. They are kept in songs.csv, but the generator skips them until they get one (filter “No dance” above).`)),
+      `${noDance} song(s) have no dance. They are kept, but the generator skips them until they get one (filter “No dance” above).`)),
     unsaved
       ? el("ul", { class: "msgs" }, el("li", { class: "warning" }, "You have changes that are not saved yet. Unsaved changes are lost when you leave this page."))
       : state.saveMessage && el("ul", { class: "msgs" }, el("li", { class: state.saveOk ? "ok" : "warning" }, state.saveMessage)),
+    !unsaved && saved && changedSinceDownload(saved) && el("ul", { class: "msgs" }, el("li", { class: "warning" },
+      "Your library has changes that are not in a downloaded backup. Browser storage can be wiped (clearing site data, another browser or computer): download a backup now and then.")),
     el("p", { class: "muted", id: "save-progress", "aria-live": "polite" }),
-    el("p", { class: "help" }, "The library is saved as three files in the project's data folder: songs.csv (your songs: their Spotify IDs, " +
-      "dances, tags and corrections), removed-songs.csv (songs you took out, so imports do not bring them back; it may be empty) and " +
-      "library.json (which playlist in your Spotify account holds the library). Saving also brings that playlist in step with the library; " +
-      "the generator reads the songs' titles and lengths from it."),
-    canSaveToFolder()
-      ? [
-          el("div", { class: "actions" },
-            el("button", { type: "button", class: "primary", onclick: () => saveToFolder(false) }, "Save to the data folder"),
-            state.dataFolderName && el("button", { type: "button", class: "small", onclick: () => saveToFolder(true) }, "Choose a different folder…")),
-          el("p", { class: "help" },
-            (state.dataFolderName
-              ? `Saves both files into the folder “${state.dataFolderName}”, replacing the old ones. `
-              : "The first time, choose the “data” folder inside the project; it is remembered after that. ") +
-              "Your browser may ask to allow editing files there."),
-          el("details", {}, el("summary", { class: "muted" }, "Or download the files instead"),
-            el("div", { class: "actions" }, el("button", { type: "button", onclick: downloadBoth }, "Download the files")),
-            el("p", { class: "help" }, "Then put the three files in the project's data folder, replacing the old ones.")),
-        ]
-      : [
-          el("div", { class: "actions" }, el("button", { type: "button", class: "primary", onclick: downloadBoth }, "Download the files")),
-          el("p", { class: "help" }, "Put the three files (songs.csv, removed-songs.csv and library.json) in the project's data folder, replacing the old ones."),
-        ]);
+    el("p", { class: "help" }, "Saving keeps your library in this browser, for your Spotify account: the songs' Spotify IDs, dances, tags, " +
+      "corrections and removed songs. It also brings your library playlist on Spotify in step, from which the songs' titles and lengths are read. " +
+      "A backup is three files (songs.csv, removed-songs.csv, library.json); load them with “Load library files…” in step 2, e.g. on another computer."),
+    el("div", { class: "actions" },
+      el("button", { type: "button", class: "primary", onclick: save }, "Save"),
+      el("button", { type: "button", onclick: downloadBackup }, "Download a backup")),
+    RUNNING_LOCALLY && canSaveToFolder() && el("details", {}, el("summary", { class: "muted" }, "Publish as the shared library (site owner)"),
+      el("p", { class: "help" }, "Writes your saved library into the project's data folder, as the shared library that new users can start from. " +
+        (state.dataFolderName ? `Folder: “${state.dataFolderName}”.` : "The first time, choose the “data” folder inside the project.") +
+        " Then commit and push data/."),
+      el("div", { class: "actions" },
+        el("button", { type: "button", onclick: () => publish(false) }, "Publish to the data folder"),
+        state.dataFolderName && el("button", { type: "button", class: "small", onclick: () => publish(true) }, "Choose a different folder…"))));
 }
 
 /* -------------------------------------------------------------------- init */
 
-/** Online, the library builder is not used: it works on the project's files on your computer. */
-function showComputerOnly() {
-  fill(document.querySelector("main.steps"),
-    el("section", { class: "panel step" },
-      el("h2", {}, "The library builder runs on your computer"),
-      el("p", {}, "It saves the library into the project's data folder on your computer, so it cannot be used on the online site."),
-      el("ol", { class: "help" },
-        el("li", {}, "On your computer, open a terminal in the project folder and run “npm start”."),
-        el("li", {}, "Open ", el("a", { href: "http://127.0.0.1:8000/library.html" }, "http://127.0.0.1:8000/library.html"),
-          ", build or change the library, and save it to the data folder."),
-        el("li", {}, "Commit and push data/songs.csv, data/removed-songs.csv and data/library.json. The online site uses them a few minutes later.")),
-      el("p", {}, el("a", { class: "button-link", href: "./" }, "← Back to the generator"))));
-}
-
 async function init() {
-  if (!RUNNING_LOCALLY) return showComputerOnly();
   const result = await handleLoginRedirect();
   if (result.handled && !result.error) return;
   renderSpotify(result.error);
   if (isLoggedIn()) {
     // An account not on the key's list can log in, but Spotify refuses everything: say so.
-    state.notAllowed = !(await checkAccess()).ok;
+    const access = await checkAccess();
+    state.notAllowed = !access.ok;
+    state.userId = access.ok ? access.userId : null;
     if (state.notAllowed) renderSpotify();
   }
   renderRules();
@@ -1486,8 +1513,11 @@ async function init() {
   });
   state.dataFolderName = await rememberedFolderName(DATA_FOLDER_KEY);
   forgetExpiredDetails(); // Spotify's details are only kept temporarily
-  await loadRemoved();
-  await loadProject();
+  if (state.userId) await loadStart();
+  else {
+    renderExisting();
+    renderOutput();
+  }
 }
 
 init();

@@ -44,17 +44,21 @@ Our conception of a dance playlist is as follows:
 
 ## Using the app
 
-The app is online at **https://maxluo97.github.io/ballroom-social-playlist-generator/** (generating and saving playlists, from any device). The **library builder** runs on your computer, because it saves the library into the project's files.
+The app is online at **https://maxluo97.github.io/ballroom-social-playlist-generator/**, for any device, and both pages (the generator and the **library builder**) work there.
 
-The library files hold only each song's Spotify ID and your own data (dances, tags, corrections): Spotify's terms do not allow keeping its song details for good. The titles, artists, lengths and whether each song can play are read from a **library playlist** in your Spotify account (made and kept up to date by the library builder) and kept in your browser for up to 14 days. So generating needs a Spotify login.
+**You need a Spotify account.** There are two ways to connect, both explained in the **Spotify connection** panel on each page:
+- **The site's key:** Spotify allows it for at most 5 accounts, which the site's owner adds by email. A free Spotify account is fine.
+- **Your own key, or one shared with you by its owner:** a key's owner needs Spotify Premium, registers a small app in Spotify's developer dashboard (about 10 minutes; the panel lists the steps and the address to register), and can let up to 5 accounts use it.
 
-You need a Spotify Premium account and a Spotify developer app (its Client ID goes in `js/config.js`; register both `https://maxluo97.github.io/ballroom-social-playlist-generator/` and `http://127.0.0.1:8000/` as redirect URIs). To run it on your computer you also need [Node.js](https://nodejs.org/).
+**Your library is kept in your browser**, for your Spotify account: each song's Spotify ID and your own data (dances, tags, corrections, removed songs). Spotify's terms do not allow keeping its song details for good, so the titles, artists, lengths and whether each song can play are read from a **library playlist** in your Spotify account (made and kept up to date by the library builder) and kept in your browser for up to 14 days. Browser storage can be wiped, so download a backup now and then (library builder, step 6).
 
-1. On your computer, run `npm start` and open **http://127.0.0.1:8000/**.
-2. **Build your song library** in the **Library builder** (from the generator page): log in to Spotify, import your single-dance playlists (each playlist's dance is guessed from its name), add individual songs if needed, review the dances and tags (and the songs flagged as **Duplicates** or **Versions**; ▶ plays a song), and **save** the library to the project's `data` folder. Saving also brings the library playlist in your Spotify account in step with the library (the first save creates it). You must do this at least once; the generator only uses a saved library. To use a new or changed library online, commit and push `data/songs.csv`, `data/removed-songs.csv` and `data/library.json` (the online site picks them up a few minutes later).
-3. **Set up the night** on the generator page: categories, repetition, excursions, fixed events, themed blocks, must-play songs, the theme, and the opening and closing. Settings can be saved to and loaded from files (keep them in `presets/`); **Load default settings** restores `data/default-settings.json`.
-4. **Log in to Spotify** and **Generate** a playlist. Songs that cannot be played on Spotify right now are never picked (**Refresh from Spotify** reads the library again). Then change it by hand: swap, insert and remove songs, and move them (drag a row, or use ↑ / ↓; a block moves by its header line). **Undo** takes back one change at a time, **Reset all** every change. **Lock** the songs you want to keep and press **Regenerate unlocked songs** to redo the rest around them. A block whose songs you scatter is broken up: its songs are locked and keep playing, but the block is not made again.
+1. **Log in to Spotify.**
+2. **Set up your library** in the **Library builder** (from the generator page): **Start from the shared library** (songs already sorted into dances and tagged) or **Start empty**; import your single-dance playlists (each playlist's dance is guessed from its name), add individual songs if needed, review the dances and tags (and the songs flagged as **Duplicates** or **Versions**; ▶ plays a song), and **Save**. Saving keeps the library in your browser and brings your library playlist in step (the first save creates it). **Download a backup** saves it as three files, which **Load library files…** reads back, e.g. on another computer.
+3. **Set up the night** on the generator page: categories, repetition, excursions, fixed events, themed blocks, must-play songs, the theme, and the opening and closing. Settings can be saved to and loaded from files; **Load default settings** restores `data/default-settings.json`.
+4. **Generate** a playlist. Songs that cannot be played on Spotify right now are never picked (**Refresh from Spotify** reads the library again). Then change it by hand: swap, insert and remove songs, and move them (drag a row, or use ↑ / ↓; a block moves by its header line). **Undo** takes back one change at a time, **Reset all** every change. **Lock** the songs you want to keep and press **Regenerate unlocked songs** to redo the rest around them. A block whose songs you scatter is broken up: its songs are locked and keep playing, but the block is not made again.
 5. **Save to Spotify** creates the playlist in your account, or **Copy Spotify links** lets you paste the songs into a playlist yourself.
+
+To run the app on your own computer (the site's owner does this to publish the shared library), you need [Node.js](https://nodejs.org/): run `npm start` and open **http://127.0.0.1:8000/**. In the library builder, **Publish as the shared library** (Chrome or Edge) writes your saved library into the project's `data` folder; commit and push it to update the shared library online.
 
 Run `npm test` to check the generator and the library logic.
 
@@ -62,9 +66,9 @@ Run `npm test` to check the generator and the library logic.
 
 | File | What it is |
 |---|---|
-| `data/songs.csv` | Your song library: id (Spotify), dances, tags, work, recording (the last two only when corrected by hand). No titles or other Spotify details. |
-| `data/removed-songs.csv` | Songs you removed from the library (the same columns, plus the date removed), so imports do not bring them back and you can restore them. |
-| `data/library.json` | Which playlist in your Spotify account is the library playlist (where the songs' details are read from). |
+| `data/songs.csv` | The **shared starting library** (published by the site's owner): id (Spotify), dances, tags, work, recording (the last two only when corrected by hand). No titles or other Spotify details. Each user's own library is kept in their browser; a backup has the same three files. |
+| `data/removed-songs.csv` | Songs removed from the shared library (the same columns, plus the date removed). |
+| `data/library.json` | The owner's library playlist (reused only by its owner; everyone else's first save makes their own). |
 | `data/default-settings.json` | The default settings, in the same format as a saved settings file. |
 | `presets/` | Your saved settings files. |
 | `index.html`, `library.html`, `js/`, `css/` | The app. |

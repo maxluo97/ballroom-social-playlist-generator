@@ -136,5 +136,25 @@ console.log("=== Whose Spotify key (the site's, or your own)");
   check(!config.usingOwnClientId(), "back to the site's key");
 }
 
+console.log("=== Each Spotify account's library, kept in this browser");
+{
+  const store = await import("../js/library-store.js");
+  check(store.loadUserLibrary("anna") === null, "no library yet");
+  const rows = [{ id: id(1), dances: ["Waltz"], tags: ["Hollywood"], title: "must not be kept" }, { id: id(2), dances: ["Tango"], tags: [], work: "My work" }];
+  const removed = new Map([[id(3), { id: id(3), dances: ["Samba"], tags: [], removed: "2026-10-17", artist: "must not be kept" }]]);
+  store.saveUserLibrary("anna", { rows, removed, playlistId: "PL_ANNA" });
+  const a = store.loadUserLibrary("anna");
+  check(a.rows.length === 2 && a.rows[1].work === "My work" && a.playlistId === "PL_ANNA", "saved and loaded again");
+  check(a.removed.get(id(3)).removed === "2026-10-17" && a.removed.get(id(3)).dances[0] === "Samba", "removed songs too");
+  check(!JSON.stringify(memory["dpg.library.v1:anna"]).includes("must not be kept"), "only IDs and the user's own data are kept (no Spotify details)");
+  check(store.loadUserLibrary("ben") === null, "another account on the same browser has its own (empty) library");
+  check(store.changedSinceDownload(a), "never downloaded: a backup is due");
+  store.markDownloaded("anna");
+  check(!store.changedSinceDownload(store.loadUserLibrary("anna")), "just downloaded: no backup due");
+  await new Promise((r) => setTimeout(r, 5));
+  store.saveUserLibrary("anna", { rows: rows.slice(0, 1), removed: new Map(), playlistId: "PL_ANNA" });
+  check(store.changedSinceDownload(store.loadUserLibrary("anna")), "changed after the backup: a backup is due again");
+}
+
 console.log(failures ? `\nFAILED: ${failures} check(s).` : "\nPASSED: song details checks.");
 process.exitCode = failures ? 1 : 0;

@@ -376,6 +376,16 @@ export async function removeTracksFromPlaylist(playlistId, trackIds, onProgress)
   return removed;
 }
 
+/** The Spotify user ID of a playlist's owner, or null if it cannot be read (gone, or not yours to read). */
+export async function getPlaylistOwnerId(playlistId) {
+  try {
+    const p = await api(`/playlists/${encodeURIComponent(playlistId)}?fields=owner.id`);
+    return (p && p.owner && p.owner.id) || null;
+  } catch {
+    return null;
+  }
+}
+
 /** The track IDs in a playlist (for keeping the library playlist in step). */
 export async function getPlaylistTrackIds(playlistId) {
   const entries = await allPages(`/playlists/${encodeURIComponent(playlistId)}/items?limit=50&additional_types=track`);

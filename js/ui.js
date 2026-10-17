@@ -15,11 +15,12 @@ import {
   THEME_TEMPLATE, clone, loadLastSettings, saveLastSettings,
   loadDefaultSettings, workingSettings, parseSettingsFile, settingsFileText,
 } from "./settings.js";
-import { loadSongsFromUrl, parseLibraryInfo, spotifyLink, spotifyTrackId, parseLength } from "./data.js";
+import { spotifyLink, spotifyTrackId, parseLength } from "./data.js";
 import {
   handleLoginRedirect, isLoggedIn, login as loginWithScopes, logout as spotifyLogout, hasScopes, checkAccess, createPlaylist, addTracksToPlaylist,
 } from "./spotify.js";
 import { spotifyConnectionPanel } from "./spotify-panel.js";
+import { loadUserLibrary, changedSinceDownload } from "./library-store.js";
 import { SPOTIFY_SCOPES } from "./config.js";
 
 /** Log in with this page's permissions (see SPOTIFY_SCOPES in js/config.js). */
@@ -37,8 +38,6 @@ import {
   groupStates, typeLabel, lockedForRegeneration,
 } from "./playlist-edit.js";
 
-const PROJECT_URL = "data/songs.csv";
-const PROJECT_NAME = "Project library (data/songs.csv)";
 const DEFAULTS_LABEL = "Default settings";
 
 const state = {
@@ -973,13 +972,11 @@ function renderSettingsBar() {
 /* ----------------------------------------------------------------- library */
 
 /*
- * The song library is always data/songs.csv (Spotify IDs and your own data), made and saved with the
- * library builder. Spotify's details (titles, lengths, whether a song can play) are read from the
- * library playlist named in data/library.json, and kept in this browser only temporarily
- * (js/song-details.js). Generating needs them, so it needs a Spotify login.
+ * Each Spotify account's library lives in this browser (js/library-store.js), made and saved with the
+ * library builder: Spotify IDs and your own data. Spotify's details (titles, lengths, whether a song
+ * can play) are read from your library playlist and kept in this browser only temporarily
+ * (js/song-details.js). So the generator needs a Spotify login.
  */
-
-const LIBRARY_INFO_URL = "data/library.json";
 
 /** Rebuild the songs the generator uses from the library rows and the details now known. */
 function applyDetails() {
@@ -998,50 +995,32 @@ function setLibrary(rows, name, problems, playlistId) {
   refresh();
 }
 
-/** The project library (data/songs.csv and data/library.json), or null if it does not exist yet. */
-async function fetchProjectLibrary() {
-  try {
-    const lib = await loadSongsFromUrl(PROJECT_URL);
-    let info = { playlistId: null };
-    try {
-      const res = await fetch(LIBRARY_INFO_URL, { cache: "no-store" });
-      if (res.ok) info = parseLibraryInfo(await res.text());
-    } catch {
-      /* no library playlist yet */
-    }
-    return { ...lib, playlistId: info.playlistId };
-  } catch {
-    return null;
-  }
-}
-
-/** Startup: data/songs.csv, or nothing (with directions to the library builder); then Spotify's details. */
+/** Startup: log in, then this account's library in this browser; then Spotify's details. */
 async function loadStartingLibrary() {
   forgetExpiredDetails(); // Spotify's details are only kept temporarily
-  const project = await fetchProjectLibrary();
-  if (!project) return setLibrary([], "", [], null);
-  setLibrary(project.songs, PROJECT_NAME, project.problems, project.playlistId);
-  if (isLoggedIn()) {
-    // An account not on the key's list can log in, but Spotify refuses everything: say so.
-    const access = await checkAccess();
-    state.library.notAllowed = !access.ok;
-    renderLibrary();
-    if (!access.ok) return;
+  setLibrary([], "", [], null);
+  if (!isLoggedIn()) return;
+  // An account not on the key's list can log in, but Spotify refuses everything: say so.
+  const access = await checkAccess();
+  if (!access.ok) {
+    state.library.notAllowed = true;
+    return renderLibrary();
   }
-  if (isLoggedIn() && project.playlistId && detailsNeedRefresh(project.playlistId)) await refreshLibrary();
+  const lib = loadUserLibrary(access.userId);
+  if (!lib) return renderLibrary(); // no library yet: the library builder starts one
+  setLibrary(lib.rows, "your library", [], lib.playlistId);
+  state.library.backupDue = changedSinceDownload(lib);
+  renderLibrary();
+  if (lib.playlistId && detailsNeedRefresh(lib.playlistId)) await refreshLibrary();
 }
 
 /** Log out of Spotify: the library's details (read with that account) are forgotten too. */
 function logOut(ask = true) {
   if (ask && state.result && !confirm("Log out of Spotify? The library's details are cleared too, so the current playlist is closed.")) return;
   spotifyLogout();
-  state.library.notAllowed = false;
   clearDetails();
-  applyDetails();
   state.result = null;
-  renderLibrary();
-  renderResults();
-  refresh();
+  setLibrary([], "", [], null); // the library belongs to the account that logged out
 }
 
 /** Read Spotify's details of the library from the library playlist (about one request per 50 songs). */
@@ -1078,12 +1057,16 @@ function renderLibrary() {
   const connection = spotifyConnectionPanel({ notAllowed, onChange: () => logOut(false) });
   const builder = el("a", { href: "library.html", class: "button-link small" }, "Library builder");
   if (!name) {
-    // No data/songs.csv yet: the library has to be built (and saved) in the library builder first.
+    const message =
+      !isLoggedIn() ? el("li", { class: "warning" }, "Log in to Spotify to use your library: it is kept in this browser for your Spotify account, and its songs' titles and lengths come from Spotify. ",
+        el("button", { type: "button", class: "small", onclick: () => spotifyLogin() }, "Log in with Spotify"))
+        : notAllowed ? null
+          : el("li", { class: "warning" }, "You do not have a library in this browser yet. Open the library builder: start from the shared library " +
+            "(songs already sorted into dances and tagged) or build your own from your Spotify playlists, and save it. The generator then uses it.");
     return fill($("library"),
-      el("ul", { class: "msgs" }, el("li", { class: "warning" },
-        "No song library yet: data/songs.csv was not found. Build your library from your Spotify playlists in the " +
-          "library builder and save it there; the generator then uses it automatically.")),
-      el("div", { class: "library-line" }, builder),
+      message && el("ul", { class: "msgs" }, message),
+      el("div", { class: "library-line" }, builder,
+        isLoggedIn() && el("button", { type: "button", class: "small", onclick: logOut, title: "Log out of Spotify on this site" }, "Log out")),
       connection);
   }
   const age = detailsAgeDays();
@@ -1109,6 +1092,8 @@ function renderLibrary() {
       builder,
       isLoggedIn() && el("button", { type: "button", class: "small", onclick: logOut, title: "Log out of Spotify on this site" }, "Log out")),
     status && el("ul", { class: "msgs" }, status),
+    state.library.backupDue && el("p", { class: "muted" },
+      "Your library has changes that are not in a downloaded backup: download one in the library builder (step 6) now and then."),
     unknown > 0 && isLoggedIn() && !refreshing && el("ul", { class: "msgs" }, el("li", { class: "warning" },
       `${unknown} song(s) of the library are not in the library playlist on Spotify, so their details are unknown and they cannot be generated. ` +
         "Saving the library in the library builder puts them back.")),
