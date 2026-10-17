@@ -16,7 +16,13 @@ import {
   loadDefaultSettings, workingSettings, parseSettingsFile, settingsFileText,
 } from "./settings.js";
 import { loadSongsFromUrl, parseLibraryInfo, spotifyLink, spotifyTrackId, parseLength } from "./data.js";
-import { handleLoginRedirect, isLoggedIn, login as spotifyLogin, logout as spotifyLogout, createPlaylist, addTracksToPlaylist } from "./spotify.js";
+import {
+  handleLoginRedirect, isLoggedIn, login as loginWithScopes, logout as spotifyLogout, hasScopes, createPlaylist, addTracksToPlaylist,
+} from "./spotify.js";
+import { SPOTIFY_SCOPES } from "./config.js";
+
+/** Log in with this page's permissions (see SPOTIFY_SCOPES in js/config.js). */
+const spotifyLogin = () => loginWithScopes(SPOTIFY_SCOPES.generator);
 import { el, fill, $, comboInput, sortRows, sortHeader, chipEditor as sharedChipEditor, spotifyCredit, spotifyListenLink } from "./dom.js";
 import {
   isUnavailable, unavailableReason, withDetails, refreshDetails, detailsNeedRefresh, detailsAgeDays, forgetExpiredDetails,
@@ -1074,8 +1080,11 @@ function renderLibrary() {
     !playlistId ? el("li", { class: "warning" }, "The library has no library playlist yet: open the library builder and save the library once, which creates it.")
       : !isLoggedIn() ? el("li", { class: "warning" }, "Log in to Spotify to load your library: its titles, lengths and availability are read from Spotify. ",
         el("button", { type: "button", class: "small", onclick: () => spotifyLogin() }, "Log in with Spotify"))
-        : error ? el("li", { class: "error" }, error)
-          : null;
+        : !hasScopes(SPOTIFY_SCOPES.generator) ? el("li", { class: "warning" },
+          "This page needs one more Spotify permission (reading your private library playlist, or saving playlists). ",
+          el("button", { type: "button", class: "small", onclick: () => spotifyLogin() }, "Log in again to allow it"))
+          : error ? el("li", { class: "error" }, error)
+            : null;
   fill($("library"),
     el("div", { class: "library-line" },
       el("span", {}, "Song library: ", el("strong", {}, name), ` — ${state.songs.length} songs, ${rawDances().length} dances`),

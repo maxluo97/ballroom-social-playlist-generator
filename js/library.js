@@ -9,7 +9,7 @@
 
 import { el, fill, $, chipEditor, comboInput, sortRows, sortHeader, spotifyCredit, spotifyListenLink } from "./dom.js";
 import {
-  login, logout, isLoggedIn, handleLoginRedirect, getMyPlaylists, getPlaylistTracks,
+  login, logout, isLoggedIn, hasScopes, handleLoginRedirect, getMyPlaylists, getPlaylistTracks,
   getTrack, searchTracks, playlistIdFrom, createPlaylist, addTracksToPlaylist, removeTracksFromPlaylist, getPlaylistTrackIds,
 } from "./spotify.js";
 import {
@@ -17,7 +17,7 @@ import {
   detailsAgeDays, forgetExpiredDetails, reloadDetails, clearDetails,
 } from "./song-details.js";
 import { canSaveToFolder, getFolder, folderHasFile, writeTextFile, rememberedFolderName } from "./folders.js";
-import { RUNNING_LOCALLY } from "./config.js";
+import { RUNNING_LOCALLY, SPOTIFY_SCOPES } from "./config.js";
 import { spotifyTrackId, spotifyLink } from "./data.js";
 import {
   loadSongsFromUrl, parseSongsText, songsToCSV, parseRemovedSongs, removedSongsToCSV, parseLibraryInfo, libraryInfoText, libraryRow,
@@ -253,7 +253,10 @@ function renderSpotify(message) {
     el("div", { class: "actions" },
       isLoggedIn()
         ? el("button", { type: "button", onclick: () => { logout(); clearDetails(); renderSpotify(); renderPlaylists(); renderManual(); } }, "Log out")
-        : el("button", { type: "button", class: "primary", onclick: () => login() }, "Log in with Spotify")));
+        : el("button", { type: "button", class: "primary", onclick: () => login(SPOTIFY_SCOPES.library) }, "Log in with Spotify")),
+    isLoggedIn() && !hasScopes(SPOTIFY_SCOPES.library) && el("ul", { class: "msgs" }, el("li", { class: "warning" },
+      "The library builder needs one more Spotify permission (reading collaborative playlists, or keeping the library playlist). ",
+      el("button", { type: "button", class: "small", onclick: () => login(SPOTIFY_SCOPES.library) }, "Log in again to allow it"))));
 }
 
 /* ------------------------------------------------------- 2. Starting library */

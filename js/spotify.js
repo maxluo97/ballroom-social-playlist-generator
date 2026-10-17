@@ -19,7 +19,7 @@
  * Tokens are kept in this browser's localStorage, so you stay logged in until you log out.
  */
 
-import { SPOTIFY_CLIENT_ID, SPOTIFY_REDIRECT_URI, SPOTIFY_SCOPES } from "./config.js";
+import { SPOTIFY_CLIENT_ID, SPOTIFY_REDIRECT_URI } from "./config.js";
 
 const AUTH_URL = "https://accounts.spotify.com/authorize";
 const TOKEN_URL = "https://accounts.spotify.com/api/token";
@@ -78,8 +78,20 @@ async function challengeFor(verifier) {
     .replace(/\//g, "_");
 }
 
-/** Send the browser to Spotify's login/approval page. Returns to the current page afterwards. */
-export async function login() {
+/** The permissions the current login was given ([] if unknown). */
+export function grantedScopes() {
+  return memoryTokens && memoryTokens.scope ? String(memoryTokens.scope).split(/\s+/).filter(Boolean) : [];
+}
+
+/** Whether the current login was given all these permissions. */
+export const hasScopes = (scopes) => isLoggedIn() && scopes.every((x) => grantedScopes().includes(x));
+
+/**
+ * Send the browser to Spotify's login/approval page, asking for `scopes` (a page's permissions, see
+ * SPOTIFY_SCOPES) plus any already given, so logging in on one page never takes away what the other
+ * page needs. Returns to the current page afterwards.
+ */
+export async function login(scopes) {
   const verifier = randomString(64);
   const state = randomString(16);
   sessionStorage.setItem(PENDING_KEY, JSON.stringify({ verifier, state, returnTo: location.href }));
@@ -89,7 +101,7 @@ export async function login() {
     redirect_uri: SPOTIFY_REDIRECT_URI,
     code_challenge_method: "S256",
     code_challenge: await challengeFor(verifier),
-    scope: SPOTIFY_SCOPES.join(" "),
+    scope: [...new Set([...scopes, ...grantedScopes()])].join(" "),
     state,
   });
   location.assign(`${AUTH_URL}?${params}`);
@@ -141,7 +153,7 @@ function storeTokenResponse(data) {
     // Spotify may not send a new refresh token; then keep the old one.
     refreshToken: data.refresh_token || (memoryTokens && memoryTokens.refreshToken),
     expiresAt: Date.now() + (data.expires_in - 60) * 1000, // refresh a minute early
-    scope: data.scope,
+    scope: data.scope || (memoryTokens && memoryTokens.scope) || "",
   });
 }
 

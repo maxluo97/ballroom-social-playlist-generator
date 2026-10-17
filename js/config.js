@@ -26,10 +26,13 @@ export const ONLINE_URL = "https://maxluo97.github.io/ballroom-social-playlist-g
 export const RUNNING_LOCALLY =
   typeof location === "undefined" || ["127.0.0.1", "localhost"].includes(location.hostname);
 
-/** Permissions requested at login. Read playlists (library builder) and create playlists (save). */
-export const SPOTIFY_SCOPES = [
-  "playlist-read-private",
-  "playlist-read-collaborative",
-  "playlist-modify-private",
-  "playlist-modify-public",
-];
+/**
+ * Permissions each page asks for at login (only what it needs, per Spotify's guidance):
+ *   generator  read the (private) library playlist; save a playlist (private, or public if ticked)
+ *   library    read your own and collaborative playlists to import them; keep the private library playlist
+ * Both pages share one login, so a new login also keeps permissions already given (see login()).
+ */
+export const SPOTIFY_SCOPES = {
+  generator: ["playlist-read-private", "playlist-modify-private", "playlist-modify-public"],
+  library: ["playlist-read-private", "playlist-read-collaborative", "playlist-modify-private"],
+};
