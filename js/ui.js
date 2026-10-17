@@ -16,10 +16,11 @@ import {
   loadDefaultSettings, workingSettings, parseSettingsFile, settingsFileText,
 } from "./settings.js";
 import { loadSongsFromUrl, parseLibraryInfo, spotifyLink, spotifyTrackId, parseLength } from "./data.js";
-import { handleLoginRedirect, isLoggedIn, login as spotifyLogin, createPlaylist, addTracksToPlaylist } from "./spotify.js";
+import { handleLoginRedirect, isLoggedIn, login as spotifyLogin, logout as spotifyLogout, createPlaylist, addTracksToPlaylist } from "./spotify.js";
 import { el, fill, $, comboInput, sortRows, sortHeader, chipEditor as sharedChipEditor } from "./dom.js";
 import {
   isUnavailable, unavailableReason, withDetails, refreshDetails, detailsNeedRefresh, detailsAgeDays, forgetExpiredDetails,
+  clearDetails,
 } from "./song-details.js";
 import { DANCE_ALIASES, BALLROOM_DANCE_NAMES, canonicalDance, unknownDanceMessage } from "./dance-names.js";
 import {
@@ -1016,6 +1017,18 @@ async function loadStartingLibrary() {
   if (isLoggedIn() && project.playlistId && detailsNeedRefresh(project.playlistId)) await refreshLibrary();
 }
 
+/** Log out of Spotify: the library's details (read with that account) are forgotten too. */
+function logOut() {
+  if (state.result && !confirm("Log out of Spotify? The library's details are cleared too, so the current playlist is closed.")) return;
+  spotifyLogout();
+  clearDetails();
+  applyDetails();
+  state.result = null;
+  renderLibrary();
+  renderResults();
+  refresh();
+}
+
 /** Read Spotify's details of the library from the library playlist (about one request per 50 songs). */
 async function refreshLibrary() {
   const lib = state.library;
@@ -1069,7 +1082,8 @@ function renderLibrary() {
         : isLoggedIn() && playlistId && el("span", { class: "muted" }, ageText ? `details from Spotify, read ${ageText}` : "",
           el("button", { type: "button", class: "small", onclick: refreshLibrary, title: "Read the titles, lengths and availability again from Spotify" }, "Refresh from Spotify")),
       el("button", { type: "button", class: "small", onclick: openLibraryView, disabled: !state.songs.length }, "View library"),
-      builder),
+      builder,
+      isLoggedIn() && el("button", { type: "button", class: "small", onclick: logOut, title: "Log out of Spotify on this site" }, "Log out")),
     status && el("ul", { class: "msgs" }, status),
     unknown > 0 && isLoggedIn() && !refreshing && el("ul", { class: "msgs" }, el("li", { class: "warning" },
       `${unknown} song(s) of the library are not in the library playlist on Spotify, so their details are unknown and they cannot be generated. ` +

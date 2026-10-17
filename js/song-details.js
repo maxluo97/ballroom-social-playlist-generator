@@ -43,6 +43,12 @@ function save() {
   }
 }
 
+/** Forget every detail now (e.g. on logging out: they were read with that Spotify account). */
+export function clearDetails() {
+  store = null;
+  save();
+}
+
 /** Re-read the stored details (another page may have refreshed them). */
 export function reloadDetails() {
   store = load();

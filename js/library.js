@@ -14,7 +14,7 @@ import {
 } from "./spotify.js";
 import {
   isUnavailable, unavailableReason, isChecked, withDetails, rememberDetails, refreshDetails, detailsNeedRefresh,
-  detailsAgeDays, forgetExpiredDetails, reloadDetails,
+  detailsAgeDays, forgetExpiredDetails, reloadDetails, clearDetails,
 } from "./song-details.js";
 import { canSaveToFolder, getFolder, folderHasFile, writeTextFile, rememberedFolderName } from "./folders.js";
 import { RUNNING_LOCALLY } from "./config.js";
@@ -252,7 +252,7 @@ function renderSpotify(message) {
     message && errorBox(message),
     el("div", { class: "actions" },
       isLoggedIn()
-        ? el("button", { type: "button", onclick: () => { logout(); renderSpotify(); renderPlaylists(); renderManual(); } }, "Log out")
+        ? el("button", { type: "button", onclick: () => { logout(); clearDetails(); renderSpotify(); renderPlaylists(); renderManual(); } }, "Log out")
         : el("button", { type: "button", class: "primary", onclick: () => login() }, "Log in with Spotify")));
 }
 
@@ -1242,6 +1242,16 @@ async function syncLibraryPlaylist(report) {
   return `The library playlist on Spotify is up to date (${add.length} added, ${remove.length} removed).`;
 }
 
+/** The first save creates the library playlist: the user agrees to that first. */
+function agreeToLibraryPlaylist() {
+  if (state.libraryPlaylistId) return true;
+  return confirm(
+    `Saving creates a private playlist in your Spotify account:\n\n“${LIBRARY_PLAYLIST_NAME}”\n\n` +
+      `It holds all ${keptSongs(state.rows || []).length} songs of your library, and the generator reads their titles and lengths from it. ` +
+      "It is private (not on your profile), and every save brings it in step with the library (songs added or removed).\n\n" +
+      "Create it and save?");
+}
+
 /** Before saving: the library playlist (needs a login). Returns { ok, message }. */
 async function syncBeforeSaving(report) {
   if (!isLoggedIn()) return { ok: false, message: "Not logged in to Spotify, so the library playlist was not updated: log in (step 1) and save again." };
@@ -1325,6 +1335,7 @@ function renderOutput() {
     if (p) p.textContent = text;
   };
   const downloadBoth = async () => {
+    if (isLoggedIn() && !agreeToLibraryPlaylist()) return;
     const sync = await syncBeforeSaving(report);
     const now = currentFiles(); // the library playlist's ID may be new
     download("songs.csv", now.songs);
@@ -1349,6 +1360,7 @@ function renderOutput() {
       return alert(`Could not open the folder: ${err.message}`);
     }
     if (!folder) return;
+    if (isLoggedIn() && !agreeToLibraryPlaylist()) return;
     const sync = await syncBeforeSaving(report);
     const now = currentFiles(); // the library playlist's ID may be new
     try {
