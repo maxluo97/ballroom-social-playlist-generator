@@ -2,6 +2,27 @@
 
 Each release lists what changed since the previous one. The log starts at v0.2.4, with a summary of what the app could do at that point; earlier versions are not covered.
 
+## v0.2.5 (October 2026): editing and must-play
+
+**Changing a generated playlist**
+- **Move songs:** drag a row onto another, or use ↑ / ↓ on each row. Numbers and start times follow.
+- **Move whole blocks:** themed blocks and fixed events with several songs (e.g. the line-dance break) appear as an inset box with a header line. Drag the header, or use Move block up / down, to move the block.
+  - A block whose songs are reordered, swapped or removed is marked "(modified)".
+  - A block whose songs are scattered is broken up: its songs are labelled by their category, "Excursion" or their dance, and they are locked.
+- **Undo** takes back one change at a time, of any kind. **Reset all** takes back every change, locks included.
+- **Lock and regenerate:**
+  - Lock songs (one by one, or Lock all) and press **Regenerate unlocked songs** to make a new playlist around them. Locked songs keep their places, and the songs-between-repeats rule is kept around them.
+  - A block that is partly locked keeps only its locked songs, together, as a "(modified)" block.
+  - A broken-up block is not made again.
+- Undo, Reset all and the lock buttons are shown above and below the playlist.
+- **Generate playlist** and **Generate another** now ask before replacing a playlist.
+
+**Must-play songs**
+- New **Must-play songs** setting, using the same song picker as chosen-songs blocks.
+- The songs are spread evenly through the night after the opening, in random order. Each plays where it fits the rules, or after a few songs anyway, with a warning.
+- They play only if their dance is in a category, an excursion or a theme dance (the settings warn otherwise).
+- They may break the song length limits.
+
 ## v0.2.4 (October 2026): the starting point
 
 What the app does as of v0.2.4:
