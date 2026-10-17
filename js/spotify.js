@@ -192,10 +192,19 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * Call the Web API. `path` is like "/me" or a full "https://api.spotify.com/..." URL (for paging).
  * Refreshes the token when needed and waits when Spotify says "too many requests" (429).
  */
+/**
+ * Waiting when Spotify limits requests (429), per Spotify's guidance: respect Retry-After when the
+ * browser can read it (a wait over 30 s, or a used-up quota, is reported at once instead of waited
+ * out); otherwise back off exponentially — 2, 4, then 8 seconds — and then report it. Never a tight loop.
+ * (Changeable for the tests.)
+ */
+export const RETRY_POLICY = { delaysMs: [2000, 4000, 8000], longWaitSec: 30 };
+
 export async function api(path, { method = "GET", body } = {}) {
   if (!isLoggedIn()) throw new SpotifyError("Not logged in to Spotify.", 401);
   const url = path.startsWith("http") ? path : API + path;
-  for (let attempt = 0; attempt < 4; attempt++) {
+  let limitedRetries = 0;
+  for (let attempt = 0; attempt < 2 + RETRY_POLICY.delaysMs.length; attempt++) {
     if (!memoryTokens.accessToken || Date.now() >= memoryTokens.expiresAt) await refreshAccessToken();
     const res = await fetch(url, {
       method,
@@ -210,17 +219,23 @@ export async function api(path, { method = "GET", body } = {}) {
       continue;
     }
     if (res.status === 429) {
-      // Too many requests. A short wait is waited out; a long one (Spotify's quota is used up for a
-      // while) is reported at once, so callers can stop instead of making it worse.
-      // Browsers usually hide Retry-After from the page (Spotify does not expose it), so the wait is
-      // often unknown: then one short wait is tried, and a second refusal is reported straight away.
-      const header = Number(res.headers.get("Retry-After"));
-      if (!header && attempt > 0) {
+      // Too many requests. Browsers usually hide Retry-After from the page (Spotify does not expose
+      // it), so the wait is often unknown. A used-up quota (reason QUOTA_EXCEEDED, since July 2026) or
+      // a long stated wait is reported at once, so callers stop instead of making it worse.
+      const header = Number(res.headers.get("Retry-After")) || 0;
+      const answer = await res.json().catch(() => null);
+      const reason = answer && answer.error ? String(answer.error.reason || "") : "";
+      if (/QUOTA_EXCEEDED/i.test(reason)) {
+        throw new SpotifyError("Spotify's request quota for this app is used up for now; try again later (an hour is a safe start).", 429, { retryAfter: header || null, quota: true });
+      }
+      if (header > RETRY_POLICY.longWaitSec) {
+        throw new SpotifyError(`Spotify is limiting requests; try again in about ${Math.ceil(header / 60)} minute(s).`, 429, { retryAfter: header });
+      }
+      if (limitedRetries >= RETRY_POLICY.delaysMs.length) {
         throw new SpotifyError("Spotify is limiting requests and did not say for how long; try again later.", 429, { retryAfter: null });
       }
-      const wait = header || 5;
-      if (wait > 30) throw new SpotifyError(`Spotify is limiting requests; try again in about ${Math.ceil(wait / 60)} minute(s).`, 429, { retryAfter: wait });
-      await sleep(wait * 1000);
+      await sleep(header ? header * 1000 : RETRY_POLICY.delaysMs[limitedRetries]);
+      limitedRetries++;
       continue;
     }
     const data = res.status === 204 ? null : await res.json().catch(() => null);

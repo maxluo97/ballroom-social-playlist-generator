@@ -23,6 +23,12 @@ export const ONLINE_URL = "https://maxluo97.github.io/ballroom-social-playlist-g
  * builder only works on the computer: it saves into the project's data folder, and the online site
  * only sees those files once they are committed and pushed.
  */
+// Spotify only accepts the registered 127.0.0.1 address for local use (never localhost), so a page
+// opened as http://localhost:8000/… moves to the same address on 127.0.0.1 before anything else runs.
+if (typeof location !== "undefined" && location.hostname === "localhost") {
+  location.replace(location.href.replace("//localhost", "//127.0.0.1"));
+}
+
 export const RUNNING_LOCALLY =
   typeof location === "undefined" || ["127.0.0.1", "localhost"].includes(location.hostname);
 

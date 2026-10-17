@@ -25,10 +25,11 @@ const items = Array.from({ length: 120 }, (_, i) => {
 });
 let requests = 0;
 let limitAll = false;
+let limitReason = "";
 globalThis.fetch = async (url) => {
   requests++;
   if (limitAll) {
-    return { ok: false, status: 429, headers: { get: () => null }, json: async () => ({ error: { status: 429, message: "quota exceeded" } }) };
+    return { ok: false, status: 429, headers: { get: () => null }, json: async () => ({ error: { status: 429, message: "too many requests", reason: limitReason } }) };
   }
   const u = new URL(String(url));
   const offset = Number(u.searchParams.get("offset") || 0);
@@ -39,6 +40,8 @@ globalThis.fetch = async (url) => {
 };
 
 const details = await import("../js/song-details.js");
+const spotify = await import("../js/spotify.js");
+spotify.RETRY_POLICY.delaysMs = [1, 1, 1]; // the same backoff steps, without the waiting
 
 let failures = 0;
 const check = (cond, msg) => {
@@ -98,7 +101,16 @@ console.log("=== Spotify limiting requests");
     error = err;
   }
   check(error && error.status === 429, `a limited refresh fails with the limit reported: ${error && error.message}`);
-  check(requests === 2, `one short retry, then it stops: ${requests} requests`);
+  check(requests === 4, `three retries with growing waits, then it stops: ${requests} requests`);
+  limitReason = "QUOTA_EXCEEDED";
+  requests = 0;
+  error = null;
+  try {
+    await details.refreshDetails("PL");
+  } catch (err) {
+    error = err;
+  }
+  check(error && error.details && error.details.quota && requests === 1, `a used-up quota is reported at once, without retries: ${requests} request(s)`);
   limitAll = false;
 }
 
