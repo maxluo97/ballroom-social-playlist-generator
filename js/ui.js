@@ -17,8 +17,9 @@ import {
 } from "./settings.js";
 import { loadSongsFromUrl, parseLibraryInfo, spotifyLink, spotifyTrackId, parseLength } from "./data.js";
 import {
-  handleLoginRedirect, isLoggedIn, login as loginWithScopes, logout as spotifyLogout, hasScopes, createPlaylist, addTracksToPlaylist,
+  handleLoginRedirect, isLoggedIn, login as loginWithScopes, logout as spotifyLogout, hasScopes, checkAccess, createPlaylist, addTracksToPlaylist,
 } from "./spotify.js";
+import { spotifyConnectionPanel } from "./spotify-panel.js";
 import { SPOTIFY_SCOPES } from "./config.js";
 
 /** Log in with this page's permissions (see SPOTIFY_SCOPES in js/config.js). */
@@ -989,7 +990,7 @@ function applyDetails() {
 
 function setLibrary(rows, name, problems, playlistId) {
   state.rows = rows;
-  state.library = { name, problems, playlistId, unknown: 0, refreshing: null, error: null };
+  state.library = { name, problems, playlistId, unknown: 0, refreshing: null, error: null, notAllowed: false };
   applyDetails();
   state.result = null;
   renderLibrary();
@@ -1020,13 +1021,21 @@ async function loadStartingLibrary() {
   const project = await fetchProjectLibrary();
   if (!project) return setLibrary([], "", [], null);
   setLibrary(project.songs, PROJECT_NAME, project.problems, project.playlistId);
+  if (isLoggedIn()) {
+    // An account not on the key's list can log in, but Spotify refuses everything: say so.
+    const access = await checkAccess();
+    state.library.notAllowed = !access.ok;
+    renderLibrary();
+    if (!access.ok) return;
+  }
   if (isLoggedIn() && project.playlistId && detailsNeedRefresh(project.playlistId)) await refreshLibrary();
 }
 
 /** Log out of Spotify: the library's details (read with that account) are forgotten too. */
-function logOut() {
-  if (state.result && !confirm("Log out of Spotify? The library's details are cleared too, so the current playlist is closed.")) return;
+function logOut(ask = true) {
+  if (ask && state.result && !confirm("Log out of Spotify? The library's details are cleared too, so the current playlist is closed.")) return;
   spotifyLogout();
+  state.library.notAllowed = false;
   clearDetails();
   applyDetails();
   state.result = null;
@@ -1064,7 +1073,9 @@ async function refreshLibrary() {
 }
 
 function renderLibrary() {
-  const { name, problems, playlistId, unknown, refreshing, error } = state.library;
+  const { name, problems, playlistId, unknown, refreshing, error, notAllowed } = state.library;
+  // Which Spotify key this browser uses; after changing it, log out (a login belongs to one key).
+  const connection = spotifyConnectionPanel({ notAllowed, onChange: () => logOut(false) });
   const builder = el("a", { href: "library.html", class: "button-link small" }, "Library builder");
   if (!name) {
     // No data/songs.csv yet: the library has to be built (and saved) in the library builder first.
@@ -1072,12 +1083,14 @@ function renderLibrary() {
       el("ul", { class: "msgs" }, el("li", { class: "warning" },
         "No song library yet: data/songs.csv was not found. Build your library from your Spotify playlists in the " +
           "library builder and save it there; the generator then uses it automatically.")),
-      el("div", { class: "library-line" }, builder));
+      el("div", { class: "library-line" }, builder),
+      connection);
   }
   const age = detailsAgeDays();
   const ageText = age === null ? "" : age < 1 ? "today" : `${Math.floor(age)} day(s) ago`;
   const status =
-    !playlistId ? el("li", { class: "warning" }, "The library has no library playlist yet: open the library builder and save the library once, which creates it.")
+    notAllowed ? null
+      : !playlistId ? el("li", { class: "warning" }, "The library has no library playlist yet: open the library builder and save the library once, which creates it.")
       : !isLoggedIn() ? el("li", { class: "warning" }, "Log in to Spotify to load your library: its titles, lengths and availability are read from Spotify. ",
         el("button", { type: "button", class: "small", onclick: () => spotifyLogin() }, "Log in with Spotify"))
         : !hasScopes(SPOTIFY_SCOPES.generator) ? el("li", { class: "warning" },
@@ -1102,7 +1115,8 @@ function renderLibrary() {
     problems.length > 0 &&
       el("details", {},
         el("summary", {}, `${problems.length} row(s) skipped or changed while loading`),
-        el("ul", { class: "msgs" }, problems.map((p) => el("li", { class: "warning" }, p))))
+        el("ul", { class: "msgs" }, problems.map((p) => el("li", { class: "warning" }, p)))),
+    connection
   );
 }
 

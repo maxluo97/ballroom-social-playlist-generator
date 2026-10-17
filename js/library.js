@@ -9,7 +9,7 @@
 
 import { el, fill, $, chipEditor, comboInput, sortRows, sortHeader, spotifyCredit, spotifyListenLink } from "./dom.js";
 import {
-  login, logout, isLoggedIn, hasScopes, handleLoginRedirect, getMyPlaylists, getPlaylistTracks,
+  login, logout, isLoggedIn, hasScopes, checkAccess, handleLoginRedirect, getMyPlaylists, getPlaylistTracks,
   getTrack, searchTracks, playlistIdFrom, createPlaylist, addTracksToPlaylist, removeTracksFromPlaylist, getPlaylistTrackIds,
 } from "./spotify.js";
 import {
@@ -18,6 +18,7 @@ import {
 } from "./song-details.js";
 import { canSaveToFolder, getFolder, folderHasFile, writeTextFile, rememberedFolderName } from "./folders.js";
 import { RUNNING_LOCALLY, SPOTIFY_SCOPES } from "./config.js";
+import { spotifyConnectionPanel } from "./spotify-panel.js";
 import { spotifyTrackId, spotifyLink } from "./data.js";
 import {
   loadSongsFromUrl, parseSongsText, songsToCSV, parseRemovedSongs, removedSongsToCSV, parseLibraryInfo, libraryInfoText, libraryRow,
@@ -247,16 +248,19 @@ const tagChips = (list, label, onChange) => chipEditor(list, knownTags, { placeh
 /* ---------------------------------------------------------------- 1. Spotify */
 
 function renderSpotify(message) {
+  const signOut = () => { logout(); clearDetails(); state.notAllowed = false; renderSpotify(); renderPlaylists(); renderManual(); };
   fill($("spotify"),
     el("p", {}, isLoggedIn() ? el("strong", {}, "Logged in to Spotify.") : "Not logged in."),
     message && errorBox(message),
     el("div", { class: "actions" },
       isLoggedIn()
-        ? el("button", { type: "button", onclick: () => { logout(); clearDetails(); renderSpotify(); renderPlaylists(); renderManual(); } }, "Log out")
+        ? el("button", { type: "button", onclick: signOut }, "Log out")
         : el("button", { type: "button", class: "primary", onclick: () => login(SPOTIFY_SCOPES.library) }, "Log in with Spotify")),
     isLoggedIn() && !hasScopes(SPOTIFY_SCOPES.library) && el("ul", { class: "msgs" }, el("li", { class: "warning" },
       "The library builder needs one more Spotify permission (reading collaborative playlists, or keeping the library playlist). ",
-      el("button", { type: "button", class: "small", onclick: () => login(SPOTIFY_SCOPES.library) }, "Log in again to allow it"))));
+      el("button", { type: "button", class: "small", onclick: () => login(SPOTIFY_SCOPES.library) }, "Log in again to allow it"))),
+    // Which Spotify key this browser uses; after changing it, log out (a login belongs to one key).
+    spotifyConnectionPanel({ notAllowed: !!state.notAllowed, onChange: signOut }));
 }
 
 /* ------------------------------------------------------- 2. Starting library */
@@ -1463,6 +1467,11 @@ async function init() {
   const result = await handleLoginRedirect();
   if (result.handled && !result.error) return;
   renderSpotify(result.error);
+  if (isLoggedIn()) {
+    // An account not on the key's list can log in, but Spotify refuses everything: say so.
+    state.notAllowed = !(await checkAccess()).ok;
+    if (state.notAllowed) renderSpotify();
+  }
   renderRules();
   renderPlaylists();
   renderManual();

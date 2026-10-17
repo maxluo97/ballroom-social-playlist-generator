@@ -5,7 +5,34 @@
  * safe in the code. Never put the Client *secret* anywhere in this project.
  */
 
-export const SPOTIFY_CLIENT_ID = "84ccfc2c3949414ebb92a941b1f76a9d";
+/** The site's own Spotify app key (the owner's; Spotify allows it for at most 5 listed accounts). */
+export const DEFAULT_CLIENT_ID = "84ccfc2c3949414ebb92a941b1f76a9d";
+
+/** A user's own key, if they pasted one (kept in this browser; see js/spotify-panel.js). */
+const OWN_CLIENT_ID_KEY = "dpg.spotifyClientId.v1";
+
+function ownClientId() {
+  try {
+    const v = typeof localStorage === "undefined" ? null : localStorage.getItem(OWN_CLIENT_ID_KEY);
+    return v && /^[0-9a-f]{32}$/i.test(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The key this browser logs in with: the user's own, else the site's. */
+export const spotifyClientId = () => ownClientId() || DEFAULT_CLIENT_ID;
+export const usingOwnClientId = () => !!ownClientId();
+
+/** Use this key from now on (null = the site's key again). The caller logs out: a login belongs to one key. */
+export function setOwnClientId(id) {
+  try {
+    if (id) localStorage.setItem(OWN_CLIENT_ID_KEY, id.trim());
+    else localStorage.removeItem(OWN_CLIENT_ID_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
 
 /**
  * Where Spotify sends the browser back after login: the app's root folder.

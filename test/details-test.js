@@ -124,5 +124,17 @@ console.log("=== Spotify limiting requests");
   limitAll = false;
 }
 
+console.log("=== Whose Spotify key (the site's, or your own)");
+{
+  const config = await import("../js/config.js");
+  check(config.spotifyClientId() === config.DEFAULT_CLIENT_ID && !config.usingOwnClientId(), "by default the site's key");
+  config.setOwnClientId("0123456789abcdef0123456789abcdef");
+  check(config.spotifyClientId() === "0123456789abcdef0123456789abcdef" && config.usingOwnClientId(), "your own key, once pasted");
+  memory["dpg.spotifyClientId.v1"] = "not a key";
+  check(config.spotifyClientId() === config.DEFAULT_CLIENT_ID, "something that is not a Client ID is ignored");
+  config.setOwnClientId(null);
+  check(!config.usingOwnClientId(), "back to the site's key");
+}
+
 console.log(failures ? `\nFAILED: ${failures} check(s).` : "\nPASSED: song details checks.");
 process.exitCode = failures ? 1 : 0;

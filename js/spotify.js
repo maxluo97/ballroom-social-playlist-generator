@@ -19,7 +19,7 @@
  * Tokens are kept in this browser's localStorage, so you stay logged in until you log out.
  */
 
-import { SPOTIFY_CLIENT_ID, SPOTIFY_REDIRECT_URI } from "./config.js";
+import { spotifyClientId, SPOTIFY_REDIRECT_URI } from "./config.js";
 
 const AUTH_URL = "https://accounts.spotify.com/authorize";
 const TOKEN_URL = "https://accounts.spotify.com/api/token";
@@ -96,7 +96,7 @@ export async function login(scopes) {
   const state = randomString(16);
   sessionStorage.setItem(PENDING_KEY, JSON.stringify({ verifier, state, returnTo: location.href }));
   const params = new URLSearchParams({
-    client_id: SPOTIFY_CLIENT_ID,
+    client_id: spotifyClientId(),
     response_type: "code",
     redirect_uri: SPOTIFY_REDIRECT_URI,
     code_challenge_method: "S256",
@@ -136,7 +136,7 @@ export async function handleLoginRedirect() {
       grant_type: "authorization_code",
       code,
       redirect_uri: SPOTIFY_REDIRECT_URI,
-      client_id: SPOTIFY_CLIENT_ID,
+      client_id: spotifyClientId(),
       code_verifier: pending.verifier,
     }),
   });
@@ -165,7 +165,7 @@ async function refreshAccessToken() {
     body: new URLSearchParams({
       grant_type: "refresh_token",
       refresh_token: memoryTokens.refreshToken,
-      client_id: SPOTIFY_CLIENT_ID,
+      client_id: spotifyClientId(),
     }),
   });
   const data = await res.json().catch(() => ({}));
@@ -264,6 +264,20 @@ async function allPages(firstPath, onPage) {
 /** The logged-in user's profile. */
 export function getMe() {
   return api("/me");
+}
+
+/**
+ * Whether Spotify lets this account use the key in use (one request, once per page). In Development
+ * Mode an account not on the key's list can log in, but every request is refused with 403.
+ * Returns { ok: true, userId } or { ok: false, notAllowed: true } (or { ok: true } if it could not tell).
+ */
+let accessCheck = null;
+export function checkAccess() {
+  accessCheck ??= getMe().then(
+    (me) => ({ ok: true, userId: me && me.id }),
+    (err) => (err.status === 403 ? { ok: false, notAllowed: true } : { ok: true, userId: null }),
+  );
+  return accessCheck;
 }
 
 /** All playlists in the user's library (own, followed, collaborative). */
