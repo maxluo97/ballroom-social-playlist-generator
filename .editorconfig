@@ -1,0 +1,15 @@
+# Editor settings for this project (read by most code editors; in VS Code with the "EditorConfig" extension):
+# the same line endings, character set and indentation as the rest of the code.
+root = true
+
+[*]
+end_of_line = lf
+charset = utf-8
+insert_final_newline = true
+indent_style = space
+indent_size = 2
+trim_trailing_whitespace = true
+
+# Markdown uses two trailing spaces for a line break: keep them.
+[*.md]
+trim_trailing_whitespace = false

@@ -1,0 +1,7 @@
+# Line endings: every text file is stored and checked out with Unix line endings (LF), on every computer,
+# whatever git's own settings say. Without this, git on Windows may turn them into Windows ones (CRLF),
+# and files end up mixing the two. Git decides by itself which files are text.
+* text=auto eol=lf
+
+# Spotify's logo files: never changed by git in any way.
+*.svg -text
