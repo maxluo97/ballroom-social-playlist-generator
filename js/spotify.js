@@ -7,6 +7,8 @@
  *   - playlists:  GET  /me/playlists                (max 50 per page; song count in items.total)
  *   - songs:      GET  /playlists/{id}/items        (max 50 per page; song in items[].item;
  *                 only for playlists you own or collaborate on, otherwise 403)
+ *   - playing:    GET  /me/player/currently-playing (scope user-read-currently-playing; free accounts
+ *                 too; 204 when nothing is playing)
  *
  * How login works, in plain terms:
  *   1. login() makes a random secret (the "verifier"), keeps it in this tab, and sends the browser
@@ -17,6 +19,9 @@
  *      access token (valid about an hour) and a refresh token (used to get new access tokens),
  *      then returns you to the page where you clicked "Log in".
  * Tokens are kept in this browser's localStorage, so you stay logged in until you log out.
+ * Several windows of the app (the generator and the live screens) share them: a window always uses
+ * the newest tokens in storage, and only one window at a time renews them, because Spotify may
+ * replace the refresh token on each renewal (an old one then no longer works).
  */
 
 import { spotifyClientId, SPOTIFY_REDIRECT_URI } from "./config.js";
@@ -48,6 +53,21 @@ function saveTokens(t) {
 }
 
 let memoryTokens = readTokens();
+
+/** Use the tokens in storage: another window may have renewed them, or logged out. */
+export function syncLogin() {
+  let raw;
+  try {
+    raw = localStorage.getItem(TOKENS_KEY);
+  } catch {
+    return; // storage unavailable: keep this page's own tokens
+  }
+  try {
+    memoryTokens = JSON.parse(raw) || null;
+  } catch {
+    /* unreadable: keep this page's own tokens */
+  }
+}
 
 export function isLoggedIn() {
   return !!(memoryTokens && memoryTokens.refreshToken);
@@ -157,19 +177,37 @@ function storeTokenResponse(data) {
   });
 }
 
-async function refreshAccessToken() {
-  if (!isLoggedIn()) throw new SpotifyError("Not logged in to Spotify.", 401);
+/**
+ * Get a new access token, unless another window already did (`rejected`: the token Spotify just
+ * refused, if any). Only one window renews at a time (a browser lock, where there is one).
+ */
+function refreshAccessToken(rejected = null) {
+  const run = async () => {
+    syncLogin();
+    if (!isLoggedIn()) throw new SpotifyError("Not logged in to Spotify.", 401);
+    const t = memoryTokens;
+    if (t.accessToken && t.accessToken !== rejected && Date.now() < t.expiresAt) return; // renewed elsewhere
+    await renewTokens();
+  };
+  const locks = typeof navigator !== "undefined" && navigator.locks;
+  return locks ? locks.request("dpg-spotify-token-renewal", run) : run();
+}
+
+async function renewTokens() {
+  const used = memoryTokens.refreshToken;
   const res = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       grant_type: "refresh_token",
-      refresh_token: memoryTokens.refreshToken,
+      refresh_token: used,
       client_id: spotifyClientId(),
     }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    syncLogin();
+    if (isLoggedIn() && memoryTokens.refreshToken !== used && Date.now() < memoryTokens.expiresAt) return; // another window renewed them
     logout(); // the refresh token is no longer valid: a fresh login is needed
     throw new SpotifyError(`Spotify session expired; please log in again (${data.error_description || data.error || res.status}).`, 401);
   }
@@ -201,6 +239,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export const RETRY_POLICY = { delaysMs: [2000, 4000, 8000], longWaitSec: 30 };
 
 export async function api(path, { method = "GET", body } = {}) {
+  syncLogin();
   if (!isLoggedIn()) throw new SpotifyError("Not logged in to Spotify.", 401);
   const url = path.startsWith("http") ? path : API + path;
   let limitedRetries = 0;
@@ -215,7 +254,7 @@ export async function api(path, { method = "GET", body } = {}) {
       body: body ? JSON.stringify(body) : undefined,
     });
     if (res.status === 401 && attempt === 0) {
-      memoryTokens.expiresAt = 0; // token rejected: refresh and retry once
+      await refreshAccessToken(memoryTokens.accessToken); // token rejected: renew it and retry once
       continue;
     }
     if (res.status === 429) {
@@ -278,6 +317,33 @@ export function checkAccess() {
     (err) => (err.status === 403 ? { ok: false, notAllowed: true } : { ok: true, userId: null }),
   );
   return accessCheck;
+}
+
+/**
+ * What is playing on Spotify right now (the live view): { at, isPlaying, progressMs, song } where song
+ * is { id, linkedFromId, title, artist, isrc, durationMs }, or null when nothing (or an ad, or a podcast)
+ * is playing. `at` is when the answer arrived (this computer's clock), for counting on from progressMs.
+ * Asked with the user's country (market=from_token): Spotify may play another version of a song than the
+ * one in the playlist ("relinking"), and only then says which song it stands in for (linkedFromId).
+ */
+export async function getCurrentlyPlaying() {
+  const d = await api("/me/player/currently-playing?additional_types=track&market=from_token");
+  const at = Date.now();
+  const t = d && d.item;
+  if (!t || t.type !== "track") return { at, isPlaying: false, progressMs: 0, song: null };
+  return {
+    at,
+    isPlaying: !!d.is_playing,
+    progressMs: d.progress_ms || 0,
+    song: {
+      id: t.id || null,
+      linkedFromId: (t.linked_from && t.linked_from.id) || null,
+      title: t.name || "",
+      artist: (t.artists || []).map((a) => a.name).join(", "),
+      isrc: (t.external_ids && t.external_ids.isrc) || "",
+      durationMs: t.duration_ms || 0,
+    },
+  };
 }
 
 /** All playlists in the user's library (own, followed, collaborative). */

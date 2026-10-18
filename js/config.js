@@ -63,9 +63,11 @@ export const RUNNING_LOCALLY =
  * Permissions each page asks for at login (only what it needs, per Spotify's guidance):
  *   generator  read the (private) library playlist; save a playlist (private, or public if ticked)
  *   library    read your own and collaborative playlists to import them; keep the private library playlist
- * Both pages share one login, so a new login also keeps permissions already given (see login()).
+ *   live       see what is playing on Spotify (read only; the live view)
+ * The pages share one login, so a new login also keeps permissions already given (see login()).
  */
 export const SPOTIFY_SCOPES = {
   generator: ["playlist-read-private", "playlist-modify-private", "playlist-modify-public"],
   library: ["playlist-read-private", "playlist-read-collaborative", "playlist-modify-private"],
+  live: ["user-read-currently-playing"],
 };

@@ -246,7 +246,8 @@ export function chipEditor(list, source, {
  * ones, unchanged, with clear space around it; and song details always link back to Spotify
  * ("LISTEN ON SPOTIFY"). The official files are in images/spotify/.
  */
-function spotifyLogo(kind, alt) {
+function spotifyLogo(kind, alt, tone = null) {
+  if (tone) return el("img", { src: `images/spotify/${kind}-${tone}.svg`, alt, class: `spotify-${kind}` });
   // The page follows the system's light / dark setting, so the logo does too.
   return el("picture", {},
     el("source", { srcset: `images/spotify/${kind}-white.svg`, media: "(prefers-color-scheme: dark)" }),
@@ -254,12 +255,12 @@ function spotifyLogo(kind, alt) {
 }
 
 /** "Song details from <Spotify logo>": the credit next to anything that shows Spotify's song details. */
-export const spotifyCredit = (text = "Song details from") =>
-  el("span", { class: "spotify-credit" }, text, " ", spotifyLogo("full-logo", "Spotify"));
+export const spotifyCredit = (text = "Song details from", tone = null) =>
+  el("span", { class: "spotify-credit" }, text, " ", spotifyLogo("full-logo", "Spotify", tone));
 
 /** A Spotify icon linking to the song on Spotify ("Listen on Spotify"), or null without a real ID. */
-export function spotifyListenLink(url, name) {
+export function spotifyListenLink(url, name, tone = null) {
   if (!url) return null;
   const label = `Listen on Spotify: ${name}`;
-  return el("a", { href: url, target: "_blank", rel: "noopener", class: "spotify-listen", title: label, "aria-label": label }, spotifyLogo("icon", ""));
+  return el("a", { href: url, target: "_blank", rel: "noopener", class: "spotify-listen", title: label, "aria-label": label }, spotifyLogo("icon", "", tone));
 }

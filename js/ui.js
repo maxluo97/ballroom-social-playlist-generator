@@ -22,6 +22,7 @@ import {
 import { spotifyConnectionPanel } from "./spotify-panel.js";
 import { loadUserLibrary, changedSinceDownload } from "./library-store.js";
 import { SPOTIFY_SCOPES } from "./config.js";
+import { livePlan, saveLivePlan } from "./live-core.js";
 
 /** Log in with this page's permissions (see SPOTIFY_SCOPES in js/config.js). */
 const spotifyLogin = () => loginWithScopes(SPOTIFY_SCOPES.generator);
@@ -1029,6 +1030,7 @@ function logOut(ask = true) {
   if (ask && state.result && !confirm("Log out of Spotify? The library's details are cleared too, so the current playlist is closed.")) return;
   spotifyLogout();
   clearDetails();
+  saveLivePlan(null);
   state.result = null;
   setLibrary([], "", [], null); // the library belongs to the account that logged out
 }
@@ -1254,6 +1256,8 @@ function renderResults() {
     box.replaceChildren(el("p", { class: "muted" }, "Adjust the settings, then press ", el("strong", {}, "Generate playlist"), "."));
     return;
   }
+  // The live view and the program follow this playlist, edits included (they read it from storage).
+  saveLivePlan(livePlan(r, state.rows));
   const s = state.settings;
   const themed = Boolean(s.theme && (s.theme.dances.length || (s.theme.tags || []).length));
   const active = activeItems(r);
@@ -1412,7 +1416,11 @@ function renderResults() {
       themed && el("span", {}, "Theme share: ", el("b", {}, pct(r.stats.themeFraction)))),
     el("div", { class: "result-actions" },
       el("button", { type: "button", class: "primary", onclick: generate, disabled: state.errors.length > 0 || !state.songs.length }, "Generate another"),
-      copyLinks),
+      copyLinks,
+      el("button", { type: "button", class: "primary", title: "What is playing and what comes next, during the night (follows Spotify; opens in a new window)",
+        onclick: () => window.open("live.html", "dpg-live") }, "Live view"),
+      el("button", { type: "button", title: "The song order with each song's dance, to print or download as a Word document",
+        onclick: () => window.open("program.html", "dpg-program") }, "Program")),
     linkCount > 0 && saveToSpotifyBox(activeResult(r), links.filter(Boolean).map(spotifyTrackId)),
     linkCount > 0 &&
       el("p", { class: "help" },

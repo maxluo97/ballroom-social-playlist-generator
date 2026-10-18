@@ -7,6 +7,6 @@
   "scripts": {
     "start": "node tools/serve.js",
     "presets": "node tools/presets-index.js",
-    "test": "node test/test.js && node test/library-test.js && node test/details-test.js && node test/playlist-test.js"
+    "test": "node test/test.js && node test/library-test.js && node test/details-test.js && node test/playlist-test.js && node test/live-test.js"
   }
 }

@@ -324,3 +324,64 @@ textarea { background: var(--bg); color: var(--text); border: 1px solid var(--bo
 a.spotify-listen { display: inline-block; vertical-align: middle; padding: 0 6px 0 0; line-height: 0; }
 a.spotify-listen img.spotify-icon { height: 21px; width: 21px; display: block; }
 .attribution { margin: 4px 0; }
+/* Live view (live.html): the Music runner's layout, and the Dancers' (live.html?screen=dancers, for a projector). */
+.live { display: grid; gap: 14px; max-width: 1100px; margin: 0 auto; padding: 16px; }
+.live-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; min-width: 0; }
+.live-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.live-row:empty { display: none; }
+.live-label { color: var(--muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.live-status { text-transform: none; letter-spacing: 0; background: var(--chip); color: var(--text); border-radius: 999px; padding: 1px 10px; }
+.live-status.off { background: var(--warn-bg); color: var(--warn); font-weight: 600; }
+.live-dance { font-size: clamp(2rem, 6vw, 3.4rem); font-weight: 700; line-height: 1.15; margin: 4px 0; overflow-wrap: anywhere; }
+.live-dance.small { font-size: clamp(1.4rem, 3.5vw, 2rem); }
+.live-block { color: var(--block); font-weight: 600; font-size: 1.1rem; }
+.live-song { font-size: 1.1rem; margin-top: 4px; overflow-wrap: anywhere; }
+.live-artist { color: var(--muted); }
+.live-waiting { font-size: 1.4rem; color: var(--muted); padding: 10px 0; }
+.live-bar { height: 8px; background: var(--chip); border-radius: 999px; overflow: hidden; margin: 12px 0 4px; }
+.live-bar-fill { height: 100%; width: 0; background: var(--accent); }
+.live-time { font-variant-numeric: tabular-nums; color: var(--muted); }
+.live-num { color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; margin-right: 0.4em; }
+.live-of { color: var(--muted); font-weight: 400; font-size: 0.45em; margin-left: 0.4em; }
+.live-match { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); display: grid; gap: 6px; }
+.live-match select { max-width: 100%; }
+.live-message { border-color: var(--warn); background: var(--warn-bg); }
+.live-message p { margin: 0 0 8px; }
+.live-upcoming table { width: 100%; margin-top: 6px; }
+.live-footer { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.live-tools { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* The Dancers screen: always dark, very large, readable from across the room. */
+body.live-dancers {
+  --bg: #0e0d11; --panel: #17161b; --text: #f4f2f7; --muted: #a9a5b3; --border: #2c2a33;
+  --accent: #b58ce6; --chip: #2c2638; --block: #8bd48e; --warn: #f2c46d; --warn-bg: #3a2f17;
+  color-scheme: dark;
+}
+body.live-dancers .live { max-width: none; min-height: 100vh; align-content: center; padding: 3vh 4vw; }
+body.live-dancers .live-panel { border: none; background: transparent; padding: 0; }
+body.live-dancers .live-message { background: var(--warn-bg); padding: 14px 18px; }
+body.live-dancers .live-label { font-size: clamp(1rem, 2vw, 1.6rem); }
+body.live-dancers .live-dance { font-size: clamp(3rem, 11vw, 9rem); }
+body.live-dancers .live-dance.small { font-size: clamp(2rem, 5vw, 4.5rem); }
+body.live-dancers .live-block { font-size: clamp(1.4rem, 3vw, 2.6rem); }
+body.live-dancers .live-song { font-size: clamp(1.3rem, 3vw, 2.4rem); }
+body.live-dancers .live-bar { height: 14px; }
+body.live-dancers .live-time { font-size: clamp(1.1rem, 2.2vw, 1.8rem); }
+body.live-dancers .live-row { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 4vw; margin-top: 2vh; }
+
+/* The program (program.html), on screen and printed. */
+.program-page { max-width: 800px; margin: 0 auto; padding: 16px; }
+.program-tools { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; display: grid; gap: 8px; margin-bottom: 16px; }
+.program-tools .help { margin: 0; }
+.program-title { font-size: 1.8rem; margin: 8px 0 12px; }
+table.program { width: 100%; border-collapse: collapse; }
+table.program th, table.program td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--border); }
+table.program td.num { width: 3em; color: var(--muted); font-variant-numeric: tabular-nums; }
+@media print {
+  body { background: #fff; color: #000; }
+  .no-print { display: none !important; }
+  .program-page { max-width: none; padding: 0; }
+  table.program th, table.program td { border-bottom: 1px solid #bbb; }
+  table.program td.num { color: #444; }
+  table.program tr { break-inside: avoid; }
+}
