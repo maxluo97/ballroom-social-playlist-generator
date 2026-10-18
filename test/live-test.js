@@ -114,8 +114,16 @@ console.log("=== Following what Spotify plays");
   live.saveMatch(id(77), id(4));
   const matched = live.liveState(plan, at(77), 2, { matches: live.loadMatches() });
   check(!matched.offPlan && matched.index === 3 && matched.next.dance === "Line dance", "once matched by hand, it is that planned song");
+  // Added during the night: its dance is shown; the order does not change.
+  live.saveAdded(id(88), "Bachata");
+  const add = live.liveState(plan, at(88), 2, { added: live.loadAdded() });
+  check(add.offPlan && add.added && add.offPlanDance === "Bachata", "an added song shows the dance the organizer gave");
+  check(add.next.dance === "Line dance" && add.lastIndex === 2 && add.nextBlock && add.nextBlock.inSongs === 1, "and the order does not change: next is still the next planned song");
+  live.saveAdded(id(50), "Bolero");
+  check(live.liveState(plan, at(50), 2, { added: live.loadAdded() }).offPlanDance === "Bolero", "the dance given wins over the library's");
+  check(!JSON.stringify(live.loadAdded()).includes("Song "), "only the Spotify ID and the dance are kept");
   live.saveLivePlan(null);
-  check(Object.keys(live.loadMatches()).length === 0, "matches are forgotten with the plan (logging out)");
+  check(Object.keys(live.loadMatches()).length === 0 && Object.keys(live.loadAdded()).length === 0, "matches and added songs are forgotten with the plan (logging out)");
 
   // A song planned twice: the time after the last planned song played.
   const twice = { ...plan, songs: [...plan.songs.slice(0, 7), { ...plan.songs[0] }, plan.songs[7]] };

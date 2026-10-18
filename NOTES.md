@@ -363,7 +363,7 @@ Also in v0.2 (done): every "add a dance" box accepts only known dances (library 
   2. Two layouts: **Music runner** and **Dancers** (full screen, for a projector). One computer: two windows, the Dancers one dragged to the projector.
   3. About every 5 seconds the page asks Spotify what is playing (read-only permission, asked for once, works on free accounts; about 2,000 requests in a 3-hour night). The timer counts on its own between answers, so it moves every second.
   4. **Now:** title, artist, dance (and the special block's name during a block), a progress bar and "1:23 / 3:00". Dances are numbered by their place in the playlist, as in the generator and the program (developer, after testing).
-  5. **Next dance:** the next song's dance; on the Music runner layout also its title and artist. Not shown for the last song of the night. The Dancers layout also shows **Then:** the dance after it (developer, after testing).
+  5. **Next dance:** the next song's dance; on the Music runner layout also its title and artist. Not shown for the last song of the night. The Dancers layout also shows **Following dance:** the dance after it (developer, after testing).
   6. **Next special block** (Music runner layout only; developer, after testing): its name and how many songs until it starts ("in 3 songs"). Not shown during a block, or after the last one.
   7. **Music runner** layout also lists the next few songs (no editing).
   8. Songs are matched by which song is playing, not by counting, so going back, skipping or jumping works. A song not in the playlist: **Off the plan**, with its title, artist and dance (from the library if known, otherwise "—"); next is worked out from the last planned song played.
@@ -371,7 +371,7 @@ Also in v0.2 (done): every "add a dance" box accepts only known dances (library 
   10. The Spotify credit on both layouts.
   11. **Program:** a **Print program** page and **Download program (Word)**: the song order (numbered) with each song's dance and special block names; no times. The Word document adds an empty **Song name** column for the organizer to fill in by hand. Song titles and artists are never included (Spotify's rule against permanent copies, as with the CSV removed in v0.3).
   12. **Check Spotify now** (Music runner): asks at once. A song **off the plan** can be **matched by hand** to a planned song ("It's #15 Line dance (the next song)", or any other from a list); both screens follow it from then on, for the night (forgotten on logging out). (Developer, after testing: some planned songs showed as off the plan. Cause, most likely: Spotify played another copy of the song under another ID ("relinking") and only says so when asked with the user's country; fixed by asking with market=from_token, the hand match is the fallback.)
-  - *Developer:* no "set dance" button for off-plan songs.
+  13. **Songs added during the night** (developer, after testing; replaces the earlier "no set dance button"): on the Music runner layout, a song off the plan can be **added to the night**: its title and artist come from Spotify; the organizer types its dance (suggested from the library, if known). It then shows as **Added**, with that dance, on both screens. Added songs never change the order: next stays the next planned song. Only the Spotify ID and the dance are kept, for the night (forgotten on logging out); the generator's playlist and the program are not changed.
 
 **Plan agreed Oct 2026 (developer):** v0.2.5 → v0.3 → v0.4.
 

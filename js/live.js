@@ -14,7 +14,10 @@ import { SPOTIFY_SCOPES } from "./config.js";
 import { el, fill, $, spotifyCredit, spotifyListenLink } from "./dom.js";
 import { detailsOf, reloadDetails } from "./song-details.js";
 import { spotifyLink } from "./data.js";
-import { LIVE_PLAN_KEY, LIVE_MATCHES_KEY, loadLivePlan, loadMatches, saveMatch, liveState, progressNow, clock, inSongsText } from "./live-core.js";
+import {
+  LIVE_PLAN_KEY, LIVE_MATCHES_KEY, LIVE_ADDED_KEY, loadLivePlan, loadMatches, saveMatch, loadAdded, saveAdded,
+  liveState, progressNow, clock, inSongsText,
+} from "./live-core.js";
 
 const POLL_MS = 5000;
 const LIMITED_WAIT_MS = 60000; // after Spotify says "too many requests"
@@ -23,6 +26,8 @@ const tone = dancers ? "white" : null; // the Dancers screen is always dark
 
 let plan = loadLivePlan();
 let matches = loadMatches(); // songs matched to the plan by hand (shared by the windows)
+let added = loadAdded(); // songs added during the night, with their dances
+let shown = ""; // what the page shows now (see render), so a new answer about the same song keeps the page as it is
 let playing = null; // Spotify's latest answer (see getCurrentlyPlaying)
 let lastId = null; // the last planned song played, by ID (indexes change when the playlist is edited)
 let problem = null; // { text, login }
@@ -50,7 +55,7 @@ function take(answer, mine) {
   } else playing = answer;
   if (mine && channel) channel.postMessage({ answer });
   nextPollAt = Math.max(nextPollAt, answer.at + POLL_MS);
-  render();
+  render(false);
 }
 
 async function poll() {
@@ -68,7 +73,7 @@ async function poll() {
       problem = { text: `${err.message} The live view tries again in a minute.` };
       waitUntil = Date.now() + LIMITED_WAIT_MS;
     } else problem = { text: `Could not ask Spotify what is playing: ${err.message}` };
-    render();
+    render(false);
   } finally {
     polling = false;
     nextPollAt = Math.max(nextPollAt, Date.now() + POLL_MS);
@@ -102,8 +107,16 @@ function renderProgress() {
 
 const panel = (cls, ...children) => el("section", { class: `live-panel ${cls}` }, ...children);
 
-function render() {
+/**
+ * Draw the page. A new answer from Spotify about the same song (`force` false) only moves the timer,
+ * so a dance being typed, or a song being picked, is not wiped out every 5 seconds.
+ */
+function render(force = true) {
   const box = $("live");
+  const now0 = playing && playing.song;
+  const sig = JSON.stringify([now0 && now0.id, playing && playing.isPlaying, !!playing, problem && problem.text, ready()]);
+  if (!force && sig === shown) return renderProgress();
+  shown = sig;
   progressBar = progressText = null;
   if (!plan) {
     fill(box, panel("live-message",
@@ -111,7 +124,7 @@ function render() {
         ", then press ", el("strong", {}, "Live view"), ".")));
     return;
   }
-  const st = liveState(plan, playing, lastIndexNow(), { isrcOf, upcomingCount: 5, matches });
+  const st = liveState(plan, playing, lastIndexNow(), { isrcOf, upcomingCount: 5, matches, added });
   if (st.lastIndex >= 0) lastId = plan.songs[st.lastIndex].id;
   const total = plan.songs.length;
 
@@ -128,12 +141,12 @@ function render() {
   let now;
   if (playing && playing.song) {
     const sg = playing.song;
-    const status = st.offPlan ? "Off the plan" : !playing.isPlaying ? "Paused" : "";
+    const status = st.added ? "Added" : st.offPlan ? "Off the plan" : !playing.isPlaying ? "Paused" : "";
     const dance = st.current ? st.current.dance : st.offPlanDance || "—";
     progressBar = el("div", { class: "live-bar-fill" });
     progressText = el("span", { class: "live-time" });
     now = panel("live-now",
-      el("div", { class: "live-label" }, "Now", status && el("span", { class: `live-status${st.offPlan ? " off" : ""}` }, status)),
+      el("div", { class: "live-label" }, "Now", status && el("span", { class: `live-status${st.offPlan && !st.added ? " off" : ""}` }, status)),
       el("div", { class: "live-dance" }, st.index >= 0 && num(st.index), dance,
         !dancers && st.index >= 0 && el("span", { class: "live-of" }, ` of ${total}`)),
       st.current && st.current.block && el("div", { class: "live-block" }, st.current.block),
@@ -155,7 +168,7 @@ function render() {
     el("div", { class: "live-dance small" }, num(st.nextIndex), st.next.dance),
     !dancers && titleOf(st.next) && el("div", { class: "live-song" }, titleOf(st.next)));
   const then = dancers && st.following && panel("live-next",
-    el("div", { class: "live-label" }, "Then"),
+    el("div", { class: "live-label" }, "Following dance"),
     el("div", { class: "live-dance small" }, num(st.nextIndex + 1), st.following.dance));
   const block = !dancers && st.nextBlock && panel("live-next-block",
     el("div", { class: "live-label" }, "Next special block"),
@@ -193,11 +206,32 @@ function checkNow() {
 }
 
 /**
- * A song off the plan that is really a planned one (e.g. Spotify played another copy of it): match it
- * by hand. Suggests the next planned song; any other can be picked. Remembered for the night.
+ * A song off the plan. Either it is really a planned one (e.g. Spotify played another copy of it):
+ * match it by hand (the next planned song is suggested; any other can be picked). Or it was added
+ * during the night: give its dance (title and artist come from Spotify). Both are remembered for
+ * the night; an added song never changes the order.
  */
 function matchBox(sg, st) {
   if (!sg.id) return null;
+  const listId = "live-dance-names";
+  const names = [...new Set([...plan.songs.map((x) => x.dance), ...Object.values(plan.dances || {}).flatMap((d) => d.split(" / "))])].filter(Boolean).sort();
+  const dance = el("input", { type: "text", value: st.offPlanDance, placeholder: "Dance, e.g. Rumba", "aria-label": "Its dance", list: listId });
+  const add = () => {
+    const d = dance.value.trim();
+    if (!d) return dance.focus();
+    saveAdded(sg.id, d);
+    added = loadAdded();
+    render();
+  };
+  dance.addEventListener("keydown", (e) => e.key === "Enter" && add());
+  const addBox = el("div", { class: "live-match" },
+    el("p", { class: "help" }, st.added
+      ? "Added during the night. Change its dance if needed:"
+      : "Or, if it was added during the night, give its dance (the title and artist come from Spotify). The playlist's order does not change."),
+    el("div", { class: "inline-fields" }, dance,
+      el("datalist", { id: listId }, names.map((n) => el("option", { value: n }))),
+      el("button", { type: "button", class: st.added ? "" : "primary", onclick: add }, st.added ? "Change dance" : "Add to the night")));
+  if (st.added) return addBox;
   const match = (i) => {
     saveMatch(sg.id, plan.songs[i].id);
     matches = loadMatches();
@@ -211,6 +245,7 @@ function matchBox(sg, st) {
       st.next && el("button", { type: "button", class: "primary", onclick: () => match(st.nextIndex) }, `It's #${st.nextIndex + 1} ${st.next.dance} (the next song)`),
       pick,
       el("button", { type: "button", onclick: () => match(Number(pick.value)) }, "It's this one")),
+    addBox,
     el("p", { class: "help" }, `Spotify's ID for it: ${sg.id}`));
 }
 
@@ -221,6 +256,7 @@ document.title = dancers ? "Dancers screen" : "Live view";
 addEventListener("storage", (e) => {
   if (e.key === LIVE_PLAN_KEY || e.key === null) plan = loadLivePlan(); // edited or regenerated in the generator
   if (e.key === LIVE_MATCHES_KEY || e.key === null) matches = loadMatches(); // matched by hand in the other window
+  if (e.key === LIVE_ADDED_KEY || e.key === null) added = loadAdded(); // a song added in the other window
   if (e.key === "dpg.songDetails.v1" || e.key === null) reloadDetails();
   if (e.key === "dpg.spotify.tokens.v1" || e.key === null) syncLogin(); // logged in or out in another window
   render();

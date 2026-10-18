@@ -14,6 +14,8 @@ import { spotifyTrackId } from "./data.js";
 export const LIVE_PLAN_KEY = "dpg.live.v1";
 /** Songs matched to the plan by hand on the live view ("It's #15"): { playedId: plannedId }. */
 export const LIVE_MATCHES_KEY = "dpg.live.matches.v1";
+/** Songs added during the night (played off the plan), with the dance the organizer gave: { songId: dance }. */
+export const LIVE_ADDED_KEY = "dpg.live.added.v1";
 
 /** The live plan of a (possibly edited) generated playlist; `rows` are the library's rows. */
 export function livePlan(r, rows = []) {
@@ -41,6 +43,7 @@ export function saveLivePlan(plan) {
     else {
       localStorage.removeItem(LIVE_PLAN_KEY);
       localStorage.removeItem(LIVE_MATCHES_KEY);
+      localStorage.removeItem(LIVE_ADDED_KEY);
     }
   } catch {
     /* storage unavailable or full: the live page will say there is no playlist */
@@ -62,6 +65,23 @@ export function saveMatch(playedId, plannedId) {
     else localStorage.setItem(LIVE_MATCHES_KEY, JSON.stringify({ ...loadMatches(), [playedId]: plannedId }));
   } catch {
     /* storage unavailable: the match is not kept */
+  }
+}
+
+export function loadAdded() {
+  try {
+    return JSON.parse(localStorage.getItem(LIVE_ADDED_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+/** Remember the dance of a song added during the night (only its Spotify ID and the dance are kept). */
+export function saveAdded(songId, dance) {
+  try {
+    localStorage.setItem(LIVE_ADDED_KEY, JSON.stringify({ ...loadAdded(), [songId]: dance }));
+  } catch {
+    /* storage unavailable: the dance is not kept */
   }
 }
 
@@ -102,14 +122,16 @@ export function findInPlan(plan, song, isrcOf = () => "", after = -1, matches = 
  *   offPlan    a song is playing that is not in the plan
  *   lastIndex  the last planned song played (for the next call)
  *   current    the playing song's plan row (null if none or off the plan)
- *   offPlanDance  the dance of an off-plan song, from the library ("" if unknown)
+ *   added      an off-plan song the organizer added during the night (its dance is offPlanDance)
+ *   offPlanDance  the dance of an off-plan song: the one given when it was added, else from the
+ *              library ("" if unknown). Added songs never change the order: next stays the next planned song.
  *   nextIndex, next   the next planned song (null after the last song of the night)
  *   following  the planned song after that (null if none)
  *   nextBlock  { label, inSongs } for the next special block (inSongs 1 = the next song), or null
  *              during a block, or when no block is left
  *   upcoming   the next few planned songs: [{ index, row }]
  */
-export function liveState(plan, playing, lastIndex = -1, { isrcOf = () => "", upcomingCount = 5, matches = {} } = {}) {
+export function liveState(plan, playing, lastIndex = -1, { isrcOf = () => "", upcomingCount = 5, matches = {}, added = {} } = {}) {
   const songs = (plan && plan.songs) || [];
   const song = playing && playing.song;
   const index = song ? findInPlan(plan, song, isrcOf, lastIndex, matches) : -1;
@@ -131,13 +153,16 @@ export function liveState(plan, playing, lastIndex = -1, { isrcOf = () => "", up
       break;
     }
   }
+  const libraryDance = offPlan ? (plan.dances && (plan.dances[song.id] || plan.dances[song.linkedFromId])) || "" : "";
+  const addedDance = offPlan && song.id ? added[song.id] || "" : "";
   const upcoming = songs.slice(nextIndex, nextIndex + upcomingCount).map((row, k) => ({ index: nextIndex + k, row }));
   return {
     index,
     offPlan,
     lastIndex,
     current,
-    offPlanDance: offPlan ? (plan.dances && (plan.dances[song.id] || plan.dances[song.linkedFromId])) || "" : "",
+    added: !!addedDance,
+    offPlanDance: addedDance || libraryDance,
     nextIndex,
     next,
     following: songs[nextIndex + 1] || null,
