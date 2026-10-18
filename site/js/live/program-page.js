@@ -21,15 +21,15 @@ function download() {
   const bytes = tableDocx({
     title,
     headers: ["#", "Dance", "Special block", "Song name"],
-    rows: programRows(plan).map((r) => [...r, ""]),
+    rows: programRows(plan).map((row) => [...row, ""]),
     widths: [700, 2700, 2300, 3660],
   });
   const url = URL.createObjectURL(new Blob([bytes], { type: DOCX_TYPE }));
   const name = (title.trim() || "Dance program").replace(/[\\/:*?"<>|]+/g, "-");
-  const a = el("a", { href: url, download: `${name}.docx` });
-  document.body.append(a);
-  a.click();
-  a.remove();
+  const link = el("a", { href: url, download: `${name}.docx` });
+  document.body.append(link);
+  link.click();
+  link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
@@ -44,8 +44,8 @@ function render() {
   fill(box,
     el("div", { class: "program-tools no-print" },
       el("label", { class: "inline-fields" }, "Title:",
-        el("input", { type: "text", value: title, style: "flex:1 1 20em", "aria-label": "Program title", oninput: (e) => {
-          title = e.target.value;
+        el("input", { type: "text", value: title, style: "flex:1 1 20em", "aria-label": "Program title", oninput: (event) => {
+          title = event.target.value;
           heading.textContent = title;
         } })),
       el("div", { class: "inline-fields" },
@@ -55,12 +55,12 @@ function render() {
         "to fill in by hand if you want song names in the program (the app may not keep copies of Spotify's song details).")),
     heading,
     el("table", { class: "program" },
-      el("thead", {}, el("tr", {}, ["#", "Dance", "Special block"].map((h) => el("th", { scope: "col" }, h)))),
-      el("tbody", {}, rows.map((r) => el("tr", {}, r.map((c, i) => el("td", { class: i === 0 ? "num" : "" }, c)))))));
+      el("thead", {}, el("tr", {}, ["#", "Dance", "Special block"].map((heading) => el("th", { scope: "col" }, heading)))),
+      el("tbody", {}, rows.map((row) => el("tr", {}, row.map((text, iColumn) => el("td", { class: iColumn === 0 ? "num" : "" }, text)))))));
 }
 
-addEventListener("storage", (e) => {
-  if (e.key === LIVE_PLAN_KEY || e.key === null) {
+addEventListener("storage", (event) => {
+  if (event.key === LIVE_PLAN_KEY || event.key === null) {
     plan = loadLivePlan();
     render();
   }

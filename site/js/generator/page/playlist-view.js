@@ -209,8 +209,6 @@ export function renderResults() {
       el("td", { class: "type" }, kindLabel(row)),
       el("td", {}, spotifyListenLink(spotifyLink(row.song.id), row.song.title), row.song.title, row.song.artist && el("span", { class: "muted" }, ` – ${row.song.artist}`),
         row.swapped && el("span", { class: "swap-note", title: `The generator chose: ${row.original.song.title}` }, " (swapped)"),
-        row.autoReplaced && !row.swapped && el("div", { class: "muted", style: "font-size:0.85em" },
-          `Replaced “${row.autoReplaced.title}” (${row.autoReplaced.why}).`),
         isUnavailable(row.song.id) && el("div", { class: "swap-warning" }, `Warning: ${unavailableReason(row.song.id)}.`)),
       el("td", { class: "num" }, formatDuration(row.song.lengthSec)),
       themed && el("td", { class: "theme-mark" }, row.isTheme ? "Yes" : ""),

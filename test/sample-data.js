@@ -21,13 +21,13 @@ export const EXTRAS = ["Polka", "Line dance", "Paso Doble"];
  */
 export function buildSongs(perDance = 8) {
   const songs = [];
-  let n = 0;
-  const lengthFor = (i) => 150 + ((i * 37) % 100); // 150..249 s
-  const tagsFor = (i) => (i % 4 === 0 ? ["Hollywood"] : []);
+  let songNumber = 0;
+  const lengthFor = (number) => 150 + ((number * 37) % 100); // 150..249 s
+  const tagsFor = (number) => (number % 4 === 0 ? ["Hollywood"] : []);
   for (const dance of [...BALLROOM, ...LATIN, ...CLUB, ...EXTRAS]) {
-    for (let k = 1; k <= perDance; k++) {
-      n++;
-      songs.push({ id: `t${n}`, title: `${dance} song ${k}`, lengthSec: lengthFor(n), dances: [dance], tags: tagsFor(n) });
+    for (let iSong = 1; iSong <= perDance; iSong++) {
+      songNumber++;
+      songs.push({ id: `t${songNumber}`, title: `${dance} song ${iSong}`, lengthSec: lengthFor(songNumber), dances: [dance], tags: tagsFor(songNumber) });
     }
   }
   const multi = [
@@ -39,7 +39,7 @@ export function buildSongs(perDance = 8) {
     ["Samba", "Polka"],
   ];
   for (const dances of multi) {
-    songs.push({ id: `t${++n}`, title: `${dances.join("/")} song`, lengthSec: lengthFor(n), dances });
+    songs.push({ id: `t${++songNumber}`, title: `${dances.join("/")} song`, lengthSec: lengthFor(songNumber), dances });
   }
   return songs;
 }

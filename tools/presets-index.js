@@ -27,7 +27,7 @@ export function presetsIndex(folder) {
       skipped.push(`${file}: ${err.message}`);
     }
   }
-  presets.sort((a, b) => a.name.localeCompare(b.name));
+  presets.sort((first, second) => first.name.localeCompare(second.name));
   return { presets, skipped };
 }
 
@@ -35,6 +35,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const dir = fileURLToPath(new URL("../site/presets/", import.meta.url));
   const { presets, skipped } = presetsIndex(dir);
   writeFileSync(join(dir, "index.json"), JSON.stringify({ presets }, null, 2) + "\n");
-  console.log(`presets/index.json: ${presets.length} shared preset(s)${presets.length ? `: ${presets.map((p) => p.name).join(", ")}` : ""}.`);
-  for (const s of skipped) console.log(`  skipped (not a settings file): ${s}`);
+  console.log(`presets/index.json: ${presets.length} shared preset(s)${presets.length ? `: ${presets.map((preset) => preset.name).join(", ")}` : ""}.`);
+  for (const reason of skipped) console.log(`  skipped (not a settings file): ${reason}`);
 }

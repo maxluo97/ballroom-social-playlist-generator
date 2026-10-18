@@ -78,8 +78,8 @@ export const DOUBLE_CHECK = {
 };
 
 /** Message for a dance name the app does not know (dance boxes accept known dances only). */
-export const unknownDanceMessage = (v) =>
-  `“${v}” is not a known dance. Pick one from the list, or use “Define a new dance…” in the library builder.`;
+export const unknownDanceMessage = (name) =>
+  `“${name}” is not a known dance. Pick one from the list, or use “Define a new dance…” in the library builder.`;
 
 /*
  * Dances the user defined themselves (library builder, "Define a new dance…"):
@@ -91,56 +91,62 @@ let customDances = [];
 
 export function setCustomDances(list = []) {
   customDances = list
-    .filter((d) => d && String(d.name || "").trim())
-    .map((d) => ({
-      name: String(d.name).trim(),
-      style: BALLROOM_STYLES[d.style] ? d.style : null,
-      spellings: (d.spellings || []).map((x) => String(x).trim()).filter(Boolean),
+    .filter((dance) => dance && String(dance.name || "").trim())
+    .map((dance) => ({
+      name: String(dance.name).trim(),
+      style: BALLROOM_STYLES[dance.style] ? dance.style : null,
+      spellings: (dance.spellings || []).map((spelling) => String(spelling).trim()).filter(Boolean),
     }));
 }
 
 /** The user's own dances in their stored form ("Smooth Peabody", "Lindy Bop"). */
-export const customDanceNames = () => customDances.map((d) => (d.style ? `${d.style} ${d.name}` : d.name));
+export const customDanceNames = () => customDances.map((dance) => (dance.style ? `${dance.style} ${dance.name}` : dance.name));
 
 /**
  * Why a new dance cannot be defined as given, or null if it can.
  * `{ name, style, spellings }` as for setCustomDances; `libraryDances`: names already in the library.
  */
 export function newDanceProblem({ name, style, spellings = [] }, libraryDances = []) {
-  const n = String(name ?? "").trim();
-  if (!n) return "Give the dance a name.";
-  if (/[;|,]/.test(n)) return "A dance name cannot contain ; | or , (they separate dances in songs.csv).";
-  if (Object.keys(BALLROOM_STYLES).some((st) => n.toLowerCase().startsWith(`${st.toLowerCase()} `))) {
+  const trimmedName = String(name ?? "").trim();
+  if (!trimmedName) return "Give the dance a name.";
+  if (/[;|,]/.test(trimmedName)) return "A dance name cannot contain ; | or , (they separate dances in songs.csv).";
+  if (Object.keys(BALLROOM_STYLES).some((styleName) => trimmedName.toLowerCase().startsWith(`${styleName.toLowerCase()} `))) {
     return "Leave the style word out of the name and choose the style in the list instead.";
   }
   // Every name and spelling the app already knows, mapped to the dance it means.
-  const known = new Map();
-  const add = (alias, dance) => known.set(normalize(alias), dance);
-  for (const [dance, aliases] of Object.entries(DANCE_ALIASES)) [dance, ...aliases].forEach((a) => add(a, dance));
-  for (const d of [...BALLROOM_DANCE_NAMES, ...libraryDances]) add(d, d);
-  for (const c of customDances) [c.name, ...c.spellings].forEach((a) => add(a, c.style ? `${c.style} ${c.name}` : c.name));
-  const full = style ? `${style} ${n}` : n;
-  for (const candidate of [n, full, ...spellings]) {
-    const existing = known.get(normalize(candidate));
+  const danceOfSpelling = new Map();
+  const add = (spelling, dance) => danceOfSpelling.set(normalize(spelling), dance);
+  for (const [dance, aliases] of Object.entries(DANCE_ALIASES)) [dance, ...aliases].forEach((alias) => add(alias, dance));
+  for (const dance of [...BALLROOM_DANCE_NAMES, ...libraryDances]) add(dance, dance);
+  for (const own of customDances) [own.name, ...own.spellings].forEach((spelling) => add(spelling, own.style ? `${own.style} ${own.name}` : own.name));
+  const fullName = style ? `${style} ${trimmedName}` : trimmedName;
+  for (const candidate of [trimmedName, fullName, ...spellings]) {
+    const existing = danceOfSpelling.get(normalize(candidate));
     if (existing) return `“${candidate}” already means ${existing}.`;
   }
   return null;
 }
 
 /** All standard ballroom names, e.g. "Smooth Waltz" ... "Latin Jive" (19 dances). */
-export const BALLROOM_DANCE_NAMES = Object.entries(BALLROOM_STYLES).flatMap(([style, s]) => s.dances.map((d) => `${style} ${d}`));
+export const BALLROOM_DANCE_NAMES = Object.entries(BALLROOM_STYLES).flatMap(([styleName, style]) => style.dances.map((dance) => `${styleName} ${dance}`));
 
-const normalize = (s) =>
-  ` ${String(s ?? "")
+/**
+ * Text for matching: lower case, no accents, every run of other characters one space, with a space at
+ * each end (so " waltz " matches whole words only).
+ */
+const normalize = (text) =>
+  ` ${String(text ?? "")
     .toLowerCase()
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "") // é -> e
     .replace(/[^a-z0-9]+/g, " ")
     .trim()} `;
 
-const has = (normText, phrase) => normText.includes(normalize(phrase));
+/** Whether normalized text contains a phrase (as whole words). */
+const has = (normalizedText, phrase) => normalizedText.includes(normalize(phrase));
 
-const isStyled = (name) => Object.keys(BALLROOM_STYLES).some((st) => name.startsWith(`${st} `));
+/** Whether a name starts with a ballroom style ("Smooth Waltz"). */
+const isStyled = (name) => Object.keys(BALLROOM_STYLES).some((styleName) => name.startsWith(`${styleName} `));
 
 /**
  * [alias, dance] pairs, longest alias first. Extra (library) names match as themselves, except
@@ -148,10 +154,10 @@ const isStyled = (name) => Object.keys(BALLROOM_STYLES).some((st) => name.starts
  */
 function aliasList(extraDances = []) {
   const pairs = [];
-  for (const [dance, aliases] of Object.entries(DANCE_ALIASES)) for (const a of aliases) pairs.push([normalize(a), dance]);
-  for (const c of customDances) for (const a of [c.name, ...c.spellings]) pairs.push([normalize(a), c.name]);
-  for (const d of extraDances) if (!isStyled(d)) pairs.push([normalize(d), d]);
-  return pairs.sort((x, y) => y[0].length - x[0].length);
+  for (const [dance, aliases] of Object.entries(DANCE_ALIASES)) for (const alias of aliases) pairs.push([normalize(alias), dance]);
+  for (const own of customDances) for (const spelling of [own.name, ...own.spellings]) pairs.push([normalize(spelling), own.name]);
+  for (const dance of extraDances) if (!isStyled(dance)) pairs.push([normalize(dance), dance]);
+  return pairs.sort((first, second) => second[0].length - first[0].length);
 }
 
 /**
@@ -162,46 +168,47 @@ function aliasList(extraDances = []) {
  * `knownDances`: extra names to recognize as-is (e.g. names already used in the library).
  */
 export function guessDanceInfo(text, knownDances = []) {
-  const norm = normalize(text);
-  let t = norm;
+  const normalizedText = normalize(text);
+  let unmatched = normalizedText; // the text with the dances found so far blanked out
   const hits = []; // [position, dance]
   for (const [alias, dance] of aliasList(knownDances)) {
     if (!alias.trim()) continue;
-    const pos = t.indexOf(alias);
-    if (pos < 0) continue;
-    if (!hits.some(([, d]) => d === dance)) hits.push([pos, dance]);
+    const position = unmatched.indexOf(alias);
+    if (position < 0) continue;
+    if (!hits.some(([, found]) => found === dance)) hits.push([position, dance]);
     // Blank out the matched words (same length, so later positions stay comparable).
-    t = t.split(alias).join(` ${"#".repeat(alias.length - 2)} `);
+    unmatched = unmatched.split(alias).join(` ${"#".repeat(alias.length - 2)} `);
   }
-  hits.sort((a, b) => a[0] - b[0]);
+  hits.sort((first, second) => first[0] - second[0]);
 
-  const styleWords = new Set(Object.entries(BALLROOM_STYLES).filter(([, s]) => s.words.some((w) => has(norm, w))).map(([st]) => st));
-  const familyWords = new Set(Object.entries(FAMILY_WORDS).filter(([, ws]) => ws.some((w) => has(norm, w))).map(([f]) => f));
+  const styleWords = new Set(Object.entries(BALLROOM_STYLES).filter(([, style]) => style.words.some((word) => has(normalizedText, word))).map(([styleName]) => styleName));
+  const familyWords = new Set(Object.entries(FAMILY_WORDS).filter(([, words]) => words.some((word) => has(normalizedText, word))).map(([family]) => family));
 
   const dances = [];
   const ambiguous = [];
   const checks = [];
-  const add = (d) => !dances.includes(d) && dances.push(d);
+  const add = (dance) => !dances.includes(dance) && dances.push(dance);
   for (const [, dance] of hits) {
+    // The ballroom styles this dance belongs to (built in, or one of your own dances).
     const homes = [
-      ...Object.keys(BALLROOM_STYLES).filter((st) => BALLROOM_STYLES[st].dances.includes(dance)),
-      ...customDances.filter((c) => c.name === dance && c.style).map((c) => c.style),
+      ...Object.keys(BALLROOM_STYLES).filter((styleName) => BALLROOM_STYLES[styleName].dances.includes(dance)),
+      ...customDances.filter((own) => own.name === dance && own.style).map((own) => own.style),
     ];
     if (!homes.length) {
       add(dance); // not a ballroom dance: keep the plain name
       continue;
     }
-    let chosen = homes.filter((st) => styleWords.has(st) || familyWords.has(BALLROOM_STYLES[st].family));
+    let chosen = homes.filter((styleName) => styleWords.has(styleName) || familyWords.has(BALLROOM_STYLES[styleName].family));
     if (!chosen.length) {
       if (homes.length > 1 && DISTINCT_ACROSS_STYLES.includes(dance)) {
-        ambiguous.push({ dance, options: homes.map((st) => `${st} ${dance}`) });
+        ambiguous.push({ dance, options: homes.map((styleName) => `${styleName} ${dance}`) });
         continue;
       }
       chosen = homes;
       // No style word: the guess is plausible but worth a second look for some dances.
-      if (DOUBLE_CHECK[dance]) checks.push({ dance, guessed: chosen.map((st) => `${st} ${dance}`), ...DOUBLE_CHECK[dance] });
+      if (DOUBLE_CHECK[dance]) checks.push({ dance, guessed: chosen.map((styleName) => `${styleName} ${dance}`), ...DOUBLE_CHECK[dance] });
     }
-    chosen.forEach((st) => add(`${st} ${dance}`));
+    chosen.forEach((styleName) => add(`${styleName} ${dance}`));
   }
   return { dances, ambiguous, checks };
 }
@@ -220,14 +227,14 @@ export function guessDances(text, knownDances = []) {
 export function canonicalDance(name) {
   const trimmed = String(name ?? "").trim();
   // The user's own dances: any of their spellings means that dance (styled ones need a style word, as below).
-  const own = customDances.find((c) => !c.style && [c.name, ...c.spellings].some((a) => normalize(a) === normalize(trimmed)));
+  const own = customDances.find((dance) => !dance.style && [dance.name, ...dance.spellings].some((spelling) => normalize(spelling) === normalize(trimmed)));
   if (own) return own.name;
   const { dances, ambiguous } = guessDanceInfo(trimmed);
   if (dances.length === 1 && !ambiguous.length && isStyled(dances[0])) {
-    const norm = normalize(trimmed);
+    const normalizedName = normalize(trimmed);
     const styleOrFamily =
-      Object.values(BALLROOM_STYLES).some((s) => s.words.some((w) => has(norm, w))) ||
-      Object.values(FAMILY_WORDS).some((ws) => ws.some((w) => has(norm, w)));
+      Object.values(BALLROOM_STYLES).some((style) => style.words.some((word) => has(normalizedName, word))) ||
+      Object.values(FAMILY_WORDS).some((words) => words.some((word) => has(normalizedName, word)));
     if (styleOrFamily) return dances[0];
   }
   return trimmed;

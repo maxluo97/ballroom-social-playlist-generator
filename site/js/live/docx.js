@@ -12,21 +12,22 @@ const encoder = new TextEncoder();
 
 /* ------------------------------------------------------------------- zip */
 
+/** The standard CRC-32 lookup table: the checksum's value for each possible byte. */
 const CRC_TABLE = (() => {
-  const t = new Uint32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    t[n] = c >>> 0;
+  const table = new Uint32Array(256);
+  for (let byte = 0; byte < 256; byte++) {
+    let value = byte;
+    for (let iBit = 0; iBit < 8; iBit++) value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    table[byte] = value >>> 0;
   }
-  return t;
+  return table;
 })();
 
 /** The CRC-32 checksum a zip file stores for each file. */
 export function crc32(bytes) {
-  let c = 0xffffffff;
-  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
+  let checksum = 0xffffffff;
+  for (let iByte = 0; iByte < bytes.length; iByte++) checksum = CRC_TABLE[(checksum ^ bytes[iByte]) & 0xff] ^ (checksum >>> 8);
+  return (checksum ^ 0xffffffff) >>> 0;
 }
 
 /** A zip archive (stored, not compressed) of [{ name, text }]. */
@@ -35,9 +36,9 @@ export function zip(files) {
   const parts = [];
   const central = [];
   let offset = 0;
-  for (const f of files) {
-    const name = encoder.encode(f.name);
-    const data = encoder.encode(f.text);
+  for (const file of files) {
+    const name = encoder.encode(file.name);
+    const data = encoder.encode(file.text);
     const crc = crc32(data);
     const local = new DataView(new ArrayBuffer(30));
     local.setUint32(0, 0x04034b50, true); // local file header
@@ -53,47 +54,51 @@ export function zip(files) {
     local.setUint16(28, 0, true);
     parts.push(new Uint8Array(local.buffer), name, data);
 
-    const c = new DataView(new ArrayBuffer(46));
-    c.setUint32(0, 0x02014b50, true); // central directory entry
-    c.setUint16(4, 20, true);
-    c.setUint16(6, 20, true);
-    c.setUint16(8, 0x0800, true);
-    c.setUint16(10, 0, true);
-    c.setUint16(12, 0, true);
-    c.setUint16(14, DOS_DATE, true);
-    c.setUint32(16, crc, true);
-    c.setUint32(20, data.length, true);
-    c.setUint32(24, data.length, true);
-    c.setUint16(28, name.length, true);
-    c.setUint32(42, offset, true); // where its local header is
-    central.push(new Uint8Array(c.buffer), name);
+    const entry = new DataView(new ArrayBuffer(46));
+    entry.setUint32(0, 0x02014b50, true); // central directory entry
+    entry.setUint16(4, 20, true);
+    entry.setUint16(6, 20, true);
+    entry.setUint16(8, 0x0800, true);
+    entry.setUint16(10, 0, true);
+    entry.setUint16(12, 0, true);
+    entry.setUint16(14, DOS_DATE, true);
+    entry.setUint32(16, crc, true);
+    entry.setUint32(20, data.length, true);
+    entry.setUint32(24, data.length, true);
+    entry.setUint16(28, name.length, true);
+    entry.setUint32(42, offset, true); // where its local header is
+    central.push(new Uint8Array(entry.buffer), name);
     offset += 30 + name.length + data.length;
   }
-  const centralSize = central.reduce((n, p) => n + p.length, 0);
+  const totalLength = (pieces) => pieces.reduce((total, piece) => total + piece.length, 0);
+  const centralSize = totalLength(central);
   const end = new DataView(new ArrayBuffer(22));
   end.setUint32(0, 0x06054b50, true); // end of central directory
   end.setUint16(8, files.length, true);
   end.setUint16(10, files.length, true);
   end.setUint32(12, centralSize, true);
   end.setUint32(16, offset, true);
-  const all = [...parts, ...central, new Uint8Array(end.buffer)];
-  const out = new Uint8Array(all.reduce((n, p) => n + p.length, 0));
-  let at = 0;
-  for (const p of all) {
-    out.set(p, at);
-    at += p.length;
+  const pieces = [...parts, ...central, new Uint8Array(end.buffer)];
+  const bytes = new Uint8Array(totalLength(pieces));
+  let writeAt = 0;
+  for (const piece of pieces) {
+    bytes.set(piece, writeAt);
+    writeAt += piece.length;
   }
-  return out;
+  return bytes;
 }
 
 /* ------------------------------------------------------------------ docx */
 
-export const escapeXml = (s) =>
-  String(s).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[ch]);
+/** Text made safe inside XML (the five special characters written as entities). */
+export const escapeXml = (text) =>
+  String(text).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[char]);
 
-const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
+/** Word's XML namespace ("w:" in the document). */
+const WORD_NAMESPACE = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
 const XML_HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
 
+/** A run of text (bold, size in half points), and a paragraph of one run. */
 const run = (text, { bold = false, size = null } = {}) =>
   `<w:r>${bold || size ? `<w:rPr>${bold ? "<w:b/>" : ""}${size ? `<w:sz w:val="${size}"/>` : ""}</w:rPr>` : ""}` +
   `<w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`;
@@ -110,12 +115,12 @@ export function tableDocx({ title, note = "", headers, rows, widths }) {
   const border = (side) => `<w:${side} w:val="single" w:sz="4" w:space="0" w:color="999999"/>`;
   const table =
     "<w:tbl>" +
-    `<w:tblPr><w:tblW w:w="${widths.reduce((a, b) => a + b, 0)}" w:type="dxa"/>` +
+    `<w:tblPr><w:tblW w:w="${widths.reduce((total, width) => total + width, 0)}" w:type="dxa"/>` +
     `<w:tblBorders>${["top", "left", "bottom", "right", "insideH", "insideV"].map(border).join("")}</w:tblBorders>` +
     '<w:tblCellMar><w:top w:w="60" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/></w:tblCellMar></w:tblPr>' +
-    `<w:tblGrid>${widths.map((w) => `<w:gridCol w:w="${w}"/>`).join("")}</w:tblGrid>` +
-    `<w:tr><w:trPr><w:tblHeader/></w:trPr>${headers.map((h, i) => cell(h, widths[i], true)).join("")}</w:tr>` +
-    rows.map((r) => `<w:tr><w:trPr><w:cantSplit/></w:trPr>${r.map((c, i) => cell(c, widths[i], false)).join("")}</w:tr>`).join("") +
+    `<w:tblGrid>${widths.map((width) => `<w:gridCol w:w="${width}"/>`).join("")}</w:tblGrid>` +
+    `<w:tr><w:trPr><w:tblHeader/></w:trPr>${headers.map((heading, iColumn) => cell(heading, widths[iColumn], true)).join("")}</w:tr>` +
+    rows.map((row) => `<w:tr><w:trPr><w:cantSplit/></w:trPr>${row.map((text, iColumn) => cell(text, widths[iColumn], false)).join("")}</w:tr>`).join("") +
     "</w:tbl>";
   const body =
     paragraph(title, { bold: true, size: 36 }) +
@@ -139,7 +144,7 @@ export function tableDocx({ title, note = "", headers, rows, widths }) {
         '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>' +
         "</Relationships>",
     },
-    { name: "word/document.xml", text: `${XML_HEAD}<w:document ${W}><w:body>${body}</w:body></w:document>` },
+    { name: "word/document.xml", text: `${XML_HEAD}<w:document ${WORD_NAMESPACE}><w:body>${body}</w:body></w:document>` },
   ]);
 }
 

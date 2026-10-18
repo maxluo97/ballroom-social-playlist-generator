@@ -25,18 +25,20 @@ const TYPES = {
   ".ico": "image/x-icon",
 };
 
-createServer(async (req, res) => {
-  const path = decodeURIComponent(new URL(req.url, "http://x").pathname);
+createServer(async (request, response) => {
+  const path = decodeURIComponent(new URL(request.url, "http://local").pathname);
   const file = normalize(join(ROOT, path.endsWith("/") ? path + "index.html" : path));
+  // Never serve anything outside the website folder (e.g. a request for "/../package.json").
   if (!file.startsWith(ROOT)) {
-    res.writeHead(403).end("Forbidden");
+    response.writeHead(403).end("Forbidden");
     return;
   }
   try {
     const body = await readFile(file);
-    res.writeHead(200, { "Content-Type": TYPES[extname(file)] || "application/octet-stream", "Cache-Control": "no-store" });
-    res.end(body);
+    // "no-store": the browser always reads the files again, so a change shows on the next reload.
+    response.writeHead(200, { "Content-Type": TYPES[extname(file)] || "application/octet-stream", "Cache-Control": "no-store" });
+    response.end(body);
   } catch {
-    res.writeHead(404).end("Not found");
+    response.writeHead(404).end("Not found");
   }
 }).listen(PORT, "127.0.0.1", () => console.log(`Serving on http://127.0.0.1:${PORT}/  (Ctrl+C to stop)`));

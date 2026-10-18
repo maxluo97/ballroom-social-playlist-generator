@@ -25,15 +25,17 @@ const KEY = "dpg.songDetails.v1";
 export const DETAILS_KEEP_DAYS = 14;
 const DAY_MS = 24 * 3600 * 1000;
 
+/** The details kept in this browser, or null. */
 function load() {
   try {
-    const data = JSON.parse(localStorage.getItem(KEY));
-    return data && data.songs ? data : null;
+    const stored = JSON.parse(localStorage.getItem(KEY));
+    return stored && stored.songs ? stored : null;
   } catch {
     return null;
   }
 }
 
+/** This page's copy of the details (see the format above), or null. */
 let store = load();
 
 function save() {
@@ -63,14 +65,14 @@ export function detailsAgeDays() {
 
 /** Whether the details need reading (none, too old, or from another library playlist). */
 export function detailsNeedRefresh(playlistId) {
-  const age = detailsAgeDays();
-  return !store || age === null || age > DETAILS_KEEP_DAYS || (playlistId && store.playlistId !== playlistId);
+  const ageDays = detailsAgeDays();
+  return !store || ageDays === null || ageDays > DETAILS_KEEP_DAYS || (playlistId && store.playlistId !== playlistId);
 }
 
 /** Delete details older than DETAILS_KEEP_DAYS (they are only ever kept temporarily). */
 export function forgetExpiredDetails() {
-  const age = detailsAgeDays();
-  if (store && (age === null || age > DETAILS_KEEP_DAYS)) {
+  const ageDays = detailsAgeDays();
+  if (store && (ageDays === null || ageDays > DETAILS_KEEP_DAYS)) {
     store = null;
     save();
   }
@@ -82,12 +84,12 @@ export function forgetExpiredDetails() {
  */
 export async function refreshDetails(playlistId, onProgress, libraryIds = null) {
   const songs = await getLibraryPlaylistSongs(playlistId, onProgress, libraryIds);
-  const map = {};
-  for (const sg of songs) {
-    map[sg.id] = { title: sg.title, artist: sg.artist, album: sg.album, released: sg.released, lengthSec: sg.lengthSec,
-      isrc: sg.isrc, playable: sg.isPlayable !== false, reason: sg.reason || "" };
+  const detailsById = {};
+  for (const song of songs) {
+    detailsById[song.id] = { title: song.title, artist: song.artist, album: song.album, released: song.released, lengthSec: song.lengthSec,
+      isrc: song.isrc, playable: song.isPlayable !== false, reason: song.reason || "" };
   }
-  store = { playlistId, fetchedAt: new Date().toISOString(), songs: map };
+  store = { playlistId, fetchedAt: new Date().toISOString(), songs: detailsById };
   save();
   return songs.length;
 }
@@ -98,11 +100,11 @@ export async function refreshDetails(playlistId, onProgress, libraryIds = null) 
  */
 export function rememberDetails(songs) {
   if (!store) store = { playlistId: null, fetchedAt: new Date().toISOString(), songs: {} };
-  for (const sg of songs) {
-    const id = spotifyTrackId(sg.id);
-    if (!id || !sg.title) continue;
-    store.songs[id] = { title: sg.title, artist: sg.artist || "", album: sg.album || "", released: sg.released || "",
-      lengthSec: sg.lengthSec, isrc: sg.isrc || "", playable: sg.isPlayable !== false, reason: "" };
+  for (const song of songs) {
+    const id = spotifyTrackId(song.id);
+    if (!id || !song.title) continue;
+    store.songs[id] = { title: song.title, artist: song.artist || "", album: song.album || "", released: song.released || "",
+      lengthSec: song.lengthSec, isrc: song.isrc || "", playable: song.isPlayable !== false, reason: "" };
   }
   save();
 }
@@ -118,11 +120,11 @@ export function detailsOf(songId) {
  * details are not known is marked `unknown` ("Unknown song (ID)", no length): it cannot be generated.
  */
 export function withDetails(rows) {
-  return rows.map((r) => {
-    const d = detailsOf(r.id);
-    if (!d) return { ...r, title: `Unknown song (${r.id})`, artist: "", lengthSec: 0, unknown: true };
-    const { playable, reason, ...info } = d;
-    return { ...info, ...r };
+  return rows.map((row) => {
+    const details = detailsOf(row.id);
+    if (!details) return { ...row, title: `Unknown song (${row.id})`, artist: "", lengthSec: 0, unknown: true };
+    const { playable, reason, ...info } = details;
+    return { ...info, ...row };
   });
 }
 
@@ -130,8 +132,8 @@ export function withDetails(rows) {
 
 /** True if Spotify said this song cannot be played in your country. */
 export function isUnavailable(songId) {
-  const d = detailsOf(songId);
-  return !!d && d.playable === false;
+  const details = detailsOf(songId);
+  return !!details && details.playable === false;
 }
 
 /** True if Spotify's details (and so its availability) are known for this song. */
@@ -139,8 +141,9 @@ export const isChecked = (songId) => !!detailsOf(songId);
 
 /** A short, plain explanation of why a song is unavailable ("" if it is not). */
 export function unavailableReason(songId) {
-  const d = detailsOf(songId);
-  if (!d || d.playable !== false) return "";
-  const why = { market: "not licensed in your country", product: "needs a different Spotify subscription", explicit: "blocked by your explicit-content setting" }[d.reason];
-  return `cannot be played on Spotify${why ? ` (${why})` : d.reason ? ` (${d.reason})` : ""}`;
+  const details = detailsOf(songId);
+  if (!details || details.playable !== false) return "";
+  // Spotify's reasons, in plain words.
+  const why = { market: "not licensed in your country", product: "needs a different Spotify subscription", explicit: "blocked by your explicit-content setting" }[details.reason];
+  return `cannot be played on Spotify${why ? ` (${why})` : details.reason ? ` (${details.reason})` : ""}`;
 }

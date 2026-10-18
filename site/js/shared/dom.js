@@ -1,29 +1,35 @@
 // SPDX-FileCopyrightText: 2026 Max Luo
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * dom.js — tiny helpers for building page elements, shared by the app's pages.
+ * dom.js — small helpers for building page elements, shared by the app's pages: making elements,
+ * sortable tables, dropdowns that suggest as you type ("combo boxes"), chip boxes, and Spotify's credit.
  */
 
-/** Keep only real children: drops null/undefined/false, which `cond && el(...)` produces. */
-const realChildren = (children) => children.flat().filter((c) => c != null && c !== false);
+/** Keep only real children: drops null, undefined and false, which `condition && el(...)` gives. */
+const realChildren = (children) => children.flat().filter((child) => child != null && child !== false);
 
-/** Replace a node's contents (use this, not replaceChildren, which would print "false"). */
+/** Replace a node's contents (use this, not replaceChildren, which would show "false"). */
 export const fill = (node, ...children) => node.replaceChildren(...realChildren(children));
 
-/** el("tag", {props}, ...children). Props starting with "on" become event listeners. */
+/**
+ * el("tag", { props }, ...children): a new element. Props starting with "on" become event listeners
+ * ("onclick"); "class" is the class name; other props are set as properties where the element has one,
+ * else as attributes (true -> an empty attribute). null, undefined and false props are left out.
+ */
 export function el(tag, props = {}, ...children) {
   const node = document.createElement(tag);
-  for (const [k, v] of Object.entries(props)) {
-    if (v == null || v === false) continue;
-    if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
-    else if (k === "class") node.className = v;
-    else if (k in node && k !== "list") node[k] = v;
-    else node.setAttribute(k, v === true ? "" : v);
+  for (const [name, value] of Object.entries(props)) {
+    if (value == null || value === false) continue;
+    if (name.startsWith("on")) node.addEventListener(name.slice(2), value);
+    else if (name === "class") node.className = value;
+    else if (name in node && name !== "list") node[name] = value;
+    else node.setAttribute(name, value === true ? "" : value);
   }
   node.append(...realChildren(children));
   return node;
 }
 
+/** The element with this id. */
 export const $ = (id) => document.getElementById(id);
 
 /* ------------------------------------------------------------ sortable tables */
@@ -36,16 +42,18 @@ const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "bas
  */
 export function sortRows(rows, sort, columns) {
   if (!sort || !sort.key || !columns[sort.key]) return rows;
-  const value = columns[sort.key];
-  const empty = (v) => v == null || v === "" || (typeof v === "number" && !Number.isFinite(v));
+  const valueOf = columns[sort.key];
+  const isEmpty = (value) => value == null || value === "" || (typeof value === "number" && !Number.isFinite(value));
   return rows
-    .map((row, i) => ({ row, i, v: value(row) }))
-    .sort((a, b) => {
-      if (empty(a.v) || empty(b.v)) return empty(a.v) - empty(b.v) || a.i - b.i;
-      const c = typeof a.v === "number" && typeof b.v === "number" ? a.v - b.v : collator.compare(String(a.v), String(b.v));
-      return c * sort.dir || a.i - b.i; // ties keep their original order
+    .map((row, iRow) => ({ row, iRow, value: valueOf(row) }))
+    .sort((first, second) => {
+      if (isEmpty(first.value) || isEmpty(second.value)) return isEmpty(first.value) - isEmpty(second.value) || first.iRow - second.iRow;
+      const order = typeof first.value === "number" && typeof second.value === "number"
+        ? first.value - second.value
+        : collator.compare(String(first.value), String(second.value));
+      return order * sort.dir || first.iRow - second.iRow; // ties keep their original order
     })
-    .map((x) => x.row);
+    .map((entry) => entry.row);
 }
 
 /** A column heading that sorts by its column when clicked (click again to reverse). */
@@ -58,16 +66,18 @@ export function sortHeader(label, key, sort, onSort) {
 }
 
 /** A fresh id for a list that belongs to one input. */
-let listCounter = 0;
-export const nextListId = () => `dl-auto-${++listCounter}`;
+let listCount = 0;
+export const nextListId = () => `dl-auto-${++listCount}`;
+
+/* ------------------------------------------------------------ combo boxes */
 
 /**
- * Turn a text input into an autocompleting dropdown ("combo box").
+ * Turn a text input into a dropdown that suggests as you type (a "combo box").
  * The browser's own <datalist> suggestions are unreliable (some browsers only show them after a
  * double-click or the down-arrow key, and scrolling tables can clip them), so this draws its own list.
  *   getOptions()  -> all choices (read each time the list opens)
  *   onPick(value) -> called when a choice is clicked, or chosen with the arrow keys + Enter
- * The list opens on click/focus and while typing, shows choices that contain the typed text
+ * The list opens on click / focus and while typing, shows the choices that contain the typed text
  * (those that start with it first), and floats above everything (position: fixed).
  * Enter with nothing highlighted is left to the input's own handlers (e.g. "add what I typed").
  */
@@ -78,33 +88,34 @@ export function attachCombo(input, getOptions, onPick) {
   input.setAttribute("aria-controls", list.id);
   input.setAttribute("aria-expanded", "false");
   input.autocomplete = "off";
-  let items = [];
-  let active = -1;
+  let shownOptions = [];
+  let highlighted = -1; // the highlighted choice's place in shownOptions (-1: none)
 
+  /** Put the list just under the input (it is fixed on the screen, so it follows scrolling by hand). */
   const place = () => {
-    const r = input.getBoundingClientRect();
-    list.style.left = `${r.left}px`;
-    list.style.top = `${r.bottom + 2}px`;
-    list.style.minWidth = `${r.width}px`;
+    const box = input.getBoundingClientRect();
+    list.style.left = `${box.left}px`;
+    list.style.top = `${box.bottom + 2}px`;
+    list.style.minWidth = `${box.width}px`;
   };
   const draw = () => {
-    list.replaceChildren(...items.map((o, i) =>
-      el("li", { role: "option", id: `${list.id}-${i}`, class: i === active ? "active" : null, "aria-selected": i === active ? "true" : "false",
-        // mousedown (not click) so the input keeps focus and does not blur first.
-        onmousedown: (e) => { e.preventDefault(); pick(o); } }, o)));
-    if (active >= 0) {
-      input.setAttribute("aria-activedescendant", `${list.id}-${active}`);
-      list.children[active].scrollIntoView({ block: "nearest" });
+    list.replaceChildren(...shownOptions.map((option, iOption) =>
+      el("li", { role: "option", id: `${list.id}-${iOption}`, class: iOption === highlighted ? "active" : null, "aria-selected": iOption === highlighted ? "true" : "false",
+        // mousedown (not click) so the input keeps the focus and does not lose it first.
+        onmousedown: (event) => { event.preventDefault(); pick(option); } }, option)));
+    if (highlighted >= 0) {
+      input.setAttribute("aria-activedescendant", `${list.id}-${highlighted}`);
+      list.children[highlighted].scrollIntoView({ block: "nearest" });
     } else input.removeAttribute("aria-activedescendant");
   };
   const open = () => {
-    const q = input.value.trim().toLowerCase();
-    const all = getOptions();
-    const starts = all.filter((o) => o.toLowerCase().startsWith(q));
-    const contains = all.filter((o) => !o.toLowerCase().startsWith(q) && o.toLowerCase().includes(q));
-    items = [...starts, ...contains];
-    active = -1;
-    list.hidden = items.length === 0;
+    const typed = input.value.trim().toLowerCase();
+    const allOptions = getOptions();
+    const startingWith = allOptions.filter((option) => option.toLowerCase().startsWith(typed));
+    const containing = allOptions.filter((option) => !option.toLowerCase().startsWith(typed) && option.toLowerCase().includes(typed));
+    shownOptions = [...startingWith, ...containing];
+    highlighted = -1;
+    list.hidden = shownOptions.length === 0;
     input.setAttribute("aria-expanded", String(!list.hidden));
     if (!list.hidden) {
       openCombo = { place };
@@ -114,33 +125,35 @@ export function attachCombo(input, getOptions, onPick) {
   };
   const close = () => {
     list.hidden = true;
-    active = -1;
+    highlighted = -1;
     input.setAttribute("aria-expanded", "false");
     input.removeAttribute("aria-activedescendant");
     if (openCombo && openCombo.place === place) openCombo = null;
   };
-  const pick = (o) => {
+  const pick = (option) => {
     close();
-    onPick(o);
+    onPick(option);
   };
 
   input.addEventListener("focus", open);
   input.addEventListener("click", () => list.hidden && open());
   input.addEventListener("input", open);
   input.addEventListener("blur", close);
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
       if (list.hidden) return open();
-      if (!items.length) return;
-      active = e.key === "ArrowDown" ? (active + 1) % items.length : (active <= 0 ? items.length - 1 : active - 1);
+      if (!shownOptions.length) return;
+      highlighted = event.key === "ArrowDown"
+        ? (highlighted + 1) % shownOptions.length
+        : (highlighted <= 0 ? shownOptions.length - 1 : highlighted - 1);
       draw();
-    } else if (e.key === "Enter" && !list.hidden && active >= 0) {
-      e.preventDefault();
-      e.stopImmediatePropagation(); // the highlighted choice wins over "add what I typed"
-      pick(items[active]);
-    } else if (e.key === "Escape" && !list.hidden) {
-      e.preventDefault();
+    } else if (event.key === "Enter" && !list.hidden && highlighted >= 0) {
+      event.preventDefault();
+      event.stopImmediatePropagation(); // the highlighted choice wins over "add what I typed"
+      pick(shownOptions[highlighted]);
+    } else if (event.key === "Escape" && !list.hidden) {
+      event.preventDefault();
       close();
     }
   });
@@ -155,7 +168,7 @@ if (typeof window !== "undefined") {
   window.addEventListener("resize", () => openCombo && openCombo.place());
 }
 
-/** A text input with an attached dropdown, wrapped so it can be placed anywhere. */
+/** A text input with an attached dropdown, wrapped so it can be placed anywhere. Returns { wrap, input }. */
 export function comboInput(props, getOptions, onPick) {
   const input = el("input", { type: "text", ...props });
   const wrap = el("span", { class: "combo" }, input);
@@ -163,72 +176,74 @@ export function comboInput(props, getOptions, onPick) {
   return { wrap, input };
 }
 
+/* ------------------------------------------------------------ chip boxes */
+
 /**
- * Editable list of names shown as removable chips, with an autocompleting dropdown for adding more.
+ * An editable list of names shown as removable chips, with a dropdown for adding more.
  *   list      the array to edit (changed in place)
- *   source    a function returning the suggestions, or the id of a shared <datalist> to copy them from.
- *             Each editor keeps its own dropdown (refreshed on focus) and leaves out items already added.
+ *   source    a function giving the suggestions, or the id of a shared <datalist> to copy them from.
+ *             Each box keeps its own dropdown (refreshed on focus) and leaves out items already added.
  *   options   placeholder, label (for screen readers),
  *             check(value)     -> an error message to refuse a value, or null
  *             normalize(value) -> the form to store (e.g. "American Rumba" -> "Rhythm Rumba")
  *             allowed()        -> if given, only these values can be added (typed text is matched
  *                                 ignoring capitals); anything else is refused with `notAllowed`
- *             notAllowed(v)    -> the message for a refused value
+ *             notAllowed(value) -> the message for a refused value
  *             onChange()       -> called after every add or remove
  * Enter or "," adds what was typed; picking a suggestion adds it at once; Backspace in an empty box
  * removes the last chip.
  */
 export function chipEditor(list, source, {
   placeholder = "add…", label = "Add", check = null, normalize = null, onChange = () => {},
-  allowed = null, notAllowed = (v) => `“${v}” is not in the list.`,
+  allowed = null, notAllowed = (value) => `“${value}” is not in the list.`,
 } = {}) {
   const chips = el("span", { class: "chips-list" });
-  const suggestions = typeof source === "function" ? source : () => [...$(source).options].map((o) => o.value);
-  // Dropdown of suggestions, leaving out items already added. Picking one adds it at once.
+  const suggestions = typeof source === "function" ? source : () => [...$(source).options].map((option) => option.value);
+  // A dropdown of suggestions, leaving out items already added. Picking one adds it at once.
   const { wrap, input } = comboInput({ placeholder, "aria-label": label },
-    () => suggestions().filter((v) => !list.includes(v)),
-    (v) => { input.value = v; add(true); });
+    () => suggestions().filter((value) => !list.includes(value)),
+    (value) => { input.value = value; add(true); });
   const draw = () => {
     chips.replaceChildren(
-      ...list.map((d, i) =>
-        el("span", { class: "chip" }, d,
-          el("button", { type: "button", title: `Remove ${d}`, "aria-label": `Remove ${d}`, onclick: () => {
-            list.splice(i, 1);
+      ...list.map((item, iItem) =>
+        el("span", { class: "chip" }, item,
+          el("button", { type: "button", title: `Remove ${item}`, "aria-label": `Remove ${item}`, onclick: () => {
+            list.splice(iItem, 1);
             draw();
             onChange();
           } }, "×")))
     );
   };
-  /** `explain`: show the reason if the value is refused (on Enter; not when leaving the box). */
+  /** Add what was typed. `explain`: show the reason if it is refused (on Enter; not when leaving the box). */
   const add = (explain) => {
-    let v = input.value.replace(/,$/, "").trim();
-    if (!v) return;
-    if (normalize) v = normalize(v);
+    let value = input.value.replace(/,$/, "").trim();
+    if (!value) return;
+    if (normalize) value = normalize(value);
     if (allowed) {
-      const match = allowed().find((a) => a.toLowerCase() === v.toLowerCase());
+      const match = allowed().find((name) => name.toLowerCase() === value.toLowerCase());
       if (!match) {
-        input.setCustomValidity(notAllowed(v));
+        input.setCustomValidity(notAllowed(value));
         if (explain) input.reportValidity();
         return;
       }
-      v = match; // use the list's spelling and capitals
+      value = match; // use the list's spelling and capitals
     }
-    const problem = list.includes(v) ? `${v} is already in this list.` : check && check(v);
+    const problem = list.includes(value) ? `${value} is already in this list.` : check && check(value);
     if (problem) {
       input.setCustomValidity(problem);
       if (explain) input.reportValidity();
       return;
     }
     input.value = "";
-    list.push(v);
+    list.push(value);
     draw();
     onChange();
   };
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === ",") {
-      e.preventDefault();
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === ",") {
+      event.preventDefault();
       add(true);
-    } else if (e.key === "Backspace" && !input.value && list.length) {
+    } else if (event.key === "Backspace" && !input.value && list.length) {
       list.pop();
       draw();
       onChange();
@@ -248,9 +263,10 @@ export function chipEditor(list, source, {
  * ones, unchanged, with clear space around it; and song details always link back to Spotify
  * ("LISTEN ON SPOTIFY"). The official files are in images/spotify/.
  */
+
+/** Spotify's logo ("full-logo" or "icon"). `tone` "white" or "black" fixes its color; otherwise it follows the system's light / dark setting. */
 function spotifyLogo(kind, alt, tone = null) {
   if (tone) return el("img", { src: `images/spotify/${kind}-${tone}.svg`, alt, class: `spotify-${kind}` });
-  // The page follows the system's light / dark setting, so the logo does too.
   return el("picture", {},
     el("source", { srcset: `images/spotify/${kind}-white.svg`, media: "(prefers-color-scheme: dark)" }),
     el("img", { src: `images/spotify/${kind}-black.svg`, alt, class: `spotify-${kind}` }));

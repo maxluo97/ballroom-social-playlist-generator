@@ -1,42 +1,46 @@
 // SPDX-FileCopyrightText: 2026 Max Luo
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * folders.js — writing files straight into a folder on this computer (Chrome / Edge only).
+ * folders.js — writing files straight into a folder on this computer (Chrome / Edge only), for
+ * publishing the shared library into the project's data folder.
  *
  * The browser lets a page write into a folder only after the user picks it. The chosen folder is
- * remembered (in this browser's IndexedDB), so later saves need at most a "Allow editing?" prompt.
- * Other browsers: canSaveToFolder() is false and the page offers downloads instead.
+ * remembered (in this browser's IndexedDB, a database every site has), so later saves need at most an
+ * "Allow editing?" prompt. Other browsers: canSaveToFolder() is false and the page does not offer it.
  */
 
 export const canSaveToFolder = () => typeof window !== "undefined" && "showDirectoryPicker" in window;
 
-/* ---- a tiny IndexedDB store for folder handles (they cannot go in localStorage) ---- */
+/* ---- a small IndexedDB store for folder handles (they cannot go in localStorage) ---- */
 
-function openStore() {
+const DATABASE_NAME = "dpg-folders";
+const STORE_NAME = "handles";
+
+function openDatabase() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open("dpg-folders", 1);
-    req.onupgradeneeded = () => req.result.createObjectStore("handles");
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    const request = indexedDB.open(DATABASE_NAME, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(STORE_NAME);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
   });
 }
 
 async function storeGet(key) {
-  const db = await openStore();
+  const database = await openDatabase();
   return new Promise((resolve, reject) => {
-    const req = db.transaction("handles").objectStore("handles").get(key);
-    req.onsuccess = () => resolve(req.result || null);
-    req.onerror = () => reject(req.error);
+    const request = database.transaction(STORE_NAME).objectStore(STORE_NAME).get(key);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
   });
 }
 
 async function storeSet(key, value) {
-  const db = await openStore();
+  const database = await openDatabase();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction("handles", "readwrite");
-    tx.objectStore("handles").put(value, key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    const transaction = database.transaction(STORE_NAME, "readwrite");
+    transaction.objectStore(STORE_NAME).put(value, key);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
   });
 }
 
@@ -51,17 +55,17 @@ export async function rememberedFolderName(key) {
 }
 
 /**
- * The folder to write into: the remembered one (asking for permission again if needed), or one the
- * user picks now. `check(handle)` may return a warning to confirm (e.g. "this is not the data
- * folder"). Pass `choose: true` to pick a different folder. Returns the handle, or null if canceled.
+ * The folder to write into: the remembered one (asking for permission again if needed), or one the user
+ * picks now. `check(handle)` may return a warning to confirm (e.g. "this is not the data folder"). Pass
+ * `choose: true` to pick a different folder. Returns the handle, or null if canceled.
  */
 export async function getFolder(key, { choose = false, check = null } = {}) {
   if (!choose) {
     const remembered = await storeGet(key).catch(() => null);
     if (remembered) {
-      const opts = { mode: "readwrite" };
-      if ((await remembered.queryPermission(opts)) === "granted") return remembered;
-      if ((await remembered.requestPermission(opts)) === "granted") return remembered;
+      const writing = { mode: "readwrite" };
+      if ((await remembered.queryPermission(writing)) === "granted") return remembered;
+      if ((await remembered.requestPermission(writing)) === "granted") return remembered;
     }
   }
   let handle;

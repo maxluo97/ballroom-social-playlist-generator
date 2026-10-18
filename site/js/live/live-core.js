@@ -20,7 +20,7 @@ export const LIVE_MATCHES_KEY = "dpg.live.matches.v1";
 export const LIVE_ADDED_KEY = "dpg.live.added.v1";
 
 /** The live plan of a (possibly edited) generated playlist; `rows` are the library's rows. */
-export function livePlan(r, rows = []) {
+export function livePlan(result, rows = []) {
   const dances = {};
   for (const row of rows) {
     const id = spotifyTrackId(row.id);
@@ -28,17 +28,18 @@ export function livePlan(r, rows = []) {
   }
   return {
     savedAt: new Date().toISOString(),
-    songs: r.playlist.filter((x) => !x.removed).map((it) => ({
-      id: spotifyTrackId(it.song.id) || it.song.id,
-      dance: it.dance || "",
-      block: it.blockLabel || null,
-      blockId: it.blockId ?? null,
-      last: it.kind === "final",
+    songs: result.playlist.filter((playlistRow) => !playlistRow.removed).map((playlistRow) => ({
+      id: spotifyTrackId(playlistRow.song.id) || playlistRow.song.id,
+      dance: playlistRow.dance || "",
+      block: playlistRow.blockLabel || null,
+      blockId: playlistRow.blockId ?? null,
+      last: playlistRow.kind === "final",
     })),
     dances,
   };
 }
 
+/** Keep the live plan for the live and program pages (null: forget it, with the night's matches and added songs). */
 export function saveLivePlan(plan) {
   try {
     if (plan) localStorage.setItem(LIVE_PLAN_KEY, JSON.stringify(plan));
@@ -52,6 +53,7 @@ export function saveLivePlan(plan) {
   }
 }
 
+/** The songs matched to the plan by hand: { playedId: plannedId }. */
 export function loadMatches() {
   try {
     return JSON.parse(localStorage.getItem(LIVE_MATCHES_KEY)) || {};
@@ -70,6 +72,7 @@ export function saveMatch(playedId, plannedId) {
   }
 }
 
+/** The songs added during the night: { songId: dance }. */
 export function loadAdded() {
   try {
     return JSON.parse(localStorage.getItem(LIVE_ADDED_KEY)) || {};
@@ -87,10 +90,11 @@ export function saveAdded(songId, dance) {
   }
 }
 
+/** The live plan the generator page kept, or null. */
 export function loadLivePlan() {
   try {
-    const p = JSON.parse(localStorage.getItem(LIVE_PLAN_KEY));
-    return p && Array.isArray(p.songs) ? p : null;
+    const plan = JSON.parse(localStorage.getItem(LIVE_PLAN_KEY));
+    return plan && Array.isArray(plan.songs) ? plan : null;
   } catch {
     return null;
   }
@@ -105,16 +109,17 @@ export function loadLivePlan() {
 export function findInPlan(plan, song, isrcOf = () => "", after = -1, matches = {}) {
   if (!plan || !song) return -1;
   const songs = plan.songs;
+  /** The place of the planned song that passes `test`: the first one after `after`, else the first; -1 if none. */
   const pick = (test) => {
-    const hits = songs.map((x, i) => (test(x) ? i : -1)).filter((i) => i >= 0);
-    return hits.length ? hits.find((i) => i > after) ?? hits[0] : -1;
+    const places = songs.map((planned, iPlanned) => (test(planned) ? iPlanned : -1)).filter((iPlanned) => iPlanned >= 0);
+    return places.length ? places.find((iPlanned) => iPlanned > after) ?? places[0] : -1;
   };
-  let i = song.id ? pick((x) => x.id === song.id) : -1;
-  if (i < 0 && song.linkedFromId) i = pick((x) => x.id === song.linkedFromId);
-  if (i < 0 && song.isrc) i = pick((x) => (isrcOf(x.id) || "").toUpperCase() === song.isrc.toUpperCase());
-  const byHand = song.id && matches[song.id];
-  if (i < 0 && byHand) i = pick((x) => x.id === byHand);
-  return i;
+  let place = song.id ? pick((planned) => planned.id === song.id) : -1;
+  if (place < 0 && song.linkedFromId) place = pick((planned) => planned.id === song.linkedFromId);
+  if (place < 0 && song.isrc) place = pick((planned) => (isrcOf(planned.id) || "").toUpperCase() === song.isrc.toUpperCase());
+  const matchedByHand = song.id && matches[song.id];
+  if (place < 0 && matchedByHand) place = pick((planned) => planned.id === matchedByHand);
+  return place;
 }
 
 /**
@@ -139,25 +144,25 @@ export function liveState(plan, playing, lastIndex = -1, { isrcOf = () => "", up
   const index = song ? findInPlan(plan, song, isrcOf, lastIndex, matches) : -1;
   const offPlan = !!song && index < 0;
   if (index >= 0) lastIndex = index;
-  const base = index >= 0 ? index : lastIndex; // where the night is in the plan
+  const planPlace = index >= 0 ? index : lastIndex; // where the night is in the plan
   const current = index >= 0 ? songs[index] : null;
-  const nextIndex = base + 1;
+  const nextIndex = planPlace + 1;
   const next = songs[nextIndex] || null;
 
   let nextBlock = null;
   if (!(current && current.blockId !== null)) {
     // An off-plan song may come in the middle of a block: the rest of that block is not "next".
-    const inBlock = base >= 0 && songs[base] && songs[base].blockId !== null ? songs[base].blockId : null;
-    for (let j = nextIndex; j < songs.length; j++) {
-      const b = songs[j].blockId;
-      if (b === null || b === inBlock) continue;
-      nextBlock = { label: songs[j].block || "Special block", inSongs: j - base };
+    const inBlock = planPlace >= 0 && songs[planPlace] && songs[planPlace].blockId !== null ? songs[planPlace].blockId : null;
+    for (let iSong = nextIndex; iSong < songs.length; iSong++) {
+      const blockId = songs[iSong].blockId;
+      if (blockId === null || blockId === inBlock) continue;
+      nextBlock = { label: songs[iSong].block || "Special block", inSongs: iSong - planPlace };
       break;
     }
   }
   const libraryDance = offPlan ? (plan.dances && (plan.dances[song.id] || plan.dances[song.linkedFromId])) || "" : "";
   const addedDance = offPlan && song.id ? added[song.id] || "" : "";
-  const upcoming = songs.slice(nextIndex, nextIndex + upcomingCount).map((row, k) => ({ index: nextIndex + k, row }));
+  const upcoming = songs.slice(nextIndex, nextIndex + upcomingCount).map((row, iUpcoming) => ({ index: nextIndex + iUpcoming, row }));
   return {
     index,
     offPlan,
@@ -176,20 +181,20 @@ export function liveState(plan, playing, lastIndex = -1, { isrcOf = () => "", up
 /** How far into the playing song we are now (ms), counting on from Spotify's last answer. */
 export function progressNow(playing, now = Date.now()) {
   if (!playing || !playing.song) return 0;
-  const p = playing.progressMs + (playing.isPlaying ? now - playing.at : 0);
-  return Math.max(0, Math.min(p, playing.song.durationMs || p));
+  const progressMs = playing.progressMs + (playing.isPlaying ? now - playing.at : 0);
+  return Math.max(0, Math.min(progressMs, playing.song.durationMs || progressMs));
 }
 
-/** 0:00 style. */
+/** Milliseconds as m:ss (whole seconds, rounded down, as a song's timer shows them). */
 export function clock(ms) {
-  const sec = Math.floor(Math.max(0, ms) / 1000);
-  return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+  const totalSec = Math.floor(Math.max(0, ms) / 1000);
+  return `${Math.floor(totalSec / 60)}:${String(totalSec % 60).padStart(2, "0")}`;
 }
 
 /** "next song", "in 3 songs". */
-export const inSongsText = (n) => (n <= 1 ? "next song" : `in ${n} songs`);
+export const inSongsText = (songCount) => (songCount <= 1 ? "next song" : `in ${songCount} songs`);
 
 /** The program's rows: [number, dance, special block]; the last dance says so. */
 export function programRows(plan) {
-  return ((plan && plan.songs) || []).map((x, i) => [String(i + 1), x.last ? `${x.dance} (last dance)` : x.dance, x.block || ""]);
+  return ((plan && plan.songs) || []).map((planned, iSong) => [String(iSong + 1), planned.last ? `${planned.dance} (last dance)` : planned.dance, planned.block || ""]);
 }

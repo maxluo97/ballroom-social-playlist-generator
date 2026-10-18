@@ -62,7 +62,7 @@ let totalBugs = 0;
 
   // A merged dance must be playable from either source tag.
   const res = generatePlaylist(lib, { ...APP_DEFAULTS, seed: 7 });
-  const waltzSources = new Set(res.playlist.filter((it) => it.dance === "Waltz").flatMap((it) => it.song.sourceDances));
+  const waltzSources = new Set(res.playlist.filter((row) => row.dance === "Waltz").flatMap((row) => row.song.sourceDances));
   console.log(`  "Waltz" slots drew songs tagged: ${[...waltzSources].join(", ")}`);
   expect(waltzSources.has("Smooth Waltz") || waltzSources.has("Standard Waltz"), "Waltz slots drew no Smooth/Standard Waltz songs");
 }
@@ -89,10 +89,10 @@ let totalBugs = 0;
     }
   }
   expect(refused === 4, "anything but the settings file format is refused");
-  const v = validateSettings(buildSampleLibrary(), APP_DEFAULTS);
-  console.log(`  default settings with the sample library: ${v.errors.length} errors, ${v.warnings.length} warnings`);
-  v.warnings.forEach((w) => console.log(`    warning: ${w}`));
-  expect(v.errors.length === 0, `default settings have errors: ${v.errors.join("; ")}`);
+  const violation = validateSettings(buildSampleLibrary(), APP_DEFAULTS);
+  console.log(`  default settings with the sample library: ${violation.errors.length} errors, ${violation.warnings.length} warnings`);
+  violation.warnings.forEach((warning) => console.log(`    warning: ${warning}`));
+  expect(violation.errors.length === 0, `default settings have errors: ${violation.errors.join("; ")}`);
 }
 
 /* ---- theme openers for a theme with dances ---- */
@@ -112,15 +112,15 @@ let totalBugs = 0;
       opening: { earlyCount: openers, blacklist: ["Quickstep"] },
       theme: { name: "t", dances, fractionMin: 0.2, fractionMax: 0.25 },
     };
-    const r = generatePlaylist(lib, settings);
-    return { r, settings, first: r.playlist.slice(0, openers).map((it) => it.dance) };
+    const result = generatePlaylist(lib, settings);
+    return { result, settings, first: result.playlist.slice(0, openers).map((row) => row.dance) };
   };
   let tagExcursionOpeners = 0;
   for (let seed = 1; seed <= 50; seed++) {
     const one = night(["Foxtrot"], 3, seed);
     expect(one.first.join() === "Foxtrot,Foxtrot,Foxtrot", `one theme dance opens every opener: ${one.first}`);
-    expect(checkRules(one.r, one.settings).length === 0, `openers do not count as broken rules: ${JSON.stringify(checkRules(one.r, one.settings)[0])}`);
-    expect(one.r.playlist[3].dance !== "Foxtrot", "after the openers, spacing applies again");
+    expect(checkRules(one.result, one.settings).length === 0, `openers do not count as broken rules: ${JSON.stringify(checkRules(one.result, one.settings)[0])}`);
+    expect(one.result.playlist[3].dance !== "Foxtrot", "after the openers, spacing applies again");
 
     const two = night(["Foxtrot", "Quickstep"], 4, seed);
     expect(["Foxtrot,Quickstep,Foxtrot,Quickstep", "Quickstep,Foxtrot,Quickstep,Foxtrot"].includes(two.first.join()),
@@ -129,7 +129,7 @@ let totalBugs = 0;
 
     const three = night(["Foxtrot", "Quickstep", "Waltz"], 2, seed);
     expect(new Set(three.first).size === 2, `more theme dances than openers: two different ones open: ${three.first}`);
-    expect(checkRules(three.r, three.settings).length === 0, `3 dances, 2 openers: no broken rules: ${JSON.stringify(checkRules(three.r, three.settings)[0])}`);
+    expect(checkRules(three.result, three.settings).length === 0, `3 dances, 2 openers: no broken rules: ${JSON.stringify(checkRules(three.result, three.settings)[0])}`);
     const five = night(["Foxtrot", "Quickstep", "Waltz"], 7, seed).first;
     const counts = Object.values(five.reduce((m, d) => ({ ...m, [d]: (m[d] || 0) + 1 }), {}));
     expect(five.every((d, i) => i === 0 || d !== five[i - 1]), `no theme dance opens twice in a row: ${five}`);
@@ -139,7 +139,7 @@ let totalBugs = 0;
     const exc = night(["Mambo / Salsa", "Bachata"], 4, seed);
     expect(exc.first.join() === "Mambo / Salsa,Mambo / Salsa,Mambo / Salsa,Mambo / Salsa", `an excursion theme dance does not open: ${exc.first}`);
     if (seed === 1) {
-      expect(validateSettings(lib, exc.settings).warnings.some((w) => w.includes('"Bachata" is still an excursion')),
+      expect(validateSettings(lib, exc.settings).warnings.some((warning) => warning.includes('"Bachata" is still an excursion')),
         "a theme dance left as an excursion is warned about");
     }
 
@@ -147,8 +147,8 @@ let totalBugs = 0;
     const tagSettings = { ...APP_DEFAULTS, seed, specialBlocks: [], opening: { ...APP_DEFAULTS.opening, earlyCount: 3 }, theme: { name: "Hollywood", tags: ["Hollywood"] } };
     const tag = generatePlaylist(lib, tagSettings);
     const openers = tag.playlist.slice(0, 3);
-    expect(openers.every((it) => it.isTheme), `tag-theme openers are theme songs: ${openers.map((it) => it.dance)}`);
-    tagExcursionOpeners += openers.filter((it) => it.kind === "excursion").length;
+    expect(openers.every((row) => row.isTheme), `tag-theme openers are theme songs: ${openers.map((row) => row.dance)}`);
+    tagExcursionOpeners += openers.filter((row) => row.kind === "excursion").length;
     expect(checkRules(tag, tagSettings).length === 0, `tag-theme openers: no broken rules: ${JSON.stringify(checkRules(tag, tagSettings)[0])}`);
   }
   console.log(`  tag theme: ${tagExcursionOpeners} of 150 openers were excursion songs`);
@@ -165,12 +165,12 @@ let totalBugs = 0;
     }
   };
   const songs = buildSongs(20);
-  const base = SCENARIOS.find((sc) => sc.name.includes("N=2 (Ballroom/Latin), 3 h, no theme")).settings;
+  const base = SCENARIOS.find((scenario) => scenario.name.includes("N=2 (Ballroom/Latin), 3 h, no theme")).settings;
   const noHustle = { intervalMinutes: 25, jitterMinutes: 0, pool: { Polka: 1, Bachata: 3, "West Coast Swing": 2 } };
   const opening = base.opening.earlyCount;
   /** Gaps between songs of a dance, leaving out the openers (which ignore the gaps). */
   const gaps = (pl, dance) => {
-    const at = pl.filter((it) => it.dance === dance && it.kind !== "final" && it.index >= opening).map((it) => it.index);
+    const at = pl.filter((row) => row.dance === dance && row.kind !== "final" && row.index >= opening).map((row) => row.index);
     return at.slice(1).map((x, i) => x - at[i] - 1);
   };
 
@@ -183,7 +183,7 @@ let totalBugs = 0;
   expect(themeMinGapFor(base) === 2 && themeMinGapFor({ ...base, minToRepeat: 6 }) === 4, "default: the normal gap minus 2");
   expect(themeMinGapFor(withTheme({ tags: ["Hollywood"], minGap: 3 })) === 3, "the setting is used when given");
   const capped = validateSettings(songs, withTheme({ dances: ["Rumba"], fractionMin: 0.2, fractionMax: 0.25 })).warnings;
-  expect(capped.some((w) => w.includes("remove \"Rumba\" from its category") && w.includes("33%")),
+  expect(capped.some((warning) => warning.includes("remove \"Rumba\" from its category") && warning.includes("33%")),
     `a capped theme share suggests taking the theme dance out of its category: ${capped.join(" | ")}`);
 
   let lowered = 0;
@@ -194,43 +194,43 @@ let totalBugs = 0;
   for (let seed = 1; seed <= 100; seed++) {
     // A single standalone dance: the hidden theme category, with the theme minimum gap (2).
     const hn = withTheme({ dances: ["Hustle"] }, { excursions: noHustle, seed });
-    const r1 = generatePlaylist(songs, hn);
-    const hustles = r1.playlist.filter((it) => it.dance === "Hustle");
-    hiddenSongs += hustles.filter((it) => it.kind === "theme").length;
-    expect(hustles.every((it) => it.kind === "theme" && it.isTheme), "standalone dance songs are hidden-category theme songs");
-    const g1 = gaps(r1.playlist, "Hustle");
+    const result1 = generatePlaylist(songs, hn);
+    const hustles = result1.playlist.filter((row) => row.dance === "Hustle");
+    hiddenSongs += hustles.filter((row) => row.kind === "theme").length;
+    expect(hustles.every((row) => row.kind === "theme" && row.isTheme), "standalone dance songs are hidden-category theme songs");
+    const g1 = gaps(result1.playlist, "Hustle");
     expect(g1.every((g) => g >= 2), `a single standalone dance keeps the theme minimum gap: ${g1}`);
     lowered += g1.filter((g) => g < 4).length;
-    expect(checkRules(r1, hn).length === 0, `Hustle night: no broken rules: ${JSON.stringify(checkRules(r1, hn)[0])}`);
+    expect(checkRules(result1, hn).length === 0, `Hustle night: no broken rules: ${JSON.stringify(checkRules(result1, hn)[0])}`);
 
     // Several standalone dances + one in a category: the hidden category's shuffle-bag and gap n = 2.
     const cn = withTheme({ dances: ["Foxtrot", "Hustle", "Night Club Two Step"], fractionMin: 0.25, fractionMax: 0.4 },
       { excursions: { ...noHustle, pool: { Polka: 1, Bachata: 3, "West Coast Swing": 2 } }, seed });
-    const r2 = generatePlaylist(songs, cn);
-    expect(checkRules(r2, cn).length === 0, `club night: no broken rules: ${JSON.stringify(checkRules(r2, cn)[0])}`);
-    const openers = r2.playlist.slice(0, opening);
-    expect(openers.every((it) => ["Foxtrot", "Hustle", "Night Club Two Step"].includes(it.dance)), "standalone dances open too");
+    const result2 = generatePlaylist(songs, cn);
+    expect(checkRules(result2, cn).length === 0, `club night: no broken rules: ${JSON.stringify(checkRules(result2, cn)[0])}`);
+    const openers = result2.playlist.slice(0, opening);
+    expect(openers.every((row) => ["Foxtrot", "Hustle", "Night Club Two Step"].includes(row.dance)), "standalone dances open too");
     // Hidden songs do not take category turns: removing them leaves runs within Max in a row.
-    const regular = r2.playlist.filter((it) => it.kind === "regular");
+    const regular = result2.playlist.filter((row) => row.kind === "regular");
     let run = 0;
     let prev = null;
     let longest = 0;
-    for (const it of regular.filter((x) => x.index >= opening)) {
-      run = it.category === prev ? run + 1 : 1;
-      prev = it.category;
+    for (const row of regular.filter((x) => x.index >= opening)) {
+      run = row.category === prev ? run + 1 : 1;
+      prev = row.category;
       longest = Math.max(longest, run);
     }
     expect(longest <= cn.maxInARow, `hidden theme songs leave the category turns alone: run of ${longest}`);
 
     // A mixed theme: tags and dances counted independently.
     const mx = withTheme({ dances: ["Waltz"], tags: ["Hollywood"], fractionMin: 0.3, fractionMax: 0.45 }, { seed });
-    const r3 = generatePlaylist(songs, mx);
-    tagSongs += r3.playlist.filter((it) => it.isTheme && it.dance !== "Waltz").length;
-    waltzThemeSongs += r3.playlist.filter((it) => it.isTheme && it.dance === "Waltz" && !(it.song.tags || []).includes("Hollywood")).length;
+    const result3 = generatePlaylist(songs, mx);
+    tagSongs += result3.playlist.filter((row) => row.isTheme && row.dance !== "Waltz").length;
+    waltzThemeSongs += result3.playlist.filter((row) => row.isTheme && row.dance === "Waltz" && !(row.song.tags || []).includes("Hollywood")).length;
 
     // Excursions: the first one also gets the random variation.
     const ex = { ...base, seed, excursions: { ...base.excursions, jitterMinutes: 3 } };
-    const first = generatePlaylist(songs, ex).playlist.find((it) => it.kind === "excursion");
+    const first = generatePlaylist(songs, ex).playlist.find((row) => row.kind === "excursion");
     if (first) firstExcursion.add(first.startSec);
   }
   console.log(`  Hustle night: ${hiddenSongs} hidden-category songs; ${lowered} repeats closer than the normal gap of 4`);
@@ -246,7 +246,7 @@ let totalBugs = 0;
   const latinNight = (fractionMin, categories = APP_DEFAULTS.categories) => ({
     ...APP_DEFAULTS, categories, theme: { name: "Latin night", dances: latin, fractionMin, fractionMax: Math.max(fractionMin, 0.65) },
   });
-  const turnsWarning = (s) => validateSettings(sample, s).warnings.some((w) => /categories take turns equally/.test(w));
+  const turnsWarning = (s) => validateSettings(sample, s).warnings.some((warning) => /categories take turns equally/.test(warning));
   expect(turnsWarning(latinNight(0.6)), "a theme share out of reach because of the category turns is warned about");
   const reached = Array.from({ length: 20 }, (_, i) => generatePlaylist(sample, { ...latinNight(0.6), seed: i + 1 }).stats.themeFraction);
   expect(Math.max(...reached) < 0.5, `and it is indeed out of reach: up to ${Math.round(Math.max(...reached) * 100)}%`);
@@ -265,34 +265,34 @@ let totalBugs = 0;
     }
   };
   const songs = buildSongs(10);
-  const base = SCENARIOS.find((sc) => sc.name.includes("N=2 (Ballroom/Latin), 3 h, no theme")).settings;
+  const base = SCENARIOS.find((scenario) => scenario.name.includes("N=2 (Ballroom/Latin), 3 h, no theme")).settings;
   // The tested blocks come first (block IDs 0, 1, …), then the base's line dance and Paso Doble.
   const night = (blocks, extra = {}) => ({ ...base, ...extra, specialBlocks: [...blocks, ...base.specialBlocks] });
-  const blockSongs = (r, id = 0) => r.playlist.filter((it) => it.blockId === id);
-  const together = (items) => items.every((it, i) => i === 0 || it.index === items[i - 1].index + 1);
-  const ruleBreaks = (r, settings) => checkRules(r, settings);
+  const blockSongs = (result, id = 0) => result.playlist.filter((row) => row.blockId === id);
+  const together = (items) => items.every((row, i) => i === 0 || row.index === items[i - 1].index + 1);
+  const ruleBreaks = (result, settings) => checkRules(result, settings);
 
   let interruptedContinue = 0;
   let endedEarly = 0;
   for (let seed = 1; seed <= 100; seed++) {
     // A turn-taking block: 4 tagged songs in a row, in the normal category turns, from 40%.
     const s1 = night([{ tag: "Hollywood", count: 4, placement: { mode: "at", at: 0.4 } }], { seed });
-    const r1 = generatePlaylist(songs, s1);
-    const b1 = blockSongs(r1);
+    const result1 = generatePlaylist(songs, s1);
+    const b1 = blockSongs(result1);
     expect(b1.length === 4 && together(b1), `a turn-taking block plays its 4 songs together: ${b1.map((x) => x.index)}`);
-    expect(b1.every((it) => it.kind === "regular" && it.song.tags.includes("Hollywood")), "its songs are regular songs with the tag");
-    expect(b1[0].startSec >= 0.4 * r1.targetSec, "it starts at or after its point");
-    expect(ruleBreaks(r1, s1).length === 0, `turn-taking block: no broken rules: ${JSON.stringify(ruleBreaks(r1, s1)[0])}`);
+    expect(b1.every((row) => row.kind === "regular" && row.song.tags.includes("Hollywood")), "its songs are regular songs with the tag");
+    expect(b1[0].startSec >= 0.4 * result1.targetSec, "it starts at or after its point");
+    expect(ruleBreaks(result1, s1).length === 0, `turn-taking block: no broken rules: ${JSON.stringify(ruleBreaks(result1, s1)[0])}`);
 
     // A kept-apart block at the same point as the line dance (50%): never back to back with it.
     const s2 = night([{ tag: "Hollywood", count: 3, inTurns: false, keepApart: true, placement: { mode: "at", at: 0.5 } }], { seed });
-    const r2 = generatePlaylist(songs, s2);
-    const b2 = blockSongs(r2);
-    expect(b2.length === 3 && together(b2) && b2.every((it) => it.kind === "block"), "a kept-apart block plays together, outside the turns");
-    const before = r2.playlist[b2[0].index - 1];
-    const after = r2.playlist[b2.at(-1).index + 1];
+    const result2 = generatePlaylist(songs, s2);
+    const b2 = blockSongs(result2);
+    expect(b2.length === 3 && together(b2) && b2.every((row) => row.kind === "block"), "a kept-apart block plays together, outside the turns");
+    const before = result2.playlist[b2[0].index - 1];
+    const after = result2.playlist[b2.at(-1).index + 1];
     expect(before.kind !== "event" && (!after || after.kind !== "event"), "a kept-apart block is never back to back with the line dance or Paso Doble");
-    expect(ruleBreaks(r2, s2).length === 0, `kept-apart block: no broken rules: ${JSON.stringify(ruleBreaks(r2, s2)[0])}`);
+    expect(ruleBreaks(result2, s2).length === 0, `kept-apart block: no broken rules: ${JSON.stringify(ruleBreaks(result2, s2)[0])}`);
 
     // A block placed in the opening waits until the opening is over.
     const s3 = night([{ tag: "Hollywood", count: 2, placement: { mode: "at", at: 0 } }], { seed });
@@ -305,48 +305,48 @@ let totalBugs = 0;
     const b4 = blockSongs(generatePlaylist(songs, s4));
     expect(b4.length === 5 && together(b4), "by default nothing interrupts a block");
     const s5 = night([{ tag: "Hollywood", count: 5, placement: { mode: "at", at: 0.3 }, interruptBy: { excursions: true } }], { ...often, seed });
-    const r5 = generatePlaylist(songs, s5);
-    const b5 = blockSongs(r5);
+    const result5 = generatePlaylist(songs, s5);
+    const b5 = blockSongs(result5);
     expect(b5.length === 5, `"continue": the block still plays all its songs: ${b5.length}`);
     if (!together(b5)) {
       interruptedContinue++;
-      const gaps = r5.playlist.slice(b5[0].index, b5.at(-1).index + 1).filter((it) => it.blockId !== 0);
-      expect(gaps.every((it) => it.kind === "excursion"), `only an allowed interruption comes between block songs: ${gaps.map((x) => x.kind)}`);
+      const gaps = result5.playlist.slice(b5[0].index, b5.at(-1).index + 1).filter((row) => row.blockId !== 0);
+      expect(gaps.every((row) => row.kind === "excursion"), `only an allowed interruption comes between block songs: ${gaps.map((x) => x.kind)}`);
     }
     const s6 = night([{ tag: "Hollywood", count: 5, placement: { mode: "at", at: 0.3 }, interruptBy: { excursions: true }, afterInterruption: "end" }], { ...often, seed });
-    const r6 = generatePlaylist(songs, s6);
-    const b6 = blockSongs(r6);
+    const result6 = generatePlaylist(songs, s6);
+    const b6 = blockSongs(result6);
     if (b6.length < 5) endedEarly++;
-    expect(together(b6) && !r6.warnings.some((w) => /shrank/.test(w.message)), '"end": the block just stops at an interruption, without a warning');
+    expect(together(b6) && !result6.warnings.some((warning) => /shrank/.test(warning.message)), '"end": the block just stops at an interruption, without a warning');
 
     // Several blocks; a block that comes due during another one waits for it.
     const s7 = night([
       { tag: "Hollywood", count: 3, placement: { mode: "at", at: 0.3 } },
       { tag: "Hollywood", count: 3, inTurns: false, keepApart: true, placement: { mode: "at", at: 0.3 } },
     ], { seed });
-    const r7 = generatePlaylist(songs, s7);
-    const [x, y] = [blockSongs(r7, 0), blockSongs(r7, 1)];
+    const result7 = generatePlaylist(songs, s7);
+    const [x, y] = [blockSongs(result7, 0), blockSongs(result7, 1)];
     expect(x.length === 3 && y.length === 3, "several blocks each play");
     expect(x.at(-1).index < y[0].index || y.at(-1).index < x[0].index, "blocks do not overlap");
-    expect(ruleBreaks(r7, s7).length === 0, `two blocks: no broken rules: ${JSON.stringify(ruleBreaks(r7, s7)[0])}`);
+    expect(ruleBreaks(result7, s7).length === 0, `two blocks: no broken rules: ${JSON.stringify(ruleBreaks(result7, s7)[0])}`);
 
     // Theme share: block songs count only if they match the theme.
     const s8 = night([{ tag: "Hollywood", count: 4, placement: { mode: "at", at: 0.4 } }],
       { seed, theme: { name: "Waltz night", dances: ["Waltz"], fractionMin: 0.15, fractionMax: 0.2 } });
     const b8 = blockSongs(generatePlaylist(songs, s8));
-    expect(b8.every((it) => it.isTheme === (it.dance === "Waltz")), "block songs are theme songs only if they match the theme");
+    expect(b8.every((row) => row.isTheme === (row.dance === "Waltz")), "block songs are theme songs only if they match the theme");
   }
   console.log(`  "continue": ${interruptedContinue} of 100 blocks were interrupted and continued; "end": ${endedEarly} of 100 ended early`);
   expect(interruptedContinue > 0 && endedEarly > 0, "with excursions every 4 minutes, some blocks should be interrupted");
 
   // Not enough tagged songs: a warning before generating, and the block shrinks with a warning.
-  const pickDance = (d) => songs.find((sg) => sg.dances.length === 1 && sg.dances[0] === d);
-  const few = [...songs.map((sg) => ({ ...sg, tags: [] })), ...["Foxtrot", "Cha-cha"].map((d, i) => ({ ...pickDance(d), id: `rare${i}`, tags: ["Rare"] }))];
+  const pickDance = (d) => songs.find((song) => song.dances.length === 1 && song.dances[0] === d);
+  const few = [...songs.map((song) => ({ ...song, tags: [] })), ...["Foxtrot", "Cha-cha"].map((d, i) => ({ ...pickDance(d), id: `rare${i}`, tags: ["Rare"] }))];
   const s9 = night([{ tag: "Rare", count: 4, placement: { mode: "at", at: 0.4 } }], { seed: 1 });
-  expect(validateSettings(few, s9).warnings.some((w) => w.includes('"Rare block" needs 4 songs')), "too few tagged songs is warned about");
+  expect(validateSettings(few, s9).warnings.some((warning) => warning.includes('"Rare block" needs 4 songs')), "too few tagged songs is warned about");
   const r9 = generatePlaylist(few, s9);
-  expect(blockSongs(r9).length < 4 && r9.warnings.some((w) => /shrank to d of 4|could not play/.test(w.message)),
-    `the block shrinks, with a warning: ${blockSongs(r9).length} songs; ${r9.warnings.map((w) => w.message)}`);
+  expect(blockSongs(r9).length < 4 && r9.warnings.some((warning) => /shrank to d of 4|could not play/.test(warning.message)),
+    `the block shrinks, with a warning: ${blockSongs(r9).length} songs; ${r9.warnings.map((warning) => warning.message)}`);
   expect(validateSettings(songs, night([{ tag: "", count: 4 }])).errors.length > 0, "a block without a tag is an error");
 }
 
@@ -359,33 +359,33 @@ let totalBugs = 0;
       totalBugs++;
     }
   };
-  const base = SCENARIOS.find((sc) => sc.name.includes("N=2 (Ballroom/Latin), 3 h, no theme")).settings;
+  const base = SCENARIOS.find((scenario) => scenario.name.includes("N=2 (Ballroom/Latin), 3 h, no theme")).settings;
   // 3 of the Waltz songs are the same work,
   // and 2 of them (different IDs) the same recording.
-  const lib = buildSongs(10).map((sg) => ({ ...sg, isrc: `ISRC${sg.id}` }));
-  const waltz = lib.filter((sg) => sg.dances.length === 1 && sg.dances[0] === "Waltz").slice(0, 3);
+  const lib = buildSongs(10).map((song) => ({ ...song, isrc: `ISRC${song.id}` }));
+  const waltz = lib.filter((song) => song.dances.length === 1 && song.dances[0] === "Waltz").slice(0, 3);
   waltz[0].title = "Moon River";
   waltz[1].title = "Moon River - 2011 Remaster";
   waltz[2].title = "Moon River (Live)";
   waltz[2].isrc = waltz[1].isrc; // the same recording as waltz[1], under another ID
-  const ids = waltz.map((sg) => sg.id);
-  const count = (r, list) => r.playlist.filter((it) => list.includes(it.song.id)).length;
+  const ids = waltz.map((song) => song.id);
+  const count = (result, list) => result.playlist.filter((row) => list.includes(row.song.id)).length;
 
   let bothWorksWhenOff = 0;
   let separated = 0;
   for (let seed = 1; seed <= 150; seed++) {
     const on = { ...base, seed };
-    const r1 = generatePlaylist(lib, on);
-    expect(count(r1, ids) <= 1, `no two versions of one work in a night: ${count(r1, ids)}`);
-    expect(!checkRules(r1, on).some((v) => v.rule === "sameWork" || v.rule === "duplicateRecording"), "no works/duplicates rule breaks");
+    const result1 = generatePlaylist(lib, on);
+    expect(count(result1, ids) <= 1, `no two versions of one work in a night: ${count(result1, ids)}`);
+    expect(!checkRules(result1, on).some((violation) => violation.rule === "sameWork" || violation.rule === "duplicateRecording"), "no works/duplicates rule breaks");
 
     const off = { ...base, seed, noRepeatWorks: false };
-    const r2 = generatePlaylist(lib, off);
-    expect(count(r2, [ids[1], ids[2]]) <= 1, "duplicates never play together, even with the works rule off");
-    if (count(r2, ids) === 2) bothWorksWhenOff++;
+    const result2 = generatePlaylist(lib, off);
+    expect(count(result2, [ids[1], ids[2]]) <= 1, "duplicates never play together, even with the works rule off");
+    if (count(result2, ids) === 2) bothWorksWhenOff++;
 
     // Overrides: a different work name, and "Not a duplicate", separate the songs again.
-    const split = lib.map((sg) => (sg.id === ids[2] ? { ...sg, work: "Another song", recording: `id:${sg.id}` } : sg.id === ids[1] ? { ...sg, work: "Third song" } : sg));
+    const split = lib.map((song) => (song.id === ids[2] ? { ...song, work: "Another song", recording: `id:${song.id}` } : song.id === ids[1] ? { ...song, work: "Third song" } : song));
     if (count(generatePlaylist(split, on), ids) >= 2) separated++;
   }
   console.log(`  works rule off: two versions in ${bothWorksWhenOff} of 150 nights; overrides separated them in ${separated} of 150`);
@@ -393,7 +393,7 @@ let totalBugs = 0;
   expect(separated > 0, "work and recording overrides separate songs");
 
   // "Same recording as…": a recording override joins two songs that have no ISRC in common.
-  const joined = lib.map((sg) => (sg.id === ids[0] ? { ...sg, title: "Something else", recording: `isrc:${waltz[1].isrc.toUpperCase()}` } : sg));
+  const joined = lib.map((song) => (song.id === ids[0] ? { ...song, title: "Something else", recording: `isrc:${waltz[1].isrc.toUpperCase()}` } : song));
   for (let seed = 1; seed <= 50; seed++) {
     expect(count(generatePlaylist(joined, { ...base, seed, noRepeatWorks: false }), [ids[0], ids[1], ids[2]]) <= 1,
       "songs joined as the same recording never play together");
@@ -405,9 +405,9 @@ let totalBugs = 0;
   const onlyVersions = [...lib, ...["Moon River", "Moon River (Remastered)"].map((title, i) => ({
     id: `mr${i}`, title, lengthSec: 200, dances: ["Moon River dance"], tags: [], isrc: `MR${i}`,
   }))];
-  const r3 = generatePlaylist(onlyVersions, { ...base, seed: 1, specialBlocks: [ev] });
-  expect(r3.playlist.filter((it) => it.source === ev.name).length <= 1, "the block plays at most one version");
-  expect(r3.warnings.some((w) => /shrank|could not play/.test(w.message)), `with a warning: ${r3.warnings.map((w) => w.message)}`);
+  const result3 = generatePlaylist(onlyVersions, { ...base, seed: 1, specialBlocks: [ev] });
+  expect(result3.playlist.filter((row) => row.source === ev.name).length <= 1, "the block plays at most one version");
+  expect(result3.warnings.some((warning) => /shrank|could not play/.test(warning.message)), `with a warning: ${result3.warnings.map((warning) => warning.message)}`);
 }
 
 /* ---- special blocks with chosen songs (the agreed spec, NOTES.md v0.2.4, v0.4) ---- */
@@ -419,61 +419,61 @@ let totalBugs = 0;
       totalBugs++;
     }
   };
-  const base = SCENARIOS.find((sc) => sc.name.includes("N=2 (Ballroom/Latin), 3 h, no theme")).settings;
-  const lib = buildSongs(10).map((sg) => ({ ...sg, isrc: `I${sg.id}` }));
-  const one = (d, k = 0) => lib.filter((sg) => sg.dances.length === 1 && sg.dances[0] === d)[k];
+  const base = SCENARIOS.find((scenario) => scenario.name.includes("N=2 (Ballroom/Latin), 3 h, no theme")).settings;
+  const lib = buildSongs(10).map((song) => ({ ...song, isrc: `I${song.id}` }));
+  const one = (d, k = 0) => lib.filter((song) => song.dances.length === 1 && song.dances[0] === d)[k];
   // Two Waltzes in a row, a Cha-cha, a Polka (an excursion dance), and a very long Tango.
   const longTango = { ...one("Tango"), id: "longtango", lengthSec: 400, isrc: "LONG" };
   const lib2 = [...lib, longTango];
-  const chosen = [one("Waltz", 0), one("Waltz", 1), one("Cha-cha"), one("Polka"), longTango].map((sg) => sg.id);
+  const chosen = [one("Waltz", 0), one("Waltz", 1), one("Cha-cha"), one("Polka"), longTango].map((song) => song.id);
   // A duplicate (same recording, another ID) of the first chosen song, and another version of the second.
   const dup = { ...one("Waltz", 0), id: "dupwaltz", title: "Dup" };
   const version = { ...one("Waltz", 1), id: "verwaltz", isrc: "VER", title: `${one("Waltz", 1).title} (Live)` };
   const lib3 = [...lib2, dup, version];
-  const blockOf = (r) => r.playlist.filter((it) => it.blockId === 0);
+  const blockOf = (result) => result.playlist.filter((row) => row.blockId === 0);
 
   let versionPlayed = 0;
   let relaxed = 0;
   for (let seed = 1; seed <= 100; seed++) {
     const settings = { ...base, seed, maxSongSec: 300,
       specialBlocks: [{ source: "songs", songs: chosen, placement: { mode: "at", at: 0.4 } }, ...base.specialBlocks] };
-    const r = generatePlaylist(lib3, settings);
-    const b = blockOf(r);
-    expect(b.map((it) => it.song.id).join() === chosen.join(), `plays exactly the chosen songs, in order: ${b.map((x) => x.song.id)}`);
-    expect(b.every((it, i) => i === 0 || it.index === b[i - 1].index + 1), "together (nothing may interrupt by default)");
-    expect(b.every((it) => it.kind === "block" && it.chosen), "outside the category turns");
+    const result = generatePlaylist(lib3, settings);
+    const b = blockOf(result);
+    expect(b.map((row) => row.song.id).join() === chosen.join(), `plays exactly the chosen songs, in order: ${b.map((x) => x.song.id)}`);
+    expect(b.every((row, i) => i === 0 || row.index === b[i - 1].index + 1), "together (nothing may interrupt by default)");
+    expect(b.every((row) => row.kind === "block" && row.chosen), "outside the category turns");
     expect(b.at(-1).song.lengthSec === 400, "a chosen song may break the length limits");
-    const ids = r.playlist.map((it) => it.song.id);
+    const ids = result.playlist.map((row) => row.song.id);
     expect(ids.filter((id) => chosen.includes(id)).length === chosen.length, "chosen songs never play elsewhere");
     expect(!ids.includes("dupwaltz"), "a duplicate of a chosen song never plays");
     if (ids.includes("verwaltz")) versionPlayed++;
     // The first chosen song keeps the normal gap, unless the block waited as long as it may.
     const first = b[0];
-    const before = r.playlist.slice(Math.max(0, first.index - base.minToRepeat), first.index);
-    const waited = r.playlist.filter((it) => it.index < first.index && it.startSec >= 0.4 * r.targetSec).length;
-    expect(!before.some((it) => it.dance === first.dance) || waited > base.minToRepeat, "the block waits for its first song's gap");
-    expect(checkRules(r, settings).length === 0 || r.warnings.length > 0, `no silently broken rules: ${JSON.stringify(checkRules(r, settings)[0])}`);
-    if (r.warnings.some((w) => /Rule relaxed/.test(w.message))) relaxed++;
+    const before = result.playlist.slice(Math.max(0, first.index - base.minToRepeat), first.index);
+    const waited = result.playlist.filter((row) => row.index < first.index && row.startSec >= 0.4 * result.targetSec).length;
+    expect(!before.some((row) => row.dance === first.dance) || waited > base.minToRepeat, "the block waits for its first song's gap");
+    expect(checkRules(result, settings).length === 0 || result.warnings.length > 0, `no silently broken rules: ${JSON.stringify(checkRules(result, settings)[0])}`);
+    if (result.warnings.some((warning) => /Rule relaxed/.test(warning.message))) relaxed++;
 
     // Interruptions keep the order; a kept-apart chosen block is never directly after the line dance or Paso Doble.
     const often = { ...base, seed, excursions: { ...base.excursions, intervalMinutes: 4 },
       specialBlocks: [{ source: "songs", songs: chosen, keepApart: true, placement: { mode: "at", at: 0.5 }, interruptBy: { excursions: true } }, ...base.specialBlocks] };
-    const r2 = generatePlaylist(lib2, often);
-    const b2 = blockOf(r2);
-    expect(b2.map((it) => it.song.id).join() === chosen.join(), "interrupted, the block keeps its order");
-    const prev = r2.playlist[b2[0].index - 1];
+    const result2 = generatePlaylist(lib2, often);
+    const b2 = blockOf(result2);
+    expect(b2.map((row) => row.song.id).join() === chosen.join(), "interrupted, the block keeps its order");
+    const prev = result2.playlist[b2[0].index - 1];
     expect(prev.kind !== "event", "a kept-apart chosen block is never directly after the line dance or Paso Doble");
-    expect(checkRules(r2, often).length === 0 || r2.warnings.length > 0, `interrupted chosen block: no silently broken rules: ${JSON.stringify(checkRules(r2, often)[0])}`);
-    if (r2.warnings.some((w) => /Rule relaxed/.test(w.message))) relaxed++;
+    expect(checkRules(result2, often).length === 0 || result2.warnings.length > 0, `interrupted chosen block: no silently broken rules: ${JSON.stringify(checkRules(result2, often)[0])}`);
+    if (result2.warnings.some((warning) => /Rule relaxed/.test(warning.message))) relaxed++;
   }
   console.log(`  another version of a chosen song played elsewhere in ${versionPlayed} of 100 nights (allowed); a rule relaxed in ${relaxed} of 200 nights`);
   expect(relaxed <= 10, `chosen-songs blocks should rarely need a rule relaxed: ${relaxed} of 200`);
 
   // A chosen song that is not in the library is left out, with a warning.
   const s4 = { ...base, seed: 1, specialBlocks: [{ source: "songs", songs: [chosen[0], "notinthelibrary"], placement: { mode: "at", at: 0.4 } }] };
-  const r4 = generatePlaylist(lib, s4);
-  expect(blockOf(r4).length === 1 && r4.warnings.some((w) => /not in the library/.test(w.message)), "a missing chosen song is left out, with a warning");
-  expect(validateSettings(lib, s4).warnings.some((w) => /not in the library/.test(w)), "and warned about before generating");
+  const result4 = generatePlaylist(lib, s4);
+  expect(blockOf(result4).length === 1 && result4.warnings.some((warning) => /not in the library/.test(warning.message)), "a missing chosen song is left out, with a warning");
+  expect(validateSettings(lib, s4).warnings.some((warning) => /not in the library/.test(warning)), "and warned about before generating");
   expect(validateSettings(lib, { ...base, specialBlocks: [{ source: "songs", songs: [] }] }).errors.length > 0, "a chosen-songs block with no songs is an error");
 }
 
@@ -486,32 +486,32 @@ let totalBugs = 0;
       totalBugs++;
     }
   };
-  const base = SCENARIOS.find((sc) => sc.name.includes("N=2 (Ballroom/Latin), 3 h, no theme")).settings;
-  const lib = buildSongs(10).map((sg) => ({ ...sg, isrc: `I${sg.id}` }));
-  const one = (d, k = 0) => lib.filter((sg) => sg.dances.length === 1 && sg.dances[0] === d)[k];
+  const base = SCENARIOS.find((scenario) => scenario.name.includes("N=2 (Ballroom/Latin), 3 h, no theme")).settings;
+  const lib = buildSongs(10).map((song) => ({ ...song, isrc: `I${song.id}` }));
+  const one = (d, k = 0) => lib.filter((song) => song.dances.length === 1 && song.dances[0] === d)[k];
   // A Waltz and a Rumba (categories), a Bachata (excursion), a very long Foxtrot, and a Paso Doble
   // (only a special block's dance, so it can never be a must-play).
   const longFox = { ...one("Foxtrot"), id: "longfox", lengthSec: 420, isrc: "LONGFOX" };
   const dup = { ...one("Waltz"), id: "dupwaltz" }; // the same recording as the must-play Waltz
   const lib2 = [...lib, longFox, dup];
-  const must = [one("Waltz"), one("Rumba"), one("Bachata"), longFox].map((sg) => sg.id);
+  const must = [one("Waltz"), one("Rumba"), one("Bachata"), longFox].map((song) => song.id);
   let relaxed = 0;
   let early = 0;
   for (let seed = 1; seed <= 100; seed++) {
     const settings = { ...base, seed, maxSongSec: 300, mustPlay: must };
-    const r = generatePlaylist(lib2, settings);
-    const rows = r.playlist.filter((it) => it.mustPlay);
+    const result = generatePlaylist(lib2, settings);
+    const rows = result.playlist.filter((row) => row.mustPlay);
     expect(rows.length === must.length && new Set(rows.map((x) => x.song.id)).size === must.length, `every must-play song plays once: ${rows.length}`);
-    expect(r.playlist.filter((it) => must.includes(it.song.id)).length === must.length, "and nowhere else");
-    expect(!r.playlist.some((it) => it.song.id === "dupwaltz"), "a duplicate of a must-play song never plays");
-    expect(rows.every((it) => it.index >= base.opening.earlyCount), "never in the opening");
-    expect(r.playlist.some((it) => it.song.id === "longfox"), "a must-play song may break the length limits");
-    const bachata = rows.find((it) => it.song.dances.includes("Bachata"));
+    expect(result.playlist.filter((row) => must.includes(row.song.id)).length === must.length, "and nowhere else");
+    expect(!result.playlist.some((row) => row.song.id === "dupwaltz"), "a duplicate of a must-play song never plays");
+    expect(rows.every((row) => row.index >= base.opening.earlyCount), "never in the opening");
+    expect(result.playlist.some((row) => row.song.id === "longfox"), "a must-play song may break the length limits");
+    const bachata = rows.find((row) => row.song.dances.includes("Bachata"));
     expect(bachata && bachata.kind === "excursion", "an excursion dance plays outside the turns");
     // Spread evenly: in random order, but the i-th must-play song (in time) is not before (i+1)/(k+1).
-    rows.forEach((it, i) => { if (it.startSec < ((i + 1) / (must.length + 1)) * r.targetSec - 1) early++; });
-    if (r.warnings.some((w) => /Rule relaxed to play must-play/.test(w.message))) relaxed++;
-    expect(checkRules(r, settings).length === 0 || r.warnings.length > 0, `no silently broken rules: ${JSON.stringify(checkRules(r, settings)[0])}`);
+    rows.forEach((row, i) => { if (row.startSec < ((i + 1) / (must.length + 1)) * result.targetSec - 1) early++; });
+    if (result.warnings.some((warning) => /Rule relaxed to play must-play/.test(warning.message))) relaxed++;
+    expect(checkRules(result, settings).length === 0 || result.warnings.length > 0, `no silently broken rules: ${JSON.stringify(checkRules(result, settings)[0])}`);
   }
   console.log(`  a must-play song needed a rule relaxed in ${relaxed} of 100 nights`);
   expect(early === 0, `must-play songs are spread evenly (none before its point): ${early} early`);
@@ -520,26 +520,26 @@ let totalBugs = 0;
   // A dance the settings never let play: warned about, never played.
   const paso = one("Paso Doble").id;
   const s2 = { ...base, seed: 1, specialBlocks: [], mustPlay: [paso] };
-  expect(validateSettings(lib, s2).warnings.some((w) => /will never play/.test(w)), "a must-play song with an unused dance is warned about");
-  expect(!generatePlaylist(lib, s2).playlist.some((it) => it.song.id === paso), "and never plays");
+  expect(validateSettings(lib, s2).warnings.some((warning) => /will never play/.test(warning)), "a must-play song with an unused dance is warned about");
+  expect(!generatePlaylist(lib, s2).playlist.some((row) => row.song.id === paso), "and never plays");
   // In a chosen-songs block too: plays once, in the block.
   const s3 = { ...base, seed: 2, mustPlay: [must[0]], specialBlocks: [{ source: "songs", songs: [must[0]], placement: { mode: "at", at: 0.5 } }, ...base.specialBlocks] };
-  const r3 = generatePlaylist(lib, s3);
-  const plays = r3.playlist.filter((it) => it.song.id === must[0]);
+  const result3 = generatePlaylist(lib, s3);
+  const plays = result3.playlist.filter((row) => row.song.id === must[0]);
   expect(plays.length === 1 && plays[0].chosen, "a must-play song in a chosen-songs block plays once, in the block");
 }
 
-for (const sc of SCENARIOS) {
-  const songs = sc.songs ?? buildSongs(sc.perDance);
+for (const scenario of SCENARIOS) {
+  const songs = scenario.songs ?? buildSongs(scenario.perDance);
   // Timing bounds use only the songs that may play (inside any song length limits).
-  const playable = songs.filter((s) => withinLengthLimits(s, sc.settings));
+  const playable = songs.filter((s) => withinLengthLimits(s, scenario.settings));
   const longest = Math.max(...playable.map((s) => s.lengthSec));
   const shortest = Math.min(...playable.map((s) => s.lengthSec));
-  console.log(`\n=== ${sc.name}  (${songs.length} songs, ${SEEDS} seeds)`);
+  console.log(`\n=== ${scenario.name}  (${songs.length} songs, ${SEEDS} seeds)`);
 
-  const { errors, warnings } = validateSettings(songs, sc.settings);
+  const { errors, warnings } = validateSettings(songs, scenario.settings);
   for (const e of errors) console.log(`  VALIDATION ERROR: ${e}`);
-  for (const w of warnings) console.log(`  validation warning: ${w}`);
+  for (const warning of warnings) console.log(`  validation warning: ${warning}`);
   if (errors.length) {
     totalBugs++;
     continue;
@@ -555,7 +555,7 @@ for (const sc of SCENARIOS) {
   let minOver = Infinity;
 
   for (let seed = 1; seed <= SEEDS; seed++) {
-    const settings = { ...sc.settings, seed };
+    const settings = { ...scenario.settings, seed };
     let res;
     try {
       res = generatePlaylist(songs, settings);
@@ -569,31 +569,31 @@ for (const sc of SCENARIOS) {
 
     const violations = checkRules(res, settings);
     if (violations.length && !res.warnings.length) {
-      for (const v of violations) bugs.push(`seed ${seed}: silent violation [${v.rule}] at #${v.index}: ${v.message}`);
+      for (const violation of violations) bugs.push(`seed ${seed}: silent violation [${violation.rule}] at #${violation.index}: ${violation.message}`);
     } else if (violations.length) {
-      for (const v of violations) relaxedViolations[v.rule] = (relaxedViolations[v.rule] || 0) + 1;
+      for (const violation of violations) relaxedViolations[violation.rule] = (relaxedViolations[violation.rule] || 0) + 1;
     }
     if (!res.warnings.length && !violations.length) clean++;
 
-    for (const w of res.warnings) {
-      const key = w.message.replace(/to place a .* song\./, "").replace(/"[^"]*"/g, '"…"');
+    for (const warning of res.warnings) {
+      const key = warning.message.replace(/to place a .* song\./, "").replace(/"[^"]*"/g, '"…"');
       warningCounts[key] = (warningCounts[key] || 0) + 1;
     }
 
-    const ids = res.playlist.map((it) => it.song.id);
-    const reuseWarned = res.warnings.some((w) => /reuse/.test(w.message));
+    const ids = res.playlist.map((row) => row.song.id);
+    const reuseWarned = res.warnings.some((warning) => /reuse/.test(warning.message));
     if (new Set(ids).size !== ids.length && !reuseWarned) bugs.push(`seed ${seed}: a song was used twice with no warning`);
 
     // README rule 8: end no later than (longest - shortest) past the target; and since songs are
     // added while the shortest would still fit, no earlier than one shortest song before it.
     if (res.overtimeSec > longest - shortest) bugs.push(`seed ${seed}: overtime ${formatTime(res.overtimeSec)} exceeds longest - shortest song`);
-    const endedEarly = res.warnings.some((w) => /ended early/.test(w.message));
+    const endedEarly = res.warnings.some((warning) => /ended early/.test(warning.message));
     if (!endedEarly && res.overtimeSec <= -shortest) bugs.push(`seed ${seed}: night ended ${formatTime(-res.overtimeSec)} short of target`);
 
     maxOver = Math.max(maxOver, res.overtimeSec);
     minOver = Math.min(minOver, res.overtimeSec);
     songCounts.push(res.stats.songCount);
-    if (sc.settings.theme) themeFracs.push(res.stats.themeFraction);
+    if (scenario.settings.theme) themeFracs.push(res.stats.themeFraction);
   }
 
   const avg = (a) => a.reduce((x, y) => x + y, 0) / a.length;
@@ -602,7 +602,7 @@ for (const sc of SCENARIOS) {
   console.log(`  songs per night: ${Math.min(...songCounts)}-${Math.max(...songCounts)} (avg ${avg(songCounts).toFixed(1)})`);
   console.log(`  end vs target: ${formatTime(minOver)} to ${formatTime(maxOver)}`);
   if (themeFracs.length) {
-    const { fractionMin, fractionMax } = sc.settings.theme;
+    const { fractionMin, fractionMax } = scenario.settings.theme;
     const inRange = themeFracs.filter((f) => f >= fractionMin - 1e-9 && f <= fractionMax + 1e-9).length;
     console.log(
       `  theme share: ${pct(Math.min(...themeFracs))}-${pct(Math.max(...themeFracs))} (avg ${pct(avg(themeFracs))}); ` +

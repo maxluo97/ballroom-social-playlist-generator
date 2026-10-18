@@ -5,16 +5,16 @@
  *
  * The settings object is exactly what generatePlaylist() takes (see site/js/generator/generator.js).
  *
- * The DEFAULT settings live in data/default-settings.json, in the same format as a user
- * settings file (see settingsFileText). To change the defaults: set things up on the page,
- * "Save user settings…", and replace data/default-settings.json with that file.
+ * The DEFAULT settings live in data/default-settings.json, in the same format as a user settings file
+ * (see settingsFileText). To change the defaults: set things up on the page, "Save user settings…", and
+ * replace data/default-settings.json with that file.
  *
  * Settings file format: { app, kind: "settings", name, savedAt, settings: { … } }.
  */
 
 export const DEFAULTS_URL = "data/default-settings.json";
 
-/** Theme used when the user switches a theme on (broad-theme share by default). */
+/** The theme used when the user switches a theme on (the broad-theme share by default). */
 export const THEME_TEMPLATE = {
   name: "",
   dances: [],
@@ -24,29 +24,33 @@ export const THEME_TEMPLATE = {
   minGap: null, // theme minimum gap; null = the normal gap minus 2
 };
 
-export const clone = (obj) => JSON.parse(JSON.stringify(obj));
+/** A deep copy of plain data (settings, playlists). */
+export const clone = (value) => JSON.parse(JSON.stringify(value));
+
+/** A file's text without the invisible "byte order mark" some editors put at the start. */
+const withoutByteOrderMark = (text) => String(text).replace(/^\uFEFF/, "");
 
 /* ------------------------------------------------------------ settings files */
 
 /** Read a settings file's text. Returns { name, settings }; throws a readable Error if it is not one. */
 export function parseSettingsFile(text) {
-  let data;
+  let file;
   try {
-    data = JSON.parse(String(text).replace(/^﻿/, ""));
+    file = JSON.parse(withoutByteOrderMark(text));
   } catch {
     throw new Error("This is not a settings file (it is not valid JSON).");
   }
-  if (!data || data.kind !== "settings" || !data.settings || !Array.isArray(data.settings.categories)) {
+  if (!file || file.kind !== "settings" || !file.settings || !Array.isArray(file.settings.categories)) {
     throw new Error("This file does not contain playlist settings.");
   }
-  return { name: data.name || "", settings: data.settings };
+  return { name: file.name || "", settings: file.settings };
 }
 
-/** The text of a settings file (pretty-printed JSON, easy to read and edit). */
+/** The text of a settings file (indented JSON, easy to read and edit). */
 export function settingsFileText(settings, name) {
-  const { seed, ...rest } = settings; // the seed is not used by the page
+  const { seed, ...withoutSeed } = settings; // the seed is not used by the page
   return JSON.stringify(
-    { app: "Dance Playlist Generator", kind: "settings", name, savedAt: new Date().toISOString(), settings: { ...rest, seed: null } },
+    { app: "Dance Playlist Generator", kind: "settings", name, savedAt: new Date().toISOString(), settings: { ...withoutSeed, seed: null } },
     null,
     2
   ) + "\n";
@@ -54,9 +58,9 @@ export function settingsFileText(settings, name) {
 
 /** Fetch data/default-settings.json. Returns { name, settings }. */
 export async function loadDefaultSettings() {
-  const res = await fetch(DEFAULTS_URL, { cache: "no-store" });
-  if (!res.ok) throw new Error(`Could not load ${DEFAULTS_URL} (HTTP ${res.status}).`);
-  return parseSettingsFile(await res.text());
+  const response = await fetch(DEFAULTS_URL, { cache: "no-store" });
+  if (!response.ok) throw new Error(`Could not load ${DEFAULTS_URL} (HTTP ${response.status}).`);
+  return parseSettingsFile(await response.text());
 }
 
 /** A working copy of settings to use on the page (the defaults if there are none); never a fixed seed. */
@@ -69,21 +73,22 @@ export function workingSettings(settings, defaults) {
 const STORAGE_KEY = "dpg.lastSettings.v1";
 
 /**
- * Last-used settings from this browser: { settings, label, modified }, or null. Never throws.
- * `label` names where they came from ("Default settings", a file name); `modified` = edited since.
+ * The last-used settings in this browser: { settings, label, modified }, or null. Never throws.
+ * `label` names where they came from ("Default settings", a file name); `modified`: edited since.
  */
 export function loadLastSettings() {
   try {
-    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    return raw && raw.settings ? raw : null;
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    return stored && stored.settings ? stored : null;
   } catch {
     return null;
   }
 }
 
-export function saveLastSettings(settings, meta = {}) {
+/** Keep the settings (and `about`: their label and whether they were modified) in this browser. */
+export function saveLastSettings(settings, about = {}) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ settings, ...meta }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ settings, ...about }));
   } catch {
     /* storage unavailable (private window etc.): ignore */
   }

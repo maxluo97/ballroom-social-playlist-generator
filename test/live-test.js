@@ -11,9 +11,9 @@ import { crc32 as zlibCrc32 } from "node:zlib";
 // A fake browser storage with a login, and a fake Spotify (the token endpoint and "currently playing").
 const memory = { "dpg.spotify.tokens.v1": JSON.stringify({ accessToken: "A1", refreshToken: "R1", expiresAt: Date.now() + 3600e3, scope: "user-read-currently-playing" }) };
 globalThis.localStorage = {
-  getItem: (k) => memory[k] ?? null,
-  setItem: (k, v) => (memory[k] = String(v)),
-  removeItem: (k) => delete memory[k],
+  getItem: (key) => memory[key] ?? null,
+  setItem: (key, value) => (memory[key] = String(value)),
+  removeItem: (key) => delete memory[key],
 };
 const calls = [];
 let playingAnswer = null; // null: 204, nothing playing
@@ -43,7 +43,7 @@ const check = (cond, msg) => {
   }
 };
 
-const id = (n) => `s${String(n).padStart(4, "0")}`.padEnd(22, "x");
+const id = (number) => `s${String(number).padStart(4, "0")}`.padEnd(22, "x");
 // A small night: 8 songs; 4-5 a line-dance block; 8 the last dance; one removed song.
 const result = {
   playlist: [
@@ -60,11 +60,11 @@ const result = {
 };
 const rows = [{ id: id(1), dances: ["Waltz"] }, { id: id(50), dances: ["Rumba", "Bolero"] }];
 const plan = live.livePlan(result, rows);
-const at = (n) => ({ at: Date.now(), isPlaying: true, progressMs: 0, song: { id: id(n), title: `Song ${n}`, artist: "Band", isrc: `I${n}`, durationMs: 180000 } });
+const at = (number) => ({ at: Date.now(), isPlaying: true, progressMs: 0, song: { id: id(number), title: `Song ${number}`, artist: "Band", isrc: `I${number}`, durationMs: 180000 } });
 
 console.log("=== The live plan");
 {
-  check(plan.songs.length === 8 && !plan.songs.some((x) => x.id === id(99)), "removed songs are left out");
+  check(plan.songs.length === 8 && !plan.songs.some((item) => item.id === id(99)), "removed songs are left out");
   check(plan.songs[3].block === "Line dance break" && plan.songs[3].blockId === 0 && plan.songs[0].blockId === null, "special blocks are marked");
   check(plan.songs[7].last && !plan.songs[6].last, "the last dance is marked");
   check(plan.dances[id(50)] === "Rumba / Bolero", "the library's dances are included, for songs off the plan");
@@ -108,7 +108,7 @@ console.log("=== Following what Spotify plays");
   // Relinked songs and other copies of a recording are still found.
   const relinked = live.liveState(plan, { ...at(0), song: { ...at(0).song, id: "other", linkedFromId: id(6) } }, -1);
   check(relinked.index === 5, "a song Spotify relinked is found by the ID it was linked from");
-  const sameRecording = live.liveState(plan, { ...at(0), song: { ...at(0).song, id: "copy", isrc: "isrc7" } }, -1, { isrcOf: (x) => (x === id(7) ? "ISRC7" : "") });
+  const sameRecording = live.liveState(plan, { ...at(0), song: { ...at(0).song, id: "copy", isrc: "isrc7" } }, -1, { isrcOf: (item) => (item === id(7) ? "ISRC7" : "") });
   check(sameRecording.index === 6, "another copy of a planned recording is found by its ISRC");
 
   // Matched by hand ("It's #4"): followed from then on, in every window.
@@ -131,24 +131,24 @@ console.log("=== Following what Spotify plays");
   const twice = { ...plan, songs: [...plan.songs.slice(0, 7), { ...plan.songs[0] }, plan.songs[7]] };
   check(live.findInPlan(twice, at(1).song, undefined, 3) === 7 && live.findInPlan(twice, at(1).song, undefined, -1) === 0, "a song planned twice: the next time it comes");
 
-  check(live.liveState(plan, at(1), -1, { upcomingCount: 3 }).upcoming.map((x) => x.index).join() === "1,2,3", "the next few songs are listed");
+  check(live.liveState(plan, at(1), -1, { upcomingCount: 3 }).upcoming.map((item) => item.index).join() === "1,2,3", "the next few songs are listed");
 }
 
 console.log("=== The timer");
 {
-  const p = { at: 1000, isPlaying: true, progressMs: 60000, song: { durationMs: 180000 } };
-  check(live.progressNow(p, 16000) === 75000 && live.clock(75000) === "1:15", "it counts on from Spotify's answer, every second");
-  check(live.progressNow({ ...p, isPlaying: false }, 16000) === 60000, "paused: it stands still");
-  check(live.progressNow(p, 999999) === 180000 && live.clock(180000) === "3:00", "it never runs past the end of the song");
+  const playing = { at: 1000, isPlaying: true, progressMs: 60000, song: { durationMs: 180000 } };
+  check(live.progressNow(playing, 16000) === 75000 && live.clock(75000) === "1:15", "it counts on from Spotify's answer, every second");
+  check(live.progressNow({ ...playing, isPlaying: false }, 16000) === 60000, "paused: it stands still");
+  check(live.progressNow(playing, 999999) === 180000 && live.clock(180000) === "3:00", "it never runs past the end of the song");
 }
 
 console.log("=== The program");
 {
-  const r = live.programRows(plan);
-  check(r.length === 8 && r[0].join("|") === "1|Waltz|" && r[3].join("|") === "4|Line dance|Line dance break", "the song order with dances and special blocks");
-  check(r[7][1] === "Waltz (last dance)", "the last dance says so");
+  const programTable = live.programRows(plan);
+  check(programTable.length === 8 && programTable[0].join("|") === "1|Waltz|" && programTable[3].join("|") === "4|Line dance|Line dance break", "the song order with dances and special blocks");
+  check(programTable[7][1] === "Waltz (last dance)", "the last dance says so");
 
-  const bytes = docx.tableDocx({ title: "Fall social & <friends>", headers: ["#", "Dance", "Special block", "Song"], rows: r.map((x) => [...x, ""]), widths: [700, 2700, 2300, 3660] });
+  const bytes = docx.tableDocx({ title: "Fall social & <friends>", headers: ["#", "Dance", "Special block", "Song"], rows: programTable.map((item) => [...item, ""]), widths: [700, 2700, 2300, 3660] });
   // Read the zip back: every file's checksum and size must be right, or Word refuses the document.
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const files = {};
@@ -179,7 +179,7 @@ console.log("=== Windows sharing one login");
   memory["dpg.spotify.tokens.v1"] = JSON.stringify({ accessToken: "B1", refreshToken: "RB", expiresAt: Date.now() + 3600e3, scope: "user-read-currently-playing" });
   calls.length = 0;
   await spotify.getCurrentlyPlaying();
-  check(calls.length === 1 && calls[0].auth === "Bearer B1", `the newest tokens in storage are used: ${calls.map((c) => c.auth)}`);
+  check(calls.length === 1 && calls[0].auth === "Bearer B1", `the newest tokens in storage are used: ${calls.map((call) => call.auth)}`);
 
   // Expired: renewed once, and the new tokens are kept for every window.
   memory["dpg.spotify.tokens.v1"] = JSON.stringify({ accessToken: "B1", refreshToken: "RB", expiresAt: Date.now() - 1, scope: "user-read-currently-playing" });
@@ -221,9 +221,9 @@ console.log("=== Asking Spotify what is playing");
   check(none.song === null && !none.isPlaying, "nothing playing (204): no song");
   playingAnswer = { is_playing: true, progress_ms: 61000, item: { type: "track", id: id(3), name: "Tango song", duration_ms: 200000,
     artists: [{ name: "A" }, { name: "B" }], external_ids: { isrc: "XYZ" }, linked_from: { id: id(30) } } };
-  const p = await spotify.getCurrentlyPlaying();
-  check(p.isPlaying && p.progressMs === 61000 && p.song.id === id(3) && p.song.linkedFromId === id(30) && p.song.artist === "A, B" && p.song.durationMs === 200000,
-    `a playing song: ${JSON.stringify(p.song)}`);
+  const playing = await spotify.getCurrentlyPlaying();
+  check(playing.isPlaying && playing.progressMs === 61000 && playing.song.id === id(3) && playing.song.linkedFromId === id(30) && playing.song.artist === "A, B" && playing.song.durationMs === 200000,
+    `a playing song: ${JSON.stringify(playing.song)}`);
   check(calls.at(-1).url.endsWith("/me/player/currently-playing?additional_types=track&market=from_token"),
     "asked with the user's country, so a relinked song says which song it stands in for");
   playingAnswer = { is_playing: true, progress_ms: 1000, currently_playing_type: "ad", item: null };

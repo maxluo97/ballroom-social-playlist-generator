@@ -30,13 +30,14 @@ import { spotifyClientId, SPOTIFY_REDIRECT_URI } from "./config.js";
 
 const AUTH_URL = "https://accounts.spotify.com/authorize";
 const TOKEN_URL = "https://accounts.spotify.com/api/token";
-const API = "https://api.spotify.com/v1";
+const API_URL = "https://api.spotify.com/v1";
 
 const TOKENS_KEY = "dpg.spotify.tokens.v1";
-const PENDING_KEY = "dpg.spotify.pending.v1"; // verifier, state, return page (sessionStorage)
+const PENDING_KEY = "dpg.spotify.pending.v1"; // a login in progress: verifier, state, return page (sessionStorage, this tab)
 
 /* ------------------------------------------------------------ token storage */
 
+/** The tokens kept in this browser, or null. */
 function readTokens() {
   try {
     return JSON.parse(localStorage.getItem(TOKENS_KEY)) || null;
@@ -45,36 +46,39 @@ function readTokens() {
   }
 }
 
-function saveTokens(t) {
+function saveTokens(tokens) {
   try {
-    localStorage.setItem(TOKENS_KEY, JSON.stringify(t));
+    localStorage.setItem(TOKENS_KEY, JSON.stringify(tokens));
   } catch {
     /* storage unavailable: login will only last for this page view */
   }
-  memoryTokens = t;
+  memoryTokens = tokens;
 }
 
+/** This page's copy of the tokens: { accessToken, refreshToken, expiresAt, scope }, or null. */
 let memoryTokens = readTokens();
 
 /** Use the tokens in storage: another window may have renewed them, or logged out. */
 export function syncLogin() {
-  let raw;
+  let stored;
   try {
-    raw = localStorage.getItem(TOKENS_KEY);
+    stored = localStorage.getItem(TOKENS_KEY);
   } catch {
     return; // storage unavailable: keep this page's own tokens
   }
   try {
-    memoryTokens = JSON.parse(raw) || null;
+    memoryTokens = JSON.parse(stored) || null;
   } catch {
     /* unreadable: keep this page's own tokens */
   }
 }
 
+/** Whether this browser is logged in to Spotify (a refresh token is kept). */
 export function isLoggedIn() {
   return !!(memoryTokens && memoryTokens.refreshToken);
 }
 
+/** Forget the login in this browser. */
 export function logout() {
   memoryTokens = null;
   try {
@@ -86,12 +90,14 @@ export function logout() {
 
 /* -------------------------------------------------------------------- login */
 
+/** A random text of letters and digits (the browser's secure random numbers). */
 function randomString(length) {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
   const bytes = crypto.getRandomValues(new Uint8Array(length));
-  return Array.from(bytes, (b) => chars[b % chars.length]).join("");
+  return Array.from(bytes, (byte) => characters[byte % characters.length]).join("");
 }
 
+/** The PKCE "challenge" for a verifier: its SHA-256 digest, in URL-safe base64 without padding. */
 async function challengeFor(verifier) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
   return btoa(String.fromCharCode(...new Uint8Array(digest)))
@@ -106,7 +112,7 @@ export function grantedScopes() {
 }
 
 /** Whether the current login was given all these permissions. */
-export const hasScopes = (scopes) => isLoggedIn() && scopes.every((x) => grantedScopes().includes(x));
+export const hasScopes = (scopes) => isLoggedIn() && scopes.every((scope) => grantedScopes().includes(scope));
 
 /**
  * Send the browser to Spotify's login/approval page, asking for `scopes` (a page's permissions, see
@@ -151,7 +157,7 @@ export async function handleLoginRedirect() {
   if (!pending) return fail("Login could not be completed: this tab has no record of starting it. Please try again.");
   if (state !== pending.state) return fail("Login could not be completed: security check (state) did not match. Please try again.");
 
-  const res = await fetch(TOKEN_URL, {
+  const response = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -162,20 +168,21 @@ export async function handleLoginRedirect() {
       code_verifier: pending.verifier,
     }),
   });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) return fail(`Spotify refused the login (${res.status}): ${data.error_description || data.error || "unknown error"}.`);
-  storeTokenResponse(data);
+  const answer = await response.json().catch(() => ({}));
+  if (!response.ok) return fail(`Spotify refused the login (${response.status}): ${answer.error_description || answer.error || "unknown error"}.`);
+  storeTokenResponse(answer);
   location.replace(pending.returnTo || SPOTIFY_REDIRECT_URI);
   return { handled: true, error: null };
 }
 
-function storeTokenResponse(data) {
+/** Keep the tokens from Spotify's answer to a login or a renewal. */
+function storeTokenResponse(answer) {
   saveTokens({
-    accessToken: data.access_token,
+    accessToken: answer.access_token,
     // Spotify may not send a new refresh token; then keep the old one.
-    refreshToken: data.refresh_token || (memoryTokens && memoryTokens.refreshToken),
-    expiresAt: Date.now() + (data.expires_in - 60) * 1000, // refresh a minute early
-    scope: data.scope || (memoryTokens && memoryTokens.scope) || "",
+    refreshToken: answer.refresh_token || (memoryTokens && memoryTokens.refreshToken),
+    expiresAt: Date.now() + (answer.expires_in - 60) * 1000, // renew a minute early
+    scope: answer.scope || (memoryTokens && memoryTokens.scope) || "",
   });
 }
 
@@ -187,37 +194,39 @@ function refreshAccessToken(rejected = null) {
   const run = async () => {
     syncLogin();
     if (!isLoggedIn()) throw new SpotifyError("Not logged in to Spotify.", 401);
-    const t = memoryTokens;
-    if (t.accessToken && t.accessToken !== rejected && Date.now() < t.expiresAt) return; // renewed elsewhere
+    const tokens = memoryTokens;
+    if (tokens.accessToken && tokens.accessToken !== rejected && Date.now() < tokens.expiresAt) return; // renewed elsewhere
     await renewTokens();
   };
   const locks = typeof navigator !== "undefined" && navigator.locks;
   return locks ? locks.request("dpg-spotify-token-renewal", run) : run();
 }
 
+/** Ask Spotify for new tokens with the refresh token. */
 async function renewTokens() {
-  const used = memoryTokens.refreshToken;
-  const res = await fetch(TOKEN_URL, {
+  const usedRefreshToken = memoryTokens.refreshToken;
+  const response = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       grant_type: "refresh_token",
-      refresh_token: used,
+      refresh_token: usedRefreshToken,
       client_id: spotifyClientId(),
     }),
   });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
+  const answer = await response.json().catch(() => ({}));
+  if (!response.ok) {
     syncLogin();
-    if (isLoggedIn() && memoryTokens.refreshToken !== used && Date.now() < memoryTokens.expiresAt) return; // another window renewed them
+    if (isLoggedIn() && memoryTokens.refreshToken !== usedRefreshToken && Date.now() < memoryTokens.expiresAt) return; // another window renewed them
     logout(); // the refresh token is no longer valid: a fresh login is needed
-    throw new SpotifyError(`Spotify session expired; please log in again (${data.error_description || data.error || res.status}).`, 401);
+    throw new SpotifyError(`Spotify session expired; please log in again (${answer.error_description || answer.error || response.status}).`, 401);
   }
-  storeTokenResponse(data);
+  storeTokenResponse(answer);
 }
 
 /* ---------------------------------------------------------------- API calls */
 
+/** An error from Spotify, with its HTTP status (401 not logged in, 403 refused, 404 not found, 429 limited) and details. */
 export class SpotifyError extends Error {
   constructor(message, status, details) {
     super(message);
@@ -226,12 +235,8 @@ export class SpotifyError extends Error {
   }
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/**
- * Call the Web API. `path` is like "/me" or a full "https://api.spotify.com/..." URL (for paging).
- * Refreshes the token when needed and waits when Spotify says "too many requests" (429).
- */
 /**
  * Waiting when Spotify limits requests (429), per Spotify's guidance: respect Retry-After when the
  * browser can read it (a wait over 30 s, or a used-up quota, is reported at once instead of waited
@@ -240,14 +245,19 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  */
 export const RETRY_POLICY = { delaysMs: [2000, 4000, 8000], longWaitSec: 30 };
 
+/**
+ * Call the Web API. `path` is like "/me" or a full "https://api.spotify.com/..." URL (for paging).
+ * Renews the token when needed (once more if Spotify refuses it), and waits when Spotify says "too many
+ * requests" (429, see RETRY_POLICY). Returns Spotify's answer (null for "204 No Content").
+ */
 export async function api(path, { method = "GET", body } = {}) {
   syncLogin();
   if (!isLoggedIn()) throw new SpotifyError("Not logged in to Spotify.", 401);
-  const url = path.startsWith("http") ? path : API + path;
+  const url = path.startsWith("http") ? path : API_URL + path;
   let limitedRetries = 0;
   for (let attempt = 0; attempt < 2 + RETRY_POLICY.delaysMs.length; attempt++) {
     if (!memoryTokens.accessToken || Date.now() >= memoryTokens.expiresAt) await refreshAccessToken();
-    const res = await fetch(url, {
+    const response = await fetch(url, {
       method,
       headers: {
         Authorization: `Bearer ${memoryTokens.accessToken}`,
@@ -255,51 +265,51 @@ export async function api(path, { method = "GET", body } = {}) {
       },
       body: body ? JSON.stringify(body) : undefined,
     });
-    if (res.status === 401 && attempt === 0) {
+    if (response.status === 401 && attempt === 0) {
       await refreshAccessToken(memoryTokens.accessToken); // token rejected: renew it and retry once
       continue;
     }
-    if (res.status === 429) {
+    if (response.status === 429) {
       // Too many requests. Browsers usually hide Retry-After from the page (Spotify does not expose
       // it), so the wait is often unknown. A used-up quota (reason QUOTA_EXCEEDED, since July 2026) or
       // a long stated wait is reported at once, so callers stop instead of making it worse.
-      const header = Number(res.headers.get("Retry-After")) || 0;
-      const answer = await res.json().catch(() => null);
+      const retryAfterSec = Number(response.headers.get("Retry-After")) || 0;
+      const answer = await response.json().catch(() => null);
       const reason = answer && answer.error ? String(answer.error.reason || "") : "";
       if (/QUOTA_EXCEEDED/i.test(reason)) {
-        throw new SpotifyError("Spotify's request quota for this app is used up for now; try again later (an hour is a safe start).", 429, { retryAfter: header || null, quota: true });
+        throw new SpotifyError("Spotify's request quota for this app is used up for now; try again later (an hour is a safe start).", 429, { retryAfter: retryAfterSec || null, quota: true });
       }
-      if (header > RETRY_POLICY.longWaitSec) {
-        throw new SpotifyError(`Spotify is limiting requests; try again in about ${Math.ceil(header / 60)} minute(s).`, 429, { retryAfter: header });
+      if (retryAfterSec > RETRY_POLICY.longWaitSec) {
+        throw new SpotifyError(`Spotify is limiting requests; try again in about ${Math.ceil(retryAfterSec / 60)} minute(s).`, 429, { retryAfter: retryAfterSec });
       }
       if (limitedRetries >= RETRY_POLICY.delaysMs.length) {
         throw new SpotifyError("Spotify is limiting requests and did not say for how long; try again later.", 429, { retryAfter: null });
       }
-      await sleep(header ? header * 1000 : RETRY_POLICY.delaysMs[limitedRetries]);
+      await sleep(retryAfterSec ? retryAfterSec * 1000 : RETRY_POLICY.delaysMs[limitedRetries]);
       limitedRetries++;
       continue;
     }
-    const data = res.status === 204 ? null : await res.json().catch(() => null);
-    if (!res.ok) {
-      const msg = (data && data.error && (data.error.message || data.error)) || res.statusText;
-      throw new SpotifyError(`Spotify ${method} ${url.replace(API, "")} failed (${res.status}): ${msg}`, res.status, data);
+    const answer = response.status === 204 ? null : await response.json().catch(() => null);
+    if (!response.ok) {
+      const message = (answer && answer.error && (answer.error.message || answer.error)) || response.statusText;
+      throw new SpotifyError(`Spotify ${method} ${url.replace(API_URL, "")} failed (${response.status}): ${message}`, response.status, answer);
     }
-    return data;
+    return answer;
   }
   throw new SpotifyError(`Spotify ${method} ${path} failed after several retries (Spotify may be limiting requests).`, 429);
 }
 
 /** Follow `next` links until every page is read. `onPage(count, total)` reports progress. */
 async function allPages(firstPath, onPage) {
-  const out = [];
-  let next = firstPath;
-  while (next) {
-    const page = await api(next);
-    out.push(...page.items);
-    if (onPage) onPage(out.length, page.total);
-    next = page.next;
+  const items = [];
+  let nextPath = firstPath;
+  while (nextPath) {
+    const page = await api(nextPath);
+    items.push(...page.items);
+    if (onPage) onPage(items.length, page.total);
+    nextPath = page.next;
   }
-  return out;
+  return items;
 }
 
 /** The logged-in user's profile. */
@@ -312,7 +322,7 @@ export function getMe() {
  * Mode an account not on the key's list can log in, but every request is refused with 403.
  * Returns { ok: true, userId } or { ok: false, notAllowed: true } (or { ok: true } if it could not tell).
  */
-let accessCheck = null;
+let accessCheck = null; // asked once per page; later calls get the same answer
 export function checkAccess() {
   accessCheck ??= getMe().then(
     (me) => ({ ok: true, userId: me && me.id }),
@@ -329,21 +339,21 @@ export function checkAccess() {
  * one in the playlist ("relinking"), and only then says which song it stands in for (linkedFromId).
  */
 export async function getCurrentlyPlaying() {
-  const d = await api("/me/player/currently-playing?additional_types=track&market=from_token");
+  const answer = await api("/me/player/currently-playing?additional_types=track&market=from_token");
   const at = Date.now();
-  const t = d && d.item;
-  if (!t || t.type !== "track") return { at, isPlaying: false, progressMs: 0, song: null };
+  const track = answer && answer.item;
+  if (!track || track.type !== "track") return { at, isPlaying: false, progressMs: 0, song: null };
   return {
     at,
-    isPlaying: !!d.is_playing,
-    progressMs: d.progress_ms || 0,
+    isPlaying: !!answer.is_playing,
+    progressMs: answer.progress_ms || 0,
     song: {
-      id: t.id || null,
-      linkedFromId: (t.linked_from && t.linked_from.id) || null,
-      title: t.name || "",
-      artist: (t.artists || []).map((a) => a.name).join(", "),
-      isrc: (t.external_ids && t.external_ids.isrc) || "",
-      durationMs: t.duration_ms || 0,
+      id: track.id || null,
+      linkedFromId: (track.linked_from && track.linked_from.id) || null,
+      title: track.name || "",
+      artist: artistNames(track),
+      isrc: (track.external_ids && track.external_ids.isrc) || "",
+      durationMs: track.duration_ms || 0,
     },
   };
 }
@@ -351,17 +361,17 @@ export async function getCurrentlyPlaying() {
 /** All playlists in the user's library (own, followed, collaborative). */
 export async function getMyPlaylists(onPage) {
   const me = await getMe();
-  const lists = await allPages("/me/playlists?limit=50", onPage);
-  return lists.filter(Boolean).map((p) => ({
-    id: p.id,
-    name: p.name,
-    description: p.description || "",
-    owner: p.owner ? p.owner.display_name || p.owner.id : "",
-    ownedByMe: !!(p.owner && p.owner.id === me.id),
-    collaborative: !!p.collaborative,
+  const playlists = await allPages("/me/playlists?limit=50", onPage);
+  return playlists.filter(Boolean).map((playlist) => ({
+    id: playlist.id,
+    name: playlist.name,
+    description: playlist.description || "",
+    owner: playlist.owner ? playlist.owner.display_name || playlist.owner.id : "",
+    ownedByMe: !!(playlist.owner && playlist.owner.id === me.id),
+    collaborative: !!playlist.collaborative,
     // `items.total` is current; `tracks.total` is the deprecated name.
-    trackCount: (p.items && p.items.total) ?? (p.tracks && p.tracks.total) ?? null,
-    url: p.external_urls ? p.external_urls.spotify : null,
+    trackCount: (playlist.items && playlist.items.total) ?? (playlist.tracks && playlist.tracks.total) ?? null,
+    url: playlist.external_urls ? playlist.external_urls.spotify : null,
   }));
 }
 
@@ -369,18 +379,24 @@ export async function getMyPlaylists(onPage) {
  * A Spotify track object as a library-style song:
  *   { id, title, artist, album, released (year of the album's release), lengthSec, isrc, isPlayable }
  */
-function trackToSong(t) {
+function trackToSong(track) {
   return {
-    id: t.id,
-    title: t.name,
-    artist: (t.artists || []).map((a) => a.name).join(", "),
-    album: t.album ? t.album.name : "",
-    released: t.album && t.album.release_date ? String(t.album.release_date).slice(0, 4) : "",
-    lengthSec: Math.round((t.duration_ms || 0) / 1000),
-    isrc: t.external_ids ? t.external_ids.isrc || "" : "",
-    isPlayable: t.is_playable ?? null,
+    id: track.id,
+    title: track.name,
+    artist: artistNames(track),
+    album: track.album ? track.album.name : "",
+    released: track.album && track.album.release_date ? String(track.album.release_date).slice(0, 4) : "",
+    lengthSec: Math.round((track.duration_ms || 0) / 1000),
+    isrc: track.external_ids ? track.external_ids.isrc || "" : "",
+    isPlayable: track.is_playable ?? null,
   };
 }
+
+/** A track's artists, as "A, B". */
+const artistNames = (track) => (track.artists || []).map((artist) => artist.name).join(", ");
+
+/** The track of a playlist entry (`item` is the current name; `track` the deprecated one), or null. */
+const entryTrack = (entry) => (entry && (entry.item ?? entry.track)) || null;
 
 /**
  * The songs in a playlist you own or collaborate on, as library-style songs (plus `addedAt`).
@@ -389,10 +405,10 @@ function trackToSong(t) {
 export async function getPlaylistTracks(playlistId, onPage) {
   const entries = await allPages(`/playlists/${encodeURIComponent(playlistId)}/items?limit=50&additional_types=track`, onPage);
   const songs = [];
-  for (const e of entries) {
-    const t = e && (e.item ?? e.track); // `item` is current; `track` is the deprecated name
-    if (!t || e.is_local || t.type !== "track" || !t.id) continue;
-    songs.push({ ...trackToSong(t), addedAt: e.added_at || null });
+  for (const entry of entries) {
+    const track = entryTrack(entry);
+    if (!track || entry.is_local || track.type !== "track" || !track.id) continue;
+    songs.push({ ...trackToSong(track), addedAt: entry.added_at || null });
   }
   return songs;
 }
@@ -408,47 +424,50 @@ export async function getPlaylistTracks(playlistId, onPage) {
  * Returns [{ id, title, artist, album, released, lengthSec, isrc, isPlayable, reason }].
  */
 export async function getLibraryPlaylistSongs(playlistId, onPage, libraryIds = null) {
-  const base = `/playlists/${encodeURIComponent(playlistId)}/items?limit=50&additional_types=track`;
-  const entries = await allPages(`${base}&market=from_token`, onPage);
+  const itemsPath = `/playlists/${encodeURIComponent(playlistId)}/items?limit=50&additional_types=track`;
+  const entries = await allPages(`${itemsPath}&market=from_token`, onPage);
   const songs = [];
-  entries.forEach((e, position) => {
-    const t = e && (e.item ?? e.track); // `item` is current; `track` is the deprecated name
-    if (!t || e.is_local || t.type !== "track" || !t.id) return;
-    const id = (t.linked_from && t.linked_from.id) || t.id;
-    songs.push({ ...trackToSong(t), id, position, reason: (t.restrictions && t.restrictions.reason) || "" });
+  entries.forEach((entry, position) => {
+    const track = entryTrack(entry);
+    if (!track || entry.is_local || track.type !== "track" || !track.id) return;
+    const id = (track.linked_from && track.linked_from.id) || track.id;
+    songs.push({ ...trackToSong(track), id, position, reason: (track.restrictions && track.restrictions.reason) || "" });
   });
-  const known = libraryIds && new Set(libraryIds);
-  if (known && songs.some((sg) => !known.has(sg.id))) {
-    const plain = await allPages(base); // without a market: Spotify returns the original IDs
-    for (const sg of songs) {
-      if (known.has(sg.id)) continue;
-      const t = plain[sg.position] && (plain[sg.position].item ?? plain[sg.position].track);
-      if (t && t.id && known.has(t.id)) sg.id = t.id;
+  const knownIds = libraryIds && new Set(libraryIds);
+  if (knownIds && songs.some((song) => !knownIds.has(song.id))) {
+    const originalEntries = await allPages(itemsPath); // without a market: Spotify returns the original IDs
+    for (const song of songs) {
+      if (knownIds.has(song.id)) continue;
+      const original = entryTrack(originalEntries[song.position]);
+      if (original && original.id && knownIds.has(original.id)) song.id = original.id;
     }
   }
-  return songs.map(({ position, ...sg }) => sg);
+  return songs.map(({ position, ...song }) => song);
 }
+
+/** Spotify adds or removes at most this many tracks per request. */
+const MAX_TRACKS_PER_REQUEST = 100;
 
 /**
  * Remove tracks from a playlist (`DELETE /playlists/{id}/items`, at most 100 per request).
  * `onProgress(removed, total)` reports progress. Returns the number removed.
  */
 export async function removeTracksFromPlaylist(playlistId, trackIds, onProgress) {
-  let removed = 0;
-  for (let i = 0; i < trackIds.length; i += 100) {
-    const items = trackIds.slice(i, i + 100).map((id) => ({ uri: `spotify:track:${id}` }));
+  let removedCount = 0;
+  for (let iFirst = 0; iFirst < trackIds.length; iFirst += MAX_TRACKS_PER_REQUEST) {
+    const items = trackIds.slice(iFirst, iFirst + MAX_TRACKS_PER_REQUEST).map((id) => ({ uri: `spotify:track:${id}` }));
     await api(`/playlists/${encodeURIComponent(playlistId)}/items`, { method: "DELETE", body: { items } });
-    removed += items.length;
-    if (onProgress) onProgress(removed, trackIds.length);
+    removedCount += items.length;
+    if (onProgress) onProgress(removedCount, trackIds.length);
   }
-  return removed;
+  return removedCount;
 }
 
 /** The Spotify user ID of a playlist's owner, or null if it cannot be read (gone, or not yours to read). */
 export async function getPlaylistOwnerId(playlistId) {
   try {
-    const p = await api(`/playlists/${encodeURIComponent(playlistId)}?fields=owner.id`);
-    return (p && p.owner && p.owner.id) || null;
+    const playlist = await api(`/playlists/${encodeURIComponent(playlistId)}?fields=owner.id`);
+    return (playlist && playlist.owner && playlist.owner.id) || null;
   } catch {
     return null;
   }
@@ -457,7 +476,7 @@ export async function getPlaylistOwnerId(playlistId) {
 /** The track IDs in a playlist (for keeping the library playlist in step). */
 export async function getPlaylistTrackIds(playlistId) {
   const entries = await allPages(`/playlists/${encodeURIComponent(playlistId)}/items?limit=50&additional_types=track`);
-  return entries.map((e) => e && (e.item ?? e.track)).filter((x) => x && x.type === "track" && x.id).map((x) => x.id);
+  return entries.map(entryTrack).filter((track) => track && track.type === "track" && track.id).map((track) => track.id);
 }
 
 /** One song by its track ID (`GET /tracks/{id}`; the several-at-once endpoint was removed). */
@@ -471,9 +490,9 @@ export async function getTrack(trackId) {
  */
 export async function searchTracks(query, offset = 0) {
   const params = new URLSearchParams({ q: query, type: "track", limit: "10", offset: String(offset) });
-  const data = await api(`/search?${params}`);
-  const page = data.tracks || { items: [], total: 0 };
-  const songs = page.items.filter((t) => t && t.id).map(trackToSong);
+  const answer = await api(`/search?${params}`);
+  const page = answer.tracks || { items: [], total: 0 };
+  const songs = page.items.filter((track) => track && track.id).map(trackToSong);
   return { songs, total: page.total, nextOffset: page.next ? offset + page.items.length : null };
 }
 
@@ -483,8 +502,8 @@ export async function searchTracks(query, offset = 0) {
  * Returns { id, url }.
  */
 export async function createPlaylist({ name, description = "", isPublic = false }) {
-  const p = await api("/me/playlists", { method: "POST", body: { name, description, public: isPublic } });
-  return { id: p.id, url: p.external_urls ? p.external_urls.spotify : null };
+  const playlist = await api("/me/playlists", { method: "POST", body: { name, description, public: isPublic } });
+  return { id: playlist.id, url: playlist.external_urls ? playlist.external_urls.spotify : null };
 }
 
 /**
@@ -492,18 +511,18 @@ export async function createPlaylist({ name, description = "", isPublic = false 
  * `onProgress(added, total)` reports progress. Returns the number added.
  */
 export async function addTracksToPlaylist(playlistId, trackIds, onProgress) {
-  let added = 0;
-  for (let i = 0; i < trackIds.length; i += 100) {
-    const uris = trackIds.slice(i, i + 100).map((id) => `spotify:track:${id}`);
+  let addedCount = 0;
+  for (let iFirst = 0; iFirst < trackIds.length; iFirst += MAX_TRACKS_PER_REQUEST) {
+    const uris = trackIds.slice(iFirst, iFirst + MAX_TRACKS_PER_REQUEST).map((id) => `spotify:track:${id}`);
     await api(`/playlists/${encodeURIComponent(playlistId)}/items`, { method: "POST", body: { uris } });
-    added += uris.length;
-    if (onProgress) onProgress(added, trackIds.length);
+    addedCount += uris.length;
+    if (onProgress) onProgress(addedCount, trackIds.length);
   }
-  return added;
+  return addedCount;
 }
 
 /** The playlist ID from a playlist link, a "spotify:playlist:..." URI, or a bare ID; else null. */
 export function playlistIdFrom(text) {
-  const m = String(text ?? "").trim().match(/^(?:spotify:playlist:|https?:\/\/open\.spotify\.com\/(?:intl-[a-z-]+\/)?playlist\/)?([A-Za-z0-9]{22})(?:[?#].*)?$/);
-  return m ? m[1] : null;
+  const match = String(text ?? "").trim().match(/^(?:spotify:playlist:|https?:\/\/open\.spotify\.com\/(?:intl-[a-z-]+\/)?playlist\/)?([A-Za-z0-9]{22})(?:[?#].*)?$/);
+  return match ? match[1] : null;
 }

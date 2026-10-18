@@ -39,13 +39,14 @@ let waitUntil = 0;
 const channel = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("dpg-live") : null;
 
 const ready = () => isLoggedIn() && hasScopes(SPOTIFY_SCOPES.live);
-const lastIndexNow = () => (plan && lastId ? plan.songs.findIndex((x) => x.id === lastId) : -1);
+const lastIndexNow = () => (plan && lastId ? plan.songs.findIndex((planned) => planned.id === lastId) : -1);
 const isrcOf = (id) => (detailsOf(id) || {}).isrc || "";
 /** "14", the song's number in the playlist (as in the generator and the program). */
-const num = (i) => el("span", { class: "live-num" }, String(i + 1));
+const placeNumber = (place) => el("span", { class: "live-num" }, String(place + 1));
+/** A planned song's "title — artist" (from Spotify's details kept in this browser), or "". */
 const titleOf = (row) => {
-  const d = detailsOf(row.id);
-  return d ? `${d.title}${d.artist ? ` — ${d.artist}` : ""}` : "";
+  const details = detailsOf(row.id);
+  return details ? `${details.title}${details.artist ? ` — ${details.artist}` : ""}` : "";
 };
 
 /* ------------------------------------------------------------ Spotify */
@@ -82,7 +83,7 @@ async function poll() {
   }
 }
 
-if (channel) channel.onmessage = (e) => e.data && e.data.answer && take(e.data.answer, false);
+if (channel) channel.onmessage = (event) => event.data && event.data.answer && take(event.data.answer, false);
 
 function tick() {
   const now = Date.now();
@@ -101,13 +102,13 @@ let progressText = null;
 
 function renderProgress() {
   if (!progressBar || !playing || !playing.song) return;
-  const p = progressNow(playing);
-  const d = playing.song.durationMs;
-  progressBar.style.width = `${d ? Math.min(100, (p / d) * 100) : 0}%`;
-  progressText.textContent = `${clock(p)} / ${clock(d)}`;
+  const progressMs = progressNow(playing);
+  const durationMs = playing.song.durationMs;
+  progressBar.style.width = `${durationMs ? Math.min(100, (progressMs / durationMs) * 100) : 0}%`;
+  progressText.textContent = `${clock(progressMs)} / ${clock(durationMs)}`;
 }
 
-const panel = (cls, ...children) => el("section", { class: `live-panel ${cls}` }, ...children);
+const panel = (className, ...children) => el("section", { class: `live-panel ${className}` }, ...children);
 
 /**
  * Draw the page. A new answer from Spotify about the same song (`force` false) only moves the timer,
@@ -126,8 +127,8 @@ function render(force = true) {
         ", then press ", el("strong", {}, "Live view"), ".")));
     return;
   }
-  const st = liveState(plan, playing, lastIndexNow(), { isrcOf, upcomingCount: 5, matches, added });
-  if (st.lastIndex >= 0) lastId = plan.songs[st.lastIndex].id;
+  const view = liveState(plan, playing, lastIndexNow(), { isrcOf, upcomingCount: 5, matches, added });
+  if (view.lastIndex >= 0) lastId = plan.songs[view.lastIndex].id;
   const total = plan.songs.length;
 
   const notice = !ready()
@@ -142,22 +143,22 @@ function render(force = true) {
   // Now
   let now;
   if (playing && playing.song) {
-    const sg = playing.song;
-    const status = st.added ? "Added" : st.offPlan ? "Off the plan" : !playing.isPlaying ? "Paused" : "";
-    const dance = st.current ? st.current.dance : st.offPlanDance || "—";
+    const song = playing.song;
+    const status = view.added ? "Added" : view.offPlan ? "Off the plan" : !playing.isPlaying ? "Paused" : "";
+    const dance = view.current ? view.current.dance : view.offPlanDance || "—";
     progressBar = el("div", { class: "live-bar-fill" });
     progressText = el("span", { class: "live-time" });
     now = panel("live-now",
-      el("div", { class: "live-label" }, "Now", status && el("span", { class: `live-status${st.offPlan && !st.added ? " off" : ""}` }, status)),
-      el("div", { class: "live-dance" }, st.index >= 0 && num(st.index), dance,
-        !dancers && st.index >= 0 && el("span", { class: "live-of" }, ` of ${total}`)),
-      st.current && st.current.block && el("div", { class: "live-block" }, st.current.block),
-      st.current && st.current.last && el("div", { class: "live-block" }, "Last dance of the night"),
-      el("div", { class: "live-song" }, spotifyListenLink(spotifyLink(sg.id), sg.title, tone), el("span", {}, sg.title),
-        sg.artist && el("span", { class: "live-artist" }, ` — ${sg.artist}`)),
+      el("div", { class: "live-label" }, "Now", status && el("span", { class: `live-status${view.offPlan && !view.added ? " off" : ""}` }, status)),
+      el("div", { class: "live-dance" }, view.index >= 0 && placeNumber(view.index), dance,
+        !dancers && view.index >= 0 && el("span", { class: "live-of" }, ` of ${total}`)),
+      view.current && view.current.block && el("div", { class: "live-block" }, view.current.block),
+      view.current && view.current.last && el("div", { class: "live-block" }, "Last dance of the night"),
+      el("div", { class: "live-song" }, spotifyListenLink(spotifyLink(song.id), song.title, tone), el("span", {}, song.title),
+        song.artist && el("span", { class: "live-artist" }, ` — ${song.artist}`)),
       el("div", { class: "live-bar" }, progressBar),
       progressText,
-      !dancers && st.offPlan && matchBox(sg, st));
+      !dancers && view.offPlan && matchBox(song, view));
   } else {
     now = panel("live-now",
       el("div", { class: "live-label" }, "Now"),
@@ -165,22 +166,22 @@ function render(force = true) {
   }
 
   // Next dance (not after the last song); then, for the dancers the dance after it, for the music runner the next special block
-  const next = st.next && panel("live-next",
-    el("div", { class: "live-label" }, st.index < 0 && st.lastIndex < 0 && !st.offPlan ? "First" : "Next dance"),
-    el("div", { class: "live-dance small" }, num(st.nextIndex), st.next.dance),
-    !dancers && titleOf(st.next) && el("div", { class: "live-song" }, titleOf(st.next)));
-  const then = dancers && st.following && panel("live-next",
+  const next = view.next && panel("live-next",
+    el("div", { class: "live-label" }, view.index < 0 && view.lastIndex < 0 && !view.offPlan ? "First" : "Next dance"),
+    el("div", { class: "live-dance small" }, placeNumber(view.nextIndex), view.next.dance),
+    !dancers && titleOf(view.next) && el("div", { class: "live-song" }, titleOf(view.next)));
+  const then = dancers && view.following && panel("live-next",
     el("div", { class: "live-label" }, "Following dance"),
-    el("div", { class: "live-dance small" }, num(st.nextIndex + 1), st.following.dance));
-  const block = !dancers && st.nextBlock && panel("live-next-block",
+    el("div", { class: "live-dance small" }, placeNumber(view.nextIndex + 1), view.following.dance));
+  const block = !dancers && view.nextBlock && panel("live-next-block",
     el("div", { class: "live-label" }, "Next special block"),
-    el("div", { class: "live-dance small" }, st.nextBlock.label),
-    el("div", { class: "live-song" }, inSongsText(st.nextBlock.inSongs)));
+    el("div", { class: "live-dance small" }, view.nextBlock.label),
+    el("div", { class: "live-song" }, inSongsText(view.nextBlock.inSongs)));
 
-  const upcoming = !dancers && st.upcoming.length > 0 && panel("live-upcoming",
+  const upcoming = !dancers && view.upcoming.length > 0 && panel("live-upcoming",
     el("div", { class: "live-label" }, "Coming up"),
     el("table", { class: "playlist" }, el("tbody", {},
-      st.upcoming.map(({ index, row }) => el("tr", {},
+      view.upcoming.map(({ index, row }) => el("tr", {},
         el("td", { class: "num" }, String(index + 1)),
         el("td", {}, row.dance),
         el("td", {}, titleOf(row)),
@@ -215,54 +216,54 @@ function checkNow() {
  * during the night: give its dance (title and artist come from Spotify). Both are remembered for
  * the night; an added song never changes the order.
  */
-function matchBox(sg, st) {
-  if (!sg.id) return null;
+function matchBox(song, view) {
+  if (!song.id) return null;
   const listId = "live-dance-names";
-  const names = [...new Set([...plan.songs.map((x) => x.dance), ...Object.values(plan.dances || {}).flatMap((d) => d.split(" / "))])].filter(Boolean).sort();
-  const dance = el("input", { type: "text", value: st.offPlanDance, placeholder: "Dance, e.g. Rumba", "aria-label": "Its dance", list: listId });
+  const danceNames = [...new Set([...plan.songs.map((planned) => planned.dance), ...Object.values(plan.dances || {}).flatMap((dances) => dances.split(" / "))])].filter(Boolean).sort();
+  const danceBox = el("input", { type: "text", value: view.offPlanDance, placeholder: "Dance, e.g. Rumba", "aria-label": "Its dance", list: listId });
   const add = () => {
-    const d = dance.value.trim();
-    if (!d) return dance.focus();
-    saveAdded(sg.id, d);
+    const dance = danceBox.value.trim();
+    if (!dance) return danceBox.focus();
+    saveAdded(song.id, dance);
     added = loadAdded();
     render();
   };
-  dance.addEventListener("keydown", (e) => e.key === "Enter" && add());
+  danceBox.addEventListener("keydown", (event) => event.key === "Enter" && add());
   const addBox = el("div", { class: "live-match" },
-    el("p", { class: "help" }, st.added
+    el("p", { class: "help" }, view.added
       ? "Added during the night. Change its dance if needed:"
       : "Or, if it was added during the night, give its dance (the title and artist come from Spotify). The playlist's order does not change."),
-    el("div", { class: "inline-fields" }, dance,
-      el("datalist", { id: listId }, names.map((n) => el("option", { value: n }))),
-      el("button", { type: "button", class: st.added ? "" : "primary", onclick: add }, st.added ? "Change dance" : "Add to the night")));
-  if (st.added) return addBox;
-  const match = (i) => {
-    saveMatch(sg.id, plan.songs[i].id);
+    el("div", { class: "inline-fields" }, danceBox,
+      el("datalist", { id: listId }, danceNames.map((name) => el("option", { value: name }))),
+      el("button", { type: "button", class: view.added ? "" : "primary", onclick: add }, view.added ? "Change dance" : "Add to the night")));
+  if (view.added) return addBox;
+  const match = (place) => {
+    saveMatch(song.id, plan.songs[place].id);
     matches = loadMatches();
     render();
   };
   const pick = el("select", { "aria-label": "The planned song this is" },
-    plan.songs.map((row, i) => el("option", { value: String(i), selected: i === st.nextIndex }, `${i + 1}  ${row.dance}${titleOf(row) ? ` — ${titleOf(row)}` : ""}`)));
+    plan.songs.map((row, place) => el("option", { value: String(place), selected: place === view.nextIndex }, `${place + 1}  ${row.dance}${titleOf(row) ? ` — ${titleOf(row)}` : ""}`)));
   return el("div", { class: "live-match" },
     el("p", { class: "help" }, "If this is a song from the playlist, say which, and the live view will follow it from here:"),
     el("div", { class: "inline-fields" },
-      st.next && el("button", { type: "button", class: "primary", onclick: () => match(st.nextIndex) }, `It's #${st.nextIndex + 1} ${st.next.dance} (the next song)`),
+      view.next && el("button", { type: "button", class: "primary", onclick: () => match(view.nextIndex) }, `It's #${view.nextIndex + 1} ${view.next.dance} (the next song)`),
       pick,
       el("button", { type: "button", onclick: () => match(Number(pick.value)) }, "It's this one")),
     addBox,
-    el("p", { class: "help" }, `Spotify's ID for it: ${sg.id}`));
+    el("p", { class: "help" }, `Spotify's ID for it: ${song.id}`));
 }
 
 /* ------------------------------------------------------------ start */
 
 document.body.classList.add(dancers ? "live-dancers" : "live-runner");
 document.title = dancers ? "Dancers screen" : "Live view";
-addEventListener("storage", (e) => {
-  if (e.key === LIVE_PLAN_KEY || e.key === null) plan = loadLivePlan(); // edited or regenerated in the generator
-  if (e.key === LIVE_MATCHES_KEY || e.key === null) matches = loadMatches(); // matched by hand in the other window
-  if (e.key === LIVE_ADDED_KEY || e.key === null) added = loadAdded(); // a song added in the other window
-  if (e.key === "dpg.songDetails.v1" || e.key === null) reloadDetails();
-  if (e.key === "dpg.spotify.tokens.v1" || e.key === null) syncLogin(); // logged in or out in another window
+addEventListener("storage", (event) => {
+  if (event.key === LIVE_PLAN_KEY || event.key === null) plan = loadLivePlan(); // edited or regenerated in the generator
+  if (event.key === LIVE_MATCHES_KEY || event.key === null) matches = loadMatches(); // matched by hand in the other window
+  if (event.key === LIVE_ADDED_KEY || event.key === null) added = loadAdded(); // a song added in the other window
+  if (event.key === "dpg.songDetails.v1" || event.key === null) reloadDetails();
+  if (event.key === "dpg.spotify.tokens.v1" || event.key === null) syncLogin(); // logged in or out in another window
   render();
 });
 document.addEventListener("fullscreenchange", render);

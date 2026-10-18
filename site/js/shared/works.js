@@ -10,11 +10,11 @@
  *               the artist. A song's work is its `work` override, else worked out from its title.
  */
 
-/** Lowercase, no accents, no punctuation, single spaces. */
+/** Lower case, no accents, no punctuation, single spaces ("Café & Bar!" -> "cafe and bar"). */
 export function plainText(text) {
   return String(text ?? "")
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[̀-ͯ]/g, "") // the accents, split off by NFD
     .toLowerCase()
     .replace(/&/g, " and ")
     .replace(/[^a-z0-9]+/g, " ")
@@ -32,42 +32,47 @@ export function workFromTitle(title) {
 
 /** A title without its endings, as written (capitals and accents kept): "Moon River - Live" -> "Moon River". */
 export function cleanTitle(title) {
-  const t = String(title ?? "");
-  const stripped = t
+  const fullTitle = String(title ?? "");
+  const stripped = fullTitle
     .replace(/\([^)]*\)|\[[^\]]*\]/g, " ") // anything in brackets
     .replace(/\s[-–—]\s.*$/, " ") // " - Live", " - From the film …", " - 2011 Remaster"
     .replace(/\s(feat\.?|ft\.?|featuring)\s.*$/i, " ") // "feat. Someone" without brackets
     .replace(/\s+/g, " ")
     .trim();
-  return plainText(stripped) ? stripped : t.trim();
+  // A title that is only an ending (e.g. "(Intro)") keeps its whole text.
+  return plainText(stripped) ? stripped : fullTitle.trim();
 }
 
 /** Songs of one work, oldest release first (songs without a year last). */
 export function oldestFirst(songs) {
-  const year = (s) => (/^\d{4}/.test(s.released || "") ? Number(s.released.slice(0, 4)) : Infinity);
-  return [...songs].sort((a, b) => year(a) - year(b) || String(a.title).localeCompare(String(b.title)));
+  const releaseYear = (song) => (/^\d{4}/.test(song.released || "") ? Number(song.released.slice(0, 4)) : Infinity);
+  return [...songs].sort((first, second) => releaseYear(first) - releaseYear(second) || String(first.title).localeCompare(String(second.title)));
+}
+
+/** A name given to a work by hand: a `work` override that is not just the title of one of its songs (or undefined). */
+function nameGivenByHand(songs) {
+  const titles = new Set(songs.map((song) => workFromTitle(song.title)));
+  const named = songs.find((song) => song.work && !titles.has(plainText(song.work)));
+  return named ? named.work : undefined;
 }
 
 /**
- * The name of a work (its songs given): a name it was given by hand (a `work` override that is not
- * just the title of one of its songs), else "<title> — <artist>" of its oldest version.
+ * The name of a work (its songs given): a name given by hand, else "<title> — <artist>" of its oldest
+ * version.
  */
 export function workName(songs) {
-  const titles = new Set(songs.map((s) => workFromTitle(s.title)));
-  const custom = songs.find((s) => s.work && !titles.has(plainText(s.work)));
-  if (custom) return custom.work;
+  const givenName = nameGivenByHand(songs);
+  if (givenName) return givenName;
   const oldest = oldestFirst(songs)[0];
   return oldest.artist ? `${cleanTitle(oldest.title)} — ${oldest.artist}` : cleanTitle(oldest.title);
 }
 
 /**
- * The text to store in a song's `work` to join an existing work: its hand-given name if it has one,
- * else the title (without endings) of one of its songs, so the keys match.
+ * The text to store in a song's `work` to join an existing work: its name given by hand if it has one,
+ * else the title (without endings) of its oldest song, so the keys match.
  */
 export function joinValue(songs) {
-  const titles = new Set(songs.map((s) => workFromTitle(s.title)));
-  const custom = songs.find((s) => s.work && !titles.has(plainText(s.work)));
-  return custom ? custom.work : cleanTitle(oldestFirst(songs)[0].title);
+  return nameGivenByHand(songs) ?? cleanTitle(oldestFirst(songs)[0].title);
 }
 
 /** The work a song belongs to (its override, else from its title). */
@@ -80,21 +85,21 @@ export const recordingKey = (song) => song.recording || (song.isrc ? `isrc:${Str
 export const ownRecordingKey = (song) => `id:${song.id}`;
 
 /**
- * Groups of songs that share a key (only groups of 2 or more), as a Map song id -> other songs.
- * `keyOf` is workKey or recordingKey.
+ * Groups of songs that share a key (only groups of 2 or more), as a Map song id -> the other songs of
+ * its group. `keyOf` is workKey or recordingKey.
  */
 export function sameKeyGroups(songs, keyOf) {
-  const byKey = new Map();
-  for (const s of songs) {
-    const k = keyOf(s);
-    if (!k) continue;
-    if (!byKey.has(k)) byKey.set(k, []);
-    byKey.get(k).push(s);
+  const songsOfKey = new Map();
+  for (const song of songs) {
+    const key = keyOf(song);
+    if (!key) continue;
+    if (!songsOfKey.has(key)) songsOfKey.set(key, []);
+    songsOfKey.get(key).push(song);
   }
-  const out = new Map();
-  for (const group of byKey.values()) {
+  const othersOfSong = new Map();
+  for (const group of songsOfKey.values()) {
     if (group.length < 2) continue;
-    for (const s of group) out.set(s.id, group.filter((x) => x !== s));
+    for (const song of group) othersOfSong.set(song.id, group.filter((other) => other !== song));
   }
-  return out;
+  return othersOfSong;
 }

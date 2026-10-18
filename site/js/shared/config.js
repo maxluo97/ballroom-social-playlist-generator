@@ -13,10 +13,11 @@ export const DEFAULT_CLIENT_ID = "84ccfc2c3949414ebb92a941b1f76a9d";
 /** A user's own key, if they pasted one (kept in this browser; see site/js/shared/spotify-panel.js). */
 const OWN_CLIENT_ID_KEY = "dpg.spotifyClientId.v1";
 
+/** The key the user pasted, if it looks like a Client ID (32 letters a-f and digits), else null. */
 function ownClientId() {
   try {
-    const v = typeof localStorage === "undefined" ? null : localStorage.getItem(OWN_CLIENT_ID_KEY);
-    return v && /^[0-9a-f]{32}$/i.test(v) ? v : null;
+    const stored = typeof localStorage === "undefined" ? null : localStorage.getItem(OWN_CLIENT_ID_KEY);
+    return stored && /^[0-9a-f]{32}$/i.test(stored) ? stored : null;
   } catch {
     return null;
   }
@@ -24,6 +25,7 @@ function ownClientId() {
 
 /** The key this browser logs in with: the user's own, else the site's. */
 export const spotifyClientId = () => ownClientId() || DEFAULT_CLIENT_ID;
+/** Whether this browser uses a key the user pasted (their own, or one shared with them). */
 export const usingOwnClientId = () => !!ownClientId();
 
 /** Use this key from now on (null = the site's key again). The caller logs out: a login belongs to one key. */
@@ -44,20 +46,17 @@ export function setOwnClientId(id) {
  */
 export const SPOTIFY_REDIRECT_URI = new URL("../../", import.meta.url).href;
 
-/** The online address of the app (GitHub Pages). */
-export const ONLINE_URL = "https://maxluo97.github.io/dance-social-playlist-generator/";
-
-/**
- * True when the app runs on this computer (`npm start`), false when it runs online. The library
- * builder only works on the computer: it saves into the project's data folder, and the online site
- * only sees those files once they are committed and pushed.
- */
 // Spotify only accepts the registered 127.0.0.1 address for local use (never localhost), so a page
 // opened as http://localhost:8000/… moves to the same address on 127.0.0.1 before anything else runs.
 if (typeof location !== "undefined" && location.hostname === "localhost") {
   location.replace(location.href.replace("//localhost", "//127.0.0.1"));
 }
 
+/**
+ * True when the app runs on this computer (`npm start`), false when it runs online. Only the site's
+ * owner, on their computer, can publish a library as the shared library (into the project's data
+ * folder; the online site sees it once it is committed and pushed).
+ */
 export const RUNNING_LOCALLY =
   typeof location === "undefined" || ["127.0.0.1", "localhost"].includes(location.hostname);
 

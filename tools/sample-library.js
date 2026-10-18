@@ -4,7 +4,7 @@
  * sample-library.js — a made-up song library tagged the way a competitive-ballroom
  * database might be: style-specific dance names ("Smooth Waltz", "Standard Waltz", ...).
  *
- * Used by the tests (the app itself only uses your real library, data/songs.csv).
+ * Used by the tests (the app itself uses your own library, or the shared library in site/data/).
  * Titles and IDs are fake; output is the same every run.
  */
 
@@ -34,18 +34,19 @@ const SHARED = [
  */
 export function buildSampleLibrary(perDance = 5, perShared = 3) {
   const songs = [];
-  let n = 0;
-  const lengthFor = (i) => 150 + ((i * 37) % 100); // 2:30 .. 4:09
-  const tagsFor = (i) => (i % 4 === 0 ? ["Hollywood"] : []);
+  let songNumber = 0;
+  // Lengths and tags follow from the song's number, so the library is the same every run.
+  const lengthFor = (number) => 150 + ((number * 37) % 100); // 2:30 .. 4:09
+  const tagsFor = (number) => (number % 4 === 0 ? ["Hollywood"] : []);
   const add = (title, dances) => {
-    n++;
-    songs.push({ id: `sample${n}`, title, artist: "Sample Artist", lengthSec: lengthFor(n), dances, tags: tagsFor(n) });
+    songNumber++;
+    songs.push({ id: `sample${songNumber}`, title, artist: "Sample Artist", lengthSec: lengthFor(songNumber), dances, tags: tagsFor(songNumber) });
   };
   for (const dance of Object.values(SAMPLE_DANCES).flat()) {
-    for (let k = 1; k <= perDance; k++) add(`${dance} song ${k}`, [dance]);
+    for (let iSong = 1; iSong <= perDance; iSong++) add(`${dance} song ${iSong}`, [dance]);
   }
   for (const pair of SHARED) {
-    for (let k = 1; k <= perShared; k++) add(`${pair.join(" / ")} song ${k}`, pair);
+    for (let iSong = 1; iSong <= perShared; iSong++) add(`${pair.join(" / ")} song ${iSong}`, pair);
   }
   return songs;
 }
