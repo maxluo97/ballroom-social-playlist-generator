@@ -2,6 +2,31 @@
 
 Each release lists what changed since the previous one. The log starts at v0.2.4, with a summary of what the app could do at that point; earlier versions are not covered.
 
+## v0.4 (October 2026): special blocks, the live view and the program
+
+**Special blocks**
+- **Fixed events and movable blocks are now one setting, Special blocks:** a run of songs at one point in the night, from **dances** (e.g. a line-dance break, or a single Paso Doble), from **a tag**, or **songs you choose**.
+- Every block has a name, a number of songs, a placement (at a point, at a random point, or between two points) and interruption settings.
+- **Keep apart from other special blocks:** ticked blocks never play directly next to each other (on by default for blocks of dances). **Never directly after** works on every block, with dances or other blocks.
+- Special blocks never interrupt each other; a block that comes due during another waits until it ends.
+- A block with too few songs that fit is shorter, with a warning (blocks of dances no longer play a song twice).
+- Inside a block of dances, its songs may follow each other closely; the songs around it keep the songs-between-repeats rule.
+- A block with a tag takes part in the category turns unless **Takes part in the category turns** is unticked.
+- Old settings files lose their fixed events and movable blocks; the default settings and the shared presets were converted.
+
+**Live view** (during the night)
+- **Live view** on the generator page follows what Spotify is playing (about every 5 seconds, read only; Spotify asks for permission once). It follows skipping, going back and jumping around.
+- **Music runner** screen: the song playing now (number, dance, title, artist, time), the next dance, the next special block ("in 3 songs"), and the next few songs.
+- **Dancers** screen, for a projector: the dance playing now with its title and artist, the next dance and the following dance, in large print, full screen.
+- A song not in the playlist shows as **Off the plan**: say which planned song it is ("It's #15…"), or **Add to the night** with its dance, without changing the order. **Check Spotify now** asks at once.
+- Edits made on the generator page during the night show up on the live view.
+
+**Program**
+- **Program** on the generator page: the song order with each song's dance and special blocks, to **print** or **download as a Word document** (with an empty **Song name** column to fill in by hand; song titles are not included, by Spotify's terms).
+
+**Under the hood**
+- Several windows of the app share one Spotify login safely (only one renews it at a time).
+
 ## v0.3 (October 2026): your own Spotify account, your own library
 
 **Who can use the app**

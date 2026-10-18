@@ -2,11 +2,12 @@
 
 Hand this file to Claude Code at the start of a session. It summarizes the design discussion so far.
 
-## 0. Where we left off (updated 2026-10-17)
+## 0. Where we left off (updated 2026-10-18)
 
-- **Released and tagged by the developer:** v0.1 … v0.2.5, and **v0.3** (being tagged after this commit as v0.3.0; package.json is 0.3.0; CHANGELOG.md has its entry).
-- **v0.3 (complete, tested by the developer online and in phone view):** Spotify compliance (IDs and own data only; details from the library playlist, kept 14 days; attribution; minimum permissions; backoff; security policy; localhost → 127.0.0.1; checked against the OpenAPI spec); option (a) for other users (the site's key, own keys or shared keys; not-allowed message); each account's library in the browser; library builder online; shared starting library; backups; shared presets; review table in pages. Details in section 9.
-- **Next:** **v0.4** — special blocks (movable blocks and fixed events merged): **done (tested by the developer, committed)**; then the **live view and program**: **coded and tested (`npm test` passes), waiting for the developer's manual tests**. Before pushing v0.4: README.md for special blocks, the live view and the program. Before 1.0: the onboarding guide (the developer writes it, Claude checks it), a code cleanup pass, and **defining the default settings (data/default-settings.json) and a few shared presets (presets/) together** (noted by the developer, Oct 2026; the current ones are placeholders and test presets). Backlog: MusicBrainz, remembering past nights.
+- **Released and tagged by the developer:** v0.1 … v0.3, and **v0.4** (being tagged after this commit as v0.4.0; package.json is 0.4.0; CHANGELOG.md has its entry; README.md updated for special blocks, the live view and the program).
+- **v0.4 (complete, tested by the developer, including real Spotify playback):** special blocks (movable blocks and fixed events merged); the live view (Music runner and Dancers screens; off-plan songs matched by hand or added to the night; relinked songs found by asking with market=from_token); the program (print and Word). Details in section 9.
+- **Next:** before 1.0: the onboarding guide (the developer writes it, Claude checks it), a code cleanup pass, and **defining the default settings (data/default-settings.json) and a few shared presets (presets/) together** (the current ones are placeholders and test presets). Backlog: remembering past nights.
+- **After 1.0 (developer, Oct 2026): fork off vA0.1**, a separate line (a git branch, created by the developer) for **MusicBrainz integration**, in reserve in case Spotify ever challenges the current approach (song details from the library playlist). Administration only at first: no work planned on it yet. MusicBrainz moves from the backlog to this line.
 - **Releases:** before each tag, check README.md and add a CHANGELOG.md entry (section 10).
 - **How we work on a new feature:** agree a plain-language spec with the developer first (numbered rules, questions for anything unclear), write it into this file for the developer to commit, then code it, with tests for each rule (`npm test` must pass), then list manual tests for the developer.
 - **Spotify availability check:** verified end to end by the developer (Oct 2026) after the request-limit fix, once Spotify's limit had lifted.
