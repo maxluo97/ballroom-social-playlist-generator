@@ -2,6 +2,35 @@
 
 Each release lists what changed since the previous one. The log starts at v0.2.4, with a summary of what the app could do at that point; earlier versions are not covered.
 
+## v0.3 (October 2026): your own Spotify account, your own library
+
+**Who can use the app**
+- **Everyone uses their own Spotify account.** The new **Spotify connection** panel, on both pages, explains the two ways to connect:
+  - **The site's key:** up to 5 accounts, added by the site's owner. A free Spotify account is fine.
+  - **Your own key, or one shared with you by its owner:** the key's owner needs Spotify Premium, registers a small app in Spotify's developer dashboard (step-by-step instructions in the panel), and can let up to 5 accounts use it.
+- An account that Spotify does not allow gets a clear message, saying what to do.
+- **Log out** on the generator page.
+
+**Your library**
+- **Kept in your browser, for your Spotify account:** Spotify IDs plus your own dances, tags, corrections and removed songs. Two people sharing a computer each have their own library.
+- **The library builder works online.** A new library starts from the **shared library** (songs already sorted into dances and tagged) or empty.
+- **Download a backup** (three files) and **Load library files…** move a library between browsers or computers. The app reminds you when changes are not in a backup.
+- **The library playlist:** a private playlist in your Spotify account, created on your first save (after you confirm) and kept up to date. The app reads the songs' titles, lengths and availability from it.
+- The library builder's review table is shown in pages of 200 songs, so large libraries stay quick.
+
+**Following Spotify's rules**
+- **No Spotify song details are stored for good** (Spotify's Developer Terms): they are read from your library playlist and kept in the browser for up to 14 days. **Refresh from Spotify** reads them again.
+- **Availability** comes from the same refresh, so songs that cannot play are never picked. The song-by-song check after generating is gone.
+- **"Download CSV" and "Copy song list"** were removed from the generator, since they made permanent copies of Spotify's details. **Copy Spotify links** and **Save generated playlist to Spotify** remain.
+- **Credit:** Spotify's logo credits song details, and a Spotify icon next to each song opens it on Spotify.
+- **Permissions:** each page asks Spotify only for the permissions it needs.
+- **Rate limits:** the app waits longer and longer when Spotify limits requests, and stops at once when the limit is long.
+- **Security:** a security policy on both pages allows only the site's own scripts.
+
+**Settings**
+- **Shared presets:** settings files shared on the site, offered under **Shared presets…** on the generator page.
+- **"Themed blocks" are now called movable blocks.**
+
 ## v0.2.5 (October 2026): editing and must-play
 
 **Changing a generated playlist**

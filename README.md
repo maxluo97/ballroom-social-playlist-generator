@@ -73,6 +73,7 @@ Our conception of a dance playlist is as follows:
 12. Some songs simply **must play** (requests, new favorites). **Must-play songs** are spread evenly through the night after the opening, in random order (with four of them, at about 20%, 40%, 60% and 80%). Each plays where it fits the rules (its category's turn, the shuffle-bag, the songs-between-repeats rule); if it still does not fit after a few songs, it plays anyway, with a warning. A must-play song plays only if its dance is in a category, is an excursion, or is a theme dance; it never plays elsewhere in the night, and it may break the song length limits.
 
 ```mermaid
+%%{init: {"theme": "base", "themeVariables": {"cScale0": "#d9d2e9", "cScaleLabel0": "#1f2328", "cScale1": "#cfe2f3", "cScaleLabel1": "#1f2328", "cScale2": "#fce5cd", "cScaleLabel2": "#1f2328", "cScale3": "#cfe2f3", "cScaleLabel3": "#1f2328", "cScale4": "#fce5cd", "cScaleLabel4": "#1f2328", "cScale5": "#cfe2f3", "cScaleLabel5": "#1f2328", "cScale6": "#f4cccc", "cScaleLabel6": "#1f2328", "cScale7": "#cfe2f3", "cScaleLabel7": "#1f2328", "cScale8": "#d9d2e9", "cScaleLabel8": "#1f2328"}}}%%
 timeline
   title Example: a 3-hour social with the default settings
   Start : Opening, 6 songs in category turns : Quickstep and Mambo / Salsa left out
@@ -151,6 +152,5 @@ flowchart TD
 
 ## Roadmap
 
-* **v0.3 (next release):** everyone logs in with their own Spotify account (the site's key or their own); libraries kept in the browser, with the shared library to start from; shared presets.
 * **v0.4:** a **live viewer** for the night itself (or a slide export instead); movable blocks and fixed events merged into one feature.
 * **Before 1.0:** a guide for new users; a code cleanup pass.
