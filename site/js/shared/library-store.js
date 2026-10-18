@@ -6,7 +6,7 @@
  *
  * A library is the user's own data only (Spotify IDs, dances, tags, work / recording corrections,
  * removed songs) plus the ID of their library playlist; Spotify's details are read from that playlist
- * (js/song-details.js). Keyed by the Spotify user ID, so two people sharing a computer never mix
+ * (site/js/shared/song-details.js). Keyed by the Spotify user ID, so two people sharing a computer never mix
  * libraries. Browser storage can be wiped, so the library builder offers backups as files.
  *
  * Stored as { rows: [libraryRow], removed: [{ ...libraryRow, removed }], playlistId, savedAt, downloadedAt }.

@@ -11,7 +11,7 @@
  * `dances` covers the whole library, so a song played off the plan can still show its dance.
  */
 
-import { spotifyTrackId } from "./data.js";
+import { spotifyTrackId } from "../shared/data.js";
 
 export const LIVE_PLAN_KEY = "dpg.live.v1";
 /** Songs matched to the plan by hand on the live view ("It's #15"): { playedId: plannedId }. */

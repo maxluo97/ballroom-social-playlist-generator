@@ -6,42 +6,42 @@
  * Flow: log in -> start from data/songs.csv (or another CSV, or nothing) -> set up automatic tags
  * -> choose your own single-dance playlists and confirm each one's dance(s) -> import -> review
  * (edit dances/tags) -> download the merged songs.csv and save it as data/songs.csv.
- * Imports only add to the library; see js/library-merge.js for the exact rules.
+ * Imports only add to the library; see site/js/library/library-merge.js for the exact rules.
  */
 
-import { el, fill, $, chipEditor, comboInput, sortRows, sortHeader, spotifyCredit, spotifyListenLink } from "./dom.js";
+import { el, fill, $, chipEditor, comboInput, sortRows, sortHeader, spotifyCredit, spotifyListenLink } from "../shared/dom.js";
 import {
   login, logout, isLoggedIn, hasScopes, checkAccess, handleLoginRedirect, getMyPlaylists, getPlaylistTracks,
   getTrack, searchTracks, playlistIdFrom, createPlaylist, addTracksToPlaylist, removeTracksFromPlaylist, getPlaylistTrackIds,
   getPlaylistOwnerId,
-} from "./spotify.js";
-import { loadUserLibrary, saveUserLibrary, markDownloaded, changedSinceDownload } from "./library-store.js";
+} from "../shared/spotify.js";
+import { loadUserLibrary, saveUserLibrary, markDownloaded, changedSinceDownload } from "../shared/library-store.js";
 import {
   isUnavailable, unavailableReason, isChecked, withDetails, rememberDetails, refreshDetails, detailsNeedRefresh,
   detailsAgeDays, forgetExpiredDetails, reloadDetails, clearDetails,
-} from "./song-details.js";
+} from "../shared/song-details.js";
 import { canSaveToFolder, getFolder, folderHasFile, writeTextFile, rememberedFolderName } from "./folders.js";
-import { RUNNING_LOCALLY, SPOTIFY_SCOPES } from "./config.js";
-import { spotifyConnectionPanel } from "./spotify-panel.js";
-import { spotifyTrackId, spotifyLink } from "./data.js";
+import { RUNNING_LOCALLY, SPOTIFY_SCOPES } from "../shared/config.js";
+import { spotifyConnectionPanel } from "../shared/spotify-panel.js";
+import { spotifyTrackId, spotifyLink } from "../shared/data.js";
 import {
   loadSongsFromUrl, parseSongsText, songsToCSV, parseRemovedSongs, removedSongsToCSV, parseLibraryInfo, libraryInfoText, libraryRow,
-} from "./data.js";
+} from "../shared/data.js";
 import {
   guessDanceInfo, canonicalDance, unknownDanceMessage, DANCE_ALIASES, BALLROOM_STYLES, BALLROOM_DANCE_NAMES,
   setCustomDances, customDanceNames, newDanceProblem,
-} from "./dance-names.js";
+} from "../shared/dance-names.js";
 import {
   mergeImport, markPreviouslyRemoved, keptSongs, updatedBlacklist, blacklistChanged, blacklistRows,
 } from "./library-merge.js";
-import { formatTime } from "./generator.js";
-import { workKey, workFromTitle, plainText, recordingKey, ownRecordingKey, sameKeyGroups, workName, joinValue } from "./works.js";
+import { formatTime } from "../generator/generator.js";
+import { workKey, workFromTitle, plainText, recordingKey, ownRecordingKey, sameKeyGroups, workName, joinValue } from "../shared/works.js";
 
 const PROJECT_URL = "data/songs.csv";
 /** Step 5 shows the review table in pages of this many songs. */
 const REVIEW_PAGE = 200;
 const LIBRARY_INFO_URL = "data/library.json";
-/** The library playlist in your Spotify account (holds the whole library; see js/song-details.js). */
+/** The library playlist in your Spotify account (holds the whole library; see site/js/shared/song-details.js). */
 const LIBRARY_PLAYLIST_NAME = "Dance library (managed by the playlist generator)";
 const LIBRARY_PLAYLIST_DESCRIPTION =
   "Used by the dance playlist generator to read your song library. Changes here are overwritten when the library is saved.";
@@ -78,7 +78,7 @@ const state = {
   userId: null, // the logged-in Spotify account (each account has its own library in this browser)
   reviewLimit: 200, // step 5 shows this many matching songs; "Show more" adds a page (only rows on screen are built)
   playlistMaybeForeign: false, // the library playlist came from the shared library or files: check it is yours
-  saved: null, // this account's library as last saved in this browser (see js/library-store.js)
+  saved: null, // this account's library as last saved in this browser (see site/js/shared/library-store.js)
   libraryPlaylistId: null, // from data/library.json
   details: { refreshing: null, error: null }, // reading Spotify's details of the library
   // Step 5: songs flagged as duplicates / versions when the review was built. They stay on those
@@ -276,7 +276,7 @@ function renderSpotify(message) {
 /* ------------------------------------------------------- 2. Starting library */
 
 /*
- * Each Spotify account's library lives in this browser (js/library-store.js). A new library starts
+ * Each Spotify account's library lives in this browser (site/js/shared/library-store.js). A new library starts
  * from the shared library (the site owner's data/ folder: songs with their dances and tags; the
  * owner's library playlist is only reused if it is yours) or empty; files are backups.
  */
@@ -897,7 +897,7 @@ function renderWorklist() {
 /* ----------------------------------------------- Spotify's details of the library */
 /*
  * Spotify's details (titles, lengths, whether a song can play) are read from the library playlist and
- * kept in this browser only temporarily (js/song-details.js); songs.csv holds only IDs and your data.
+ * kept in this browser only temporarily (site/js/shared/song-details.js); songs.csv holds only IDs and your data.
  */
 
 const notAvailable = (id) => isUnavailable(id);
@@ -953,11 +953,11 @@ const FILTERS = {
 };
 
 /*
- * Works and duplicates (the agreed spec, NOTES.md v0.2.4; logic in js/works.js), among the songs
+ * Works and duplicates (the agreed spec, NOTES.md v0.2.4; logic in site/js/shared/works.js), among the songs
  * that stay in the library. Recomputed on every redraw of the review table.
  *   duplicates  song id -> the other songs that are the same recording
  *   versions    song id -> the other songs of the same work
- *   works       work key -> { songs, name }   (every work, one song or more; names: see js/works.js)
+ *   works       work key -> { songs, name }   (every work, one song or more; names: see site/js/shared/works.js)
  */
 let groups = { duplicates: new Map(), versions: new Map(), works: new Map() };
 function updateGroups() {
@@ -1491,8 +1491,8 @@ function renderOutput() {
       el("button", { type: "button", onclick: downloadBackup }, "Download a backup")),
     RUNNING_LOCALLY && canSaveToFolder() && el("details", {}, el("summary", { class: "muted" }, "Publish as the shared library (site owner)"),
       el("p", { class: "help" }, "Writes your saved library into the project's data folder, as the shared library that new users can start from. " +
-        (state.dataFolderName ? `Folder: “${state.dataFolderName}”.` : "The first time, choose the “data” folder inside the project.") +
-        " Then commit and push data/."),
+        (state.dataFolderName ? `Folder: “${state.dataFolderName}”.` : "The first time, choose the “data” folder inside the project’s “site” folder.") +
+        " Then commit and push site/data/."),
       el("div", { class: "actions" },
         el("button", { type: "button", onclick: () => publish(false) }, "Publish to the data folder"),
         state.dataFolderName && el("button", { type: "button", class: "small", onclick: () => publish(true) }, "Choose a different folder…"))));

@@ -7,15 +7,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- The same security policy as the other pages: only this site's own scripts. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://api.spotify.com https://accounts.spotify.com; frame-src https://open.spotify.com; object-src 'none'; base-uri 'self'; form-action 'self'">
-  <title>Dance program</title>
+  <title>Live view</title>
   <link rel="stylesheet" href="css/style.css">
-  <script type="module" src="js/program.js"></script>
+  <script type="module" src="js/live/live-page.js"></script>
 </head>
 <body>
-  <!-- Opened from the generator page (Program). -->
-  <main id="program" class="program-page"></main>
-  <footer class="site-footer no-print">
-    <a href="https://github.com/maxluo97/dance-social-playlist-generator" target="_blank" rel="noopener">Source code</a> · <a href="https://github.com/maxluo97/dance-social-playlist-generator/blob/main/LICENSE" target="_blank" rel="noopener">AGPL 3.0</a> · © 2026 Max Luo
-  </footer>
+  <!-- Opened from the generator page (Live view). live.html?screen=dancers is the Dancers screen, for a projector. -->
+  <main id="live" class="live"></main>
 </body>
 </html>

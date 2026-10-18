@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * details-test.js — Spotify's details of the library, read from the library playlist and kept in the
- * browser only temporarily (js/song-details.js), against a fake Spotify.
+ * browser only temporarily (site/js/shared/song-details.js), against a fake Spotify.
  * Run with:   npm test
  */
 
@@ -43,8 +43,8 @@ globalThis.fetch = async (url) => {
   return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ items: page, total: items.length, next }) };
 };
 
-const details = await import("../js/song-details.js");
-const spotify = await import("../js/spotify.js");
+const details = await import("../site/js/shared/song-details.js");
+const spotify = await import("../site/js/shared/spotify.js");
 spotify.RETRY_POLICY.delaysMs = [1, 1, 1]; // the same backoff steps, without the waiting
 
 let failures = 0;
@@ -128,7 +128,7 @@ console.log("=== Spotify limiting requests");
 
 console.log("=== Whose Spotify key (the site's, or your own)");
 {
-  const config = await import("../js/config.js");
+  const config = await import("../site/js/shared/config.js");
   check(config.spotifyClientId() === config.DEFAULT_CLIENT_ID && !config.usingOwnClientId(), "by default the site's key");
   config.setOwnClientId("0123456789abcdef0123456789abcdef");
   check(config.spotifyClientId() === "0123456789abcdef0123456789abcdef" && config.usingOwnClientId(), "your own key, once pasted");
@@ -140,7 +140,7 @@ console.log("=== Whose Spotify key (the site's, or your own)");
 
 console.log("=== Each Spotify account's library, kept in this browser");
 {
-  const store = await import("../js/library-store.js");
+  const store = await import("../site/js/shared/library-store.js");
   check(store.loadUserLibrary("anna") === null, "no library yet");
   const rows = [{ id: id(1), dances: ["Waltz"], tags: ["Hollywood"], title: "must not be kept" }, { id: id(2), dances: ["Tango"], tags: [], work: "My work" }];
   const removed = new Map([[id(3), { id: id(3), dances: ["Samba"], tags: [], removed: "2026-10-17", artist: "must not be kept" }]]);

@@ -12,28 +12,28 @@ import {
   generatePlaylist, validateSettings, listDances, associationMap, withinLengthLimits, DEFAULT_SETTINGS,
   themeMinGapFor, themeMinGapApplies, BLOCK_DEFAULTS, blockLabel,
 } from "./generator.js";
-import { workKey, recordingKey, workName } from "./works.js";
+import { workKey, recordingKey, workName } from "../shared/works.js";
 import {
   THEME_TEMPLATE, clone, loadLastSettings, saveLastSettings,
   loadDefaultSettings, workingSettings, parseSettingsFile, settingsFileText,
-} from "./settings.js";
-import { spotifyLink, spotifyTrackId, parseLength } from "./data.js";
+} from "../shared/settings.js";
+import { spotifyLink, spotifyTrackId, parseLength } from "../shared/data.js";
 import {
   handleLoginRedirect, isLoggedIn, login as loginWithScopes, logout as spotifyLogout, hasScopes, checkAccess, createPlaylist, addTracksToPlaylist,
-} from "./spotify.js";
-import { spotifyConnectionPanel } from "./spotify-panel.js";
-import { loadUserLibrary, changedSinceDownload } from "./library-store.js";
-import { SPOTIFY_SCOPES } from "./config.js";
-import { livePlan, saveLivePlan } from "./live-core.js";
+} from "../shared/spotify.js";
+import { spotifyConnectionPanel } from "../shared/spotify-panel.js";
+import { loadUserLibrary, changedSinceDownload } from "../shared/library-store.js";
+import { SPOTIFY_SCOPES } from "../shared/config.js";
+import { livePlan, saveLivePlan } from "../live/live-core.js";
 
-/** Log in with this page's permissions (see SPOTIFY_SCOPES in js/config.js). */
+/** Log in with this page's permissions (see SPOTIFY_SCOPES in site/js/shared/config.js). */
 const spotifyLogin = () => loginWithScopes(SPOTIFY_SCOPES.generator);
-import { el, fill, $, comboInput, sortRows, sortHeader, chipEditor as sharedChipEditor, spotifyCredit, spotifyListenLink } from "./dom.js";
+import { el, fill, $, comboInput, sortRows, sortHeader, chipEditor as sharedChipEditor, spotifyCredit, spotifyListenLink } from "../shared/dom.js";
 import {
   isUnavailable, unavailableReason, withDetails, refreshDetails, detailsNeedRefresh, detailsAgeDays, forgetExpiredDetails,
   clearDetails,
-} from "./song-details.js";
-import { DANCE_ALIASES, BALLROOM_DANCE_NAMES, canonicalDance, unknownDanceMessage } from "./dance-names.js";
+} from "../shared/song-details.js";
+import { DANCE_ALIASES, BALLROOM_DANCE_NAMES, canonicalDance, unknownDanceMessage } from "../shared/dance-names.js";
 import {
   activeItems, activeResult, hasEdits, prepareGenerated,
   swapSong, resetSwap, insertSong, removeItem, restoreItem, resetAll,
@@ -232,7 +232,7 @@ function percentSlider(get, set) {
   return el("span", { class: "inline-fields" }, range, num, "%");
 }
 
-/** Chip editor (see js/dom.js) whose changes count as settings edits. */
+/** Chip editor (see site/js/shared/dom.js) whose changes count as settings edits. */
 const chipEditor = (list, source, options = {}) => sharedChipEditor(list, source, { ...options, onChange: () => changed() });
 
 /*
@@ -985,10 +985,10 @@ function renderSettingsBar() {
 /* ----------------------------------------------------------------- library */
 
 /*
- * Each Spotify account's library lives in this browser (js/library-store.js), made and saved with the
+ * Each Spotify account's library lives in this browser (site/js/shared/library-store.js), made and saved with the
  * library builder: Spotify IDs and your own data. Spotify's details (titles, lengths, whether a song
  * can play) are read from your library playlist and kept in this browser only temporarily
- * (js/song-details.js). So the generator needs a Spotify login.
+ * (site/js/shared/song-details.js). So the generator needs a Spotify login.
  */
 
 /** Rebuild the songs the generator uses from the library rows and the details now known. */
@@ -1232,8 +1232,8 @@ function openLibraryView() {
 /* ----------------------------------------------------------------- results */
 
 /*
- * The playlist can be edited by hand; the logic lives in js/playlist-edit.js. This file shows the
- * results and calls it. Whether songs can play comes from the library refresh (js/song-details.js):
+ * The playlist can be edited by hand; the logic lives in site/js/generator/playlist-edit.js. This file shows the
+ * results and calls it. Whether songs can play comes from the library refresh (site/js/shared/song-details.js):
  * songs that cannot play are never picked, so there is no check after generating.
  */
 
@@ -1459,7 +1459,7 @@ function renderResults() {
 
 /* ------------------------------------------------- edit the playlist by hand */
 
-// The editing itself is in js/playlist-edit.js; these apply it to the current playlist and redraw.
+// The editing itself is in site/js/generator/playlist-edit.js; these apply it to the current playlist and redraw.
 const edited = () => renderResults();
 const doSwap = (item, song, dance) => {
   swapSong(state.result, item, song, dance, state.settings);

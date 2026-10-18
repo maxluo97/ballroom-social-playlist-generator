@@ -1,13 +1,13 @@
 // SPDX-FileCopyrightText: 2026 Max Luo
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * playlist-test.js — editing a generated playlist by hand (js/playlist-edit.js): swaps, moves, undo,
+ * playlist-test.js — editing a generated playlist by hand (site/js/generator/playlist-edit.js): swaps, moves, undo,
  * blocks, locks and regenerating.
  * Run with:   npm test
  */
 
-const { generatePlaylist, checkRules } = await import("../js/generator.js");
-const edit = await import("../js/playlist-edit.js");
+const { generatePlaylist, checkRules } = await import("../site/js/generator/generator.js");
+const edit = await import("../site/js/generator/playlist-edit.js");
 const { buildSampleLibrary } = await import("../tools/sample-library.js");
 const { APP_DEFAULTS } = await import("./defaults.js");
 

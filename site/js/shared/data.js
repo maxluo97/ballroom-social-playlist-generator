@@ -5,7 +5,7 @@
  *
  * The library files hold only Spotify IDs and the user's own data: Spotify's Developer Terms do not
  * allow storing Spotify Content (titles, artists, lengths, …) indefinitely. Spotify's details are
- * read from the library playlist and kept in the browser only temporarily (js/song-details.js);
+ * read from the library playlist and kept in the browser only temporarily (site/js/shared/song-details.js);
  * withDetails() there turns these rows into full songs for the generator.
  *
  * data/songs.csv (first row = headers, case-insensitive, extra columns ignored):
@@ -14,7 +14,7 @@
  *             (ballroom names are standardized on load: "American Rumba" -> "Rhythm Rumba", see dance-names.js)
  *   tags      optional, same separators                      e.g. "Hollywood; tempo change"
  *   work      optional: which song this is a version of, overriding the one worked out from the title
- *   recording optional: overrides the ISRC for spotting duplicates (see js/works.js)
+ *   recording optional: overrides the ISRC for spotting duplicates (see site/js/shared/works.js)
  * data/removed-songs.csv: the same, plus "removed" (the date). data/library.json: the library
  * playlist's ID ({ "playlistId": "…" }).
  */

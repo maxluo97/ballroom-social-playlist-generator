@@ -10,7 +10,7 @@
  * column instead, for the organizer to fill in by hand.
  */
 
-import { el, fill, $ } from "./dom.js";
+import { el, fill, $ } from "../shared/dom.js";
 import { LIVE_PLAN_KEY, loadLivePlan, programRows } from "./live-core.js";
 import { tableDocx, DOCX_TYPE } from "./docx.js";
 

@@ -31,9 +31,9 @@ globalThis.fetch = async (url, init = {}) => {
   return { ok: false, status: 404, headers: { get: () => null }, json: async () => ({ error: { message: "not faked" } }) };
 };
 
-const live = await import("../js/live-core.js");
-const docx = await import("../js/docx.js");
-const spotify = await import("../js/spotify.js");
+const live = await import("../site/js/live/live-core.js");
+const docx = await import("../site/js/live/docx.js");
+const spotify = await import("../site/js/shared/spotify.js");
 
 let failures = 0;
 const check = (cond, msg) => {

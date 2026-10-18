@@ -399,7 +399,7 @@ export async function getPlaylistTracks(playlistId, onPage) {
 
 /**
  * The library playlist's songs, with Spotify's details and whether each can play in the user's
- * country (`GET /playlists/{id}/items?market=from_token`, 50 per request; see js/song-details.js).
+ * country (`GET /playlists/{id}/items?market=from_token`, 50 per request; see site/js/shared/song-details.js).
  * With a market, Spotify may "relink" a song to another version (the library keeps the original ID,
  * and Spotify plays the other version itself). The original ID comes from `linked_from`, which the
  * OpenAPI spec marks deprecated; so if `libraryIds` is given and a song comes back under an ID the

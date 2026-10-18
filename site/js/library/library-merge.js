@@ -15,8 +15,8 @@
  *     highlight them for checking.
  */
 
-import { libraryRow } from "./data.js";
-import { canonicalDance } from "./dance-names.js";
+import { libraryRow } from "../shared/data.js";
+import { canonicalDance } from "../shared/dance-names.js";
 
 const lower = (s) => String(s ?? "").toLowerCase();
 
@@ -64,7 +64,7 @@ export function blacklistRows(rows, blacklist) {
   for (const e of blacklist.values()) {
     if (present.has(e.id)) continue;
     extra.push({
-      song: libraryRow(e), // Spotify's details are added for display (js/song-details.js)
+      song: libraryRow(e), // Spotify's details are added for display (site/js/shared/song-details.js)
       status: "blacklisted",
       added: { dances: [], tags: [] },
       guessed: { dances: [], tags: [] },

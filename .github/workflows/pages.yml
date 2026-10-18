@@ -1,0 +1,51 @@
+# SPDX-FileCopyrightText: 2026 Max Luo
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Publishes the website (the site/ folder) to GitHub Pages whenever main changes.
+# GitHub runs these steps on its own computers: get the project, run the tests (a failing test stops
+# the publish, so a broken version never goes online), then publish site/ as the website.
+# Needs, once: repository Settings -> Pages -> Source: "GitHub Actions".
+# It can also be run by hand: the Actions tab -> "Publish the site" -> Run workflow.
+
+name: Publish the site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Only what publishing needs: read the project, write the Pages site.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One publish at a time; a newer push waits for the one running.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Get the project
+        uses: actions/checkout@v4
+      - name: Set up Node.js (for the tests)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Run the tests
+        run: npm test
+      - name: Prepare GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Package the website folder
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - name: Publish it
+        id: deployment
+        uses: actions/deploy-pages@v4

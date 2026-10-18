@@ -6,16 +6,16 @@
  *
  * Two layouts of the same page: the Music runner's (live.html) and the Dancers' (live.html?screen=dancers,
  * full screen on a projector). The playlist comes from the generator page (the live plan, see
- * js/live-core.js), so edits made there show up here. About every 5 seconds the page asks Spotify what
+ * site/js/live/live-core.js), so edits made there show up here. About every 5 seconds the page asks Spotify what
  * is playing; between answers it counts the seconds itself. The windows share each answer, so two open
  * screens do not ask twice as often.
  */
 
-import { isLoggedIn, hasScopes, login, getCurrentlyPlaying, syncLogin } from "./spotify.js";
-import { SPOTIFY_SCOPES } from "./config.js";
-import { el, fill, $, spotifyCredit, spotifyListenLink } from "./dom.js";
-import { detailsOf, reloadDetails } from "./song-details.js";
-import { spotifyLink } from "./data.js";
+import { isLoggedIn, hasScopes, login, getCurrentlyPlaying, syncLogin } from "../shared/spotify.js";
+import { SPOTIFY_SCOPES } from "../shared/config.js";
+import { el, fill, $, spotifyCredit, spotifyListenLink } from "../shared/dom.js";
+import { detailsOf, reloadDetails } from "../shared/song-details.js";
+import { spotifyLink } from "../shared/data.js";
 import {
   LIVE_PLAN_KEY, LIVE_MATCHES_KEY, LIVE_ADDED_KEY, loadLivePlan, loadMatches, saveMatch, loadAdded, saveAdded,
   liveState, progressNow, clock, inSongsText,

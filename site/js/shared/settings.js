@@ -3,7 +3,7 @@
 /**
  * settings.js — default settings, settings files, and remembering the last-used settings.
  *
- * The settings object is exactly what generatePlaylist() takes (see js/generator.js).
+ * The settings object is exactly what generatePlaylist() takes (see site/js/generator/generator.js).
  *
  * The DEFAULT settings live in data/default-settings.json, in the same format as a user
  * settings file (see settingsFileText). To change the defaults: set things up on the page,

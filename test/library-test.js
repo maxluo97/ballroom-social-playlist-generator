@@ -5,13 +5,13 @@
  * Run with:   npm test   (runs this after test/test.js)
  */
 
-import { guessDanceInfo, canonicalDance, setCustomDances, newDanceProblem } from "../js/dance-names.js";
-import { mergeImport, markPreviouslyRemoved, keptSongs, updatedBlacklist, blacklistChanged, blacklistRows } from "../js/library-merge.js";
-import { songsToCSV, parseSongsText, parseRemovedSongs, removedSongsToCSV } from "../js/data.js";
+import { guessDanceInfo, canonicalDance, setCustomDances, newDanceProblem } from "../site/js/shared/dance-names.js";
+import { mergeImport, markPreviouslyRemoved, keptSongs, updatedBlacklist, blacklistChanged, blacklistRows } from "../site/js/library/library-merge.js";
+import { songsToCSV, parseSongsText, parseRemovedSongs, removedSongsToCSV } from "../site/js/shared/data.js";
 import { buildSampleLibrary } from "../tools/sample-library.js";
-import { playlistIdFrom } from "../js/spotify.js";
-import { sortRows } from "../js/dom.js";
-import { workFromTitle, workKey, recordingKey, ownRecordingKey, sameKeyGroups, workName, joinValue } from "../js/works.js";
+import { playlistIdFrom } from "../site/js/shared/spotify.js";
+import { sortRows } from "../site/js/shared/dom.js";
+import { workFromTitle, workKey, recordingKey, ownRecordingKey, sameKeyGroups, workName, joinValue } from "../site/js/shared/works.js";
 
 let failures = 0;
 const check = (cond, msg) => {
@@ -227,7 +227,7 @@ check(!text.includes("Tricky") && !text.includes("Album, with comma") && !text.i
   "songs.csv holds no Spotify details (title, album, ISRC)");
 check(parseSongsText("id,dances\nnot-an-id,Waltz\n").problems.length === 1, "a row without a Spotify track ID is reported");
 
-console.log("=== Works and duplicates (js/works.js)");
+console.log("=== Works and duplicates (site/js/shared/works.js)");
 {
   // Titles that are the same work, and titles that are not.
   const sameWork = [

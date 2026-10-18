@@ -12,7 +12,7 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const ROOT = resolve(fileURLToPath(new URL("../site", import.meta.url))); // the website folder
 const PORT = Number(process.env.PORT) || 8000;
 const TYPES = {
   ".html": "text/html; charset=utf-8",

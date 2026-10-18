@@ -5,8 +5,8 @@
  * The page loads the same file, so the tests check exactly what users get by default.
  */
 import { readFileSync } from "node:fs";
-import { parseSettingsFile } from "../js/settings.js";
+import { parseSettingsFile } from "../site/js/shared/settings.js";
 
 export const APP_DEFAULTS = parseSettingsFile(
-  readFileSync(new URL("../data/default-settings.json", import.meta.url), "utf8")
+  readFileSync(new URL("../site/data/default-settings.json", import.meta.url), "utf8")
 ).settings;

@@ -162,8 +162,8 @@ flowchart TD
 © 2026 Max Luo.
 
 * **The app's code** is free software, licensed under the **GNU Affero General Public License, version 3 or later** (AGPL 3.0; see [LICENSE](LICENSE)). You may use, change and share it; if you share a changed version, or run one as a website, you must make its source code available under the same license.
-* **The shared library and the presets** ([data/](data/), [presets/](presets/)) are licensed under **Creative Commons Attribution 4.0** (CC BY 4.0): you may reuse them with credit.
-* **Spotify's logos** ([images/spotify/](images/spotify/)) belong to Spotify and are used under Spotify's design guidelines; they are not covered by these licenses.
+* **The shared library and the presets** ([site/data/](site/data/), [site/presets/](site/presets/)) are licensed under **Creative Commons Attribution 4.0** (CC BY 4.0): you may reuse them with credit.
+* **Spotify's logos** ([site/images/spotify/](site/images/spotify/)) belong to Spotify and are used under Spotify's design guidelines; they are not covered by these licenses.
 * The app comes with no warranty (see the license).
 
 ---

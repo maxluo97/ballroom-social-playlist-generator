@@ -10,7 +10,7 @@
 /** The site's own Spotify app key (the owner's; Spotify allows it for at most 5 listed accounts). */
 export const DEFAULT_CLIENT_ID = "84ccfc2c3949414ebb92a941b1f76a9d";
 
-/** A user's own key, if they pasted one (kept in this browser; see js/spotify-panel.js). */
+/** A user's own key, if they pasted one (kept in this browser; see site/js/shared/spotify-panel.js). */
 const OWN_CLIENT_ID_KEY = "dpg.spotifyClientId.v1";
 
 function ownClientId() {
@@ -42,7 +42,7 @@ export function setOwnClientId(id) {
  * https://maxluo97.github.io/dance-social-playlist-generator/ .
  * Each of these must be registered exactly in the Spotify dashboard (Settings -> Redirect URIs).
  */
-export const SPOTIFY_REDIRECT_URI = new URL("../", import.meta.url).href;
+export const SPOTIFY_REDIRECT_URI = new URL("../../", import.meta.url).href;
 
 /** The online address of the app (GitHub Pages). */
 export const ONLINE_URL = "https://maxluo97.github.io/dance-social-playlist-generator/";

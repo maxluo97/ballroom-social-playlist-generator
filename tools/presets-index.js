@@ -11,7 +11,7 @@
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseSettingsFile } from "../js/settings.js";
+import { parseSettingsFile } from "../site/js/shared/settings.js";
 
 /** The shared presets in a folder: [{ file, name }], sorted by name; files that are not settings files are reported. */
 export function presetsIndex(folder) {
@@ -32,7 +32,7 @@ export function presetsIndex(folder) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const dir = fileURLToPath(new URL("../presets/", import.meta.url));
+  const dir = fileURLToPath(new URL("../site/presets/", import.meta.url));
   const { presets, skipped } = presetsIndex(dir);
   writeFileSync(join(dir, "index.json"), JSON.stringify({ presets }, null, 2) + "\n");
   console.log(`presets/index.json: ${presets.length} shared preset(s)${presets.length ? `: ${presets.map((p) => p.name).join(", ")}` : ""}.`);

@@ -15,11 +15,11 @@
  * Everything else (rules relaxed WITH a warning) is reported as information.
  */
 
-import { generatePlaylist, checkRules, validateSettings, listDances, formatTime, withinLengthLimits, themeMinGapFor, themeMinGapApplies } from "../js/generator.js";
+import { generatePlaylist, checkRules, validateSettings, listDances, formatTime, withinLengthLimits, themeMinGapFor, themeMinGapApplies } from "../site/js/generator/generator.js";
 import { buildSongs, SCENARIOS } from "./sample-data.js";
 import { buildSampleLibrary } from "../tools/sample-library.js";
 import { APP_DEFAULTS } from "./defaults.js";
-import { parseSettingsFile, settingsFileText } from "../js/settings.js";
+import { parseSettingsFile, settingsFileText } from "../site/js/shared/settings.js";
 
 const SEEDS = Number(process.argv[2]) || 500;
 const SHOW_EXAMPLES = 3;

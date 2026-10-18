@@ -70,7 +70,7 @@
  *      (target - shortest song, target + longest song - shortest song].
  *   9. Opening: the first `earlyCount` songs avoid the blacklist.
  *  9b. Duplicates (same recording under another Spotify ID) never play in one night; with
- *      noRepeatWorks, neither do two versions of the same work (relaxed as a last resort). See js/works.js.
+ *      noRepeatWorks, neither do two versions of the same work (relaxed as a last resort). See site/js/shared/works.js.
  *  10. Special blocks (the agreed spec, NOTES.md v0.4): a run of songs at a fixed point, a random point
  *      or in a window (never inside the opening), from dances (the old fixed events; kind 'event':
  *      outside the turns, never theme songs, not in the theme share, spacing ignored among themselves),
@@ -84,8 +84,8 @@
  * (see LEVELS) and a warning is recorded, instead of failing.
  */
 
-import { DANCE_ALIASES, BALLROOM_DANCE_NAMES } from "./dance-names.js";
-import { workKey, recordingKey } from "./works.js";
+import { DANCE_ALIASES, BALLROOM_DANCE_NAMES } from "../shared/dance-names.js";
+import { workKey, recordingKey } from "../shared/works.js";
 
 /** Dance names the app knows (plain and ballroom-styled), for spotting typos. */
 const KNOWN_DANCE_NAMES = new Set([...Object.keys(DANCE_ALIASES), ...BALLROOM_DANCE_NAMES]);
@@ -550,7 +550,7 @@ export function validateSettings(rawSongs, userSettings) {
  * @param options      { songFilter(song, {dance, elapsed, index}) => boolean }  optional hook for
  *                     extra tag-based rules (e.g. "no tempo-change songs in the opening");
  *                     { locked: { keep: [{ position, row }], skipBlocks: [block ids] } }
- *                     regenerates around locked rows (see lockedForRegeneration in js/playlist-edit.js)
+ *                     regenerates around locked rows (see lockedForRegeneration in site/js/generator/playlist-edit.js)
  * @returns { playlist, totalSec, targetSec, overtimeSec, seed, warnings, stats }
  */
 export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
