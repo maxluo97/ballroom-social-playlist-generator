@@ -41,7 +41,15 @@ Our conception of a dance playlist is as follows:
 1. All dances in question are condensed wherever stylistic similarities are possible, using **associations**: e.g., Standard Waltz and Smooth Waltz are simply "Waltz". In competitive ballroom there are 19 dances in four styles: American Rhythm (Cha-cha, Rumba, Swing, Bolero, Mambo), American Smooth (Waltz, Tango, Foxtrot, Viennese Waltz), International Standard (Waltz, Tango, Viennese Waltz, Foxtrot, Quickstep), and International Latin (Cha-cha, Samba, Rumba, Paso Doble, Jive). Dances that share a name are associated by default, with two exceptions: American and International Rumba are *not* associated, while American Bolero and International Rumba *are* associated. Similarly, Swing / Jive and Salsa / Mambo may have similar enough music to be considered the same. All dances are then organized into the minimum number of categories required to maintain distinct identities. For example, the four styles in competitive ballroom condense to two categories: Smooth / Standard and Rhythm / Latin. For categories with highly unique dances (e.g. Paso Doble), the user has the option of excluding these dances from the overall pool, to be handled separately (e.g. as a fixed event).
 2. Apart from the dances within the primary categories, there is also a small percentage of excursion dances (e.g. West Coast Swing, Hustle, Bachata, etc. are NOT normally danced in competitive ballroom). These occur on a timer: **Every** *x* minutes (by default 25), with an optional **Random variation** of ± a few minutes, so that they do not come like clockwork. These dances work on a sort of reducing-pool die. The user is responsible for weighting each dance (its **Max count**) to their desired odds. Every time one of these excursions is rolled, the app will roll for a dance based on these weights. Once a dance is selected, a single occurrence of that dance is subtracted from the pool. For example, consider Polka, Hustle, and Bachata as three excursion dances, weighted at 1, 1, and 3, respectively. If the first excursion is a Bachata, then the odds become 1, 1, and 2, respectively; if the second excursion is another Bachata, then the odds become 1, 1, and 1, respectively; if the third excursion is yet another Bachata, then the odds become 1, 1, and 0, respectively, and no more Bachatas will play until the other two counters reach 0. If the counters reach 0, 0, and 0, then they reset to their initial values of 1, 1, and 3.
 
-    > **[DIAGRAM PLACEHOLDER (optional): the excursion die]** A step-by-step picture of the example above: the pool's counters for Polka, Hustle and Bachata going 1, 1, 3 → 1, 1, 2 → 1, 1, 1 → 1, 1, 0 as Bachatas are drawn, then down to 0, 0, 0, and back to 1, 1, 3.
+    ```mermaid
+    flowchart LR
+      S["Start<br/>Polka 1 · Hustle 1 · Bachata 3"] -- "Hustle" --> A["1 · 0 · 3"]
+      A -- "Bachata" --> B["1 · 0 · 2"]
+      B -- "Polka" --> C["0 · 0 · 2"]
+      C -- "Bachata" --> D["0 · 0 · 1"]
+      D -- "Bachata" --> E["0 · 0 · 0"]
+      E -- "reset" --> S
+    ```
 
 3. There is the option to include line dancing. These may be handled like excursions, wherein they will appear occasionally throughout the night; or like fixed events, wherein they will appear as a single run at a single fixed time (e.g. three line dances halfway through the night). A fixed event may list several dances; each of its songs is then one of them.
 4. If there are multiple fixed events (e.g. a line dancing break and a single instance of the Paso Doble), they will not appear consecutively.
@@ -64,7 +72,19 @@ Our conception of a dance playlist is as follows:
 11. The same song should not play twice in a night in another form. **Duplicates** never play in the same night; they are recognized by the recording code that Spotify gives every song (its ISRC). **Versions** of the same song (recognized by title, whoever the artist) do not either, unless **No two versions of the same song in one night** (under Repetition) is switched off; if it cannot be met, it is relaxed as a last resort, with a warning. Titles can mislead (two different songs called "Hello"), so the library builder shows both, with filters, and lets you correct them: a **Work** box per song (pick a work by name to join it, or **Rename work…**), and **Not a duplicate** / **Same recording as…** buttons. A work is named after its oldest version: title and artist.
 12. Some songs simply **must play** (requests, new favorites). **Must-play songs** are spread evenly through the night after the opening, in random order (with four of them, at about 20%, 40%, 60% and 80%). Each plays where it fits the rules (its category's turn, the shuffle-bag, the songs-between-repeats rule); if it still does not fit after a few songs, it plays anyway, with a warning. A must-play song plays only if its dance is in a category, is an excursion, or is a theme dance; it never plays elsewhere in the night, and it may break the song length limits.
 
-> **[DIAGRAM PLACEHOLDER: a night at a glance]** A timeline of one example night, tying the rules together: the opening (with its openers on a themed night), category turns of 1–3 songs, excursions on their timer, a fixed event (the line-dance break at 50%), a movable block, must-play songs at about 20%, 40%, 60% and 80%, and the last dance of the night.
+```mermaid
+timeline
+  title Example: a 3-hour social with the default settings
+  Start : Opening, 6 songs in category turns : Quickstep and Mambo / Salsa left out
+  Turns : Smooth / Standard, 3 songs : Rhythm / Latin, 3 songs
+  25 min : Excursion
+  Turns : Smooth / Standard, 1 song : Rhythm / Latin, 1 song : Smooth / Standard, 2 songs : Rhythm / Latin, 2 songs
+  50 min : Excursion
+  Turns : Category turns continue
+  90 min : Fixed event, the line-dance break (3 songs, at 50%)
+  Turns : Category turns continue, with an excursion about every 25 minutes
+  End : Last dance of the night
+```
 
 ---
 
@@ -78,11 +98,39 @@ The app is online at **https://maxluo97.github.io/ballroom-social-playlist-gener
 
 **Your library consists of two pieces**: 1) information supplied by Spotify (title, artist, etc.), and 2) information not supplied by Spotify (dance information, "works", tags, etc.) The two pieces are separated to align with Spotify's Terms of Use, and are handled by having both an "offline" database, and a master song playlist on Spotify. Spotify's terms do not allow keeping its song details permanently, so the titles, artists, lengths and whether each song can play are read from your library playlist and kept in your browser for up to 14 days. Browser storage can be easily lost (e.g. by clearing a browser's data, or by using another browser or computer), so download a backup now and then; the app reminds you when your library has changes that are not in a backup.
 
-> **[DIAGRAM PLACEHOLDER: how the pieces fit together]** Your library in your browser (Spotify IDs, dances, tags, corrections), your library playlist on Spotify (kept up to date by the library builder), the generator (which reads your library, and the songs' titles, lengths and availability from the library playlist), and the playlist you save to your Spotify account. Arrows show what goes where, and that a backup is three files on your computer.
+```mermaid
+flowchart LR
+  subgraph device["Your browser"]
+    LB["Library builder"]
+    LIB[("Your library<br/>Spotify IDs, dances,<br/>tags, corrections")]
+    GEN["Generator"]
+  end
+  subgraph spotify["Your Spotify account"]
+    LP[("Library playlist<br/>(private)")]
+    PL["The night's playlist"]
+  end
+  subgraph computer["Your local computer"]
+    BK[["Backup<br/>(3 files)"]]
+  end
+  LB -- "Save" --> LIB
+  LB -- "keeps it up to date" --> LP
+  LIB --> GEN
+  LP -- "titles, lengths,<br/>can it play?" --> GEN
+  GEN -- "Save to Spotify" --> PL
+  LIB <-->|"Download a backup /<br/>Load library files"| BK
+```
 
 To prepare your music for creating a library, it is highly encouraged for that music to be separated into individual playlists, where each playlist's title has the name of a dance. The library builder searches for dance names that match its own internal database; please also make sure that the playlist titles are spelled correctly. You do not need to worry about having the same songs in multiple playlists; the library builder handles duplicates automatically.
 
-> **[DIAGRAM PLACEHOLDER: the workflow]** The steps below as a flowchart: log in → set up your library (library builder: start, import, review, save) → set up the night (generator settings) → generate → change it by hand (swap, move, lock and regenerate) → save to Spotify or copy the links; with a loop back from "change it by hand" to "generate".
+```mermaid
+flowchart TD
+  A["Log in to Spotify"] --> B["Set up your library<br/>(library builder: start, import, review, save)"]
+  B --> C["Set up the night<br/>(generator settings)"]
+  C --> D["Generate"]
+  D --> E["Change it by hand<br/>(swap, insert, remove, move, lock)"]
+  E -- "Regenerate unlocked songs" --> D
+  E --> F["Save generated playlist to Spotify<br/>or Copy Spotify links"]
+```
 
 1. **Log in to Spotify.**
 2. **Set up your library** in the **library builder** (from the generator page):
