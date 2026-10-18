@@ -36,6 +36,8 @@ import { formatTime } from "./generator.js";
 import { workKey, workFromTitle, plainText, recordingKey, ownRecordingKey, sameKeyGroups, workName, joinValue } from "./works.js";
 
 const PROJECT_URL = "data/songs.csv";
+/** Step 5 shows the review table in pages of this many songs. */
+const REVIEW_PAGE = 200;
 const LIBRARY_INFO_URL = "data/library.json";
 /** The library playlist in your Spotify account (holds the whole library; see js/song-details.js). */
 const LIBRARY_PLAYLIST_NAME = "Dance library (managed by the playlist generator)";
@@ -72,6 +74,7 @@ const state = {
   reviewSort: { key: null, dir: 1 }, // step 5 table: column heading clicked, and direction
   pickingRecording: null, // step 5: the song whose "Same recording as…" picker is open
   userId: null, // the logged-in Spotify account (each account has its own library in this browser)
+  reviewLimit: 200, // step 5 shows this many matching songs; "Show more" adds a page (only rows on screen are built)
   playlistMaybeForeign: false, // the library playlist came from the shared library or files: check it is yours
   saved: null, // this account's library as last saved in this browser (see js/library-store.js)
   libraryPlaylistId: null, // from data/library.json
@@ -1005,13 +1008,20 @@ function renderReview() {
     const matching = rows.filter((r) => shownIn(state.filter, r) && `${r.song.title} ${r.song.artist}`.toLowerCase().includes(q));
     const shown = state.reviewSort && state.reviewSort.key ? sortRows(matching, state.reviewSort, REVIEW_COLUMNS)
       : grouping ? sortRows(matching, grouping, { group: groupKey }) : matching;
-    fill(tbody, shown.slice(0, 1000).map(reviewRow),
-      shown.length > 1000 && el("tr", {}, el("td", { colspan: 10, class: "muted" }, `…and ${shown.length - 1000} more (use the filter or search).`)));
+    // Only the rows on screen are built (every change redraws them), so long libraries stay quick.
+    const more = shown.length - state.reviewLimit;
+    fill(tbody, shown.slice(0, state.reviewLimit).map(reviewRow),
+      more > 0 && el("tr", {}, el("td", { colspan: 10, class: "muted" },
+        `Showing ${state.reviewLimit} of ${shown.length} songs. `,
+        el("button", { type: "button", class: "small", onclick: () => { state.reviewLimit += REVIEW_PAGE; drawRows(); } }, `Show ${Math.min(REVIEW_PAGE, more)} more`),
+        " ",
+        el("button", { type: "button", class: "small", onclick: () => { state.reviewLimit = shown.length; drawRows(); } }, "Show all"),
+        " (or narrow it down with a filter or the search)")));
   };
-  search.addEventListener("input", () => { state.search = search.value; drawRows(); });
+  search.addEventListener("input", () => { state.search = search.value; state.reviewLimit = REVIEW_PAGE; drawRows(); });
 
   const filterButtons = Object.entries(FILTERS).map(([key, [label]]) =>
-    el("button", { type: "button", class: key === state.filter ? "small primary" : "small", onclick: () => { state.filter = key; renderReview(); } },
+    el("button", { type: "button", class: key === state.filter ? "small primary" : "small", onclick: () => { state.filter = key; state.reviewLimit = REVIEW_PAGE; renderReview(); } },
       `${label} (${rows.filter((r) => shownIn(key, r)).length})`));
   drawRows();
 

@@ -335,7 +335,7 @@ Also in v0.2 (done): every "add a dance" box accepts only known dances (library 
 - Folded into v0.3 (developer, Oct 2026), since they matter most once other people use the app:
   - **Check v0.2.4 online and at phone width** (everything since v0.2.3 was tested locally). For phone layout, use the browser's device mode (F12, then Ctrl+Shift+M in Chrome/Edge/Firefox) instead of a real phone; a real phone only once per release for the Spotify login and save.
   - **Load the `presets/` settings files on the online site**, so a phone can load a prepared night.
-  - **Speed of the library builder** with a full library: it redraws the whole review table after every change (now also works, duplicates and the preview); check with the developer's ~830 songs, and with bigger libraries in mind.
+  - ~~**Speed of the library builder**~~ (done Oct 2026: step 5 shows the review table in pages of 200 (`REVIEW_PAGE`, "Show 200 more" / "Show all"); search, filters and sorting still cover the whole library, and only the rows on screen are built, so every redraw stays the same size however long the library) — was: with a full library: it redraws the whole review table after every change (now also works, duplicates and the preview); check with the developer's ~830 songs, and with bigger libraries in mind.
   - The library builder online (other users have no data folder) — was already planned for v0.3.
 - **A shareable settings link** (settings encoded in a URL; approved Oct 2026, placed in v0.3 because it is about sharing setups between organisers and depends on v0.3's decisions, e.g. a link naming songs the other person's library does not have).
 
