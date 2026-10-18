@@ -10,17 +10,17 @@
  *   genIndex             its position when generated (the generator's warnings refer to these)
  *   locked               kept by "Regenerate unlocked songs" (see lockedForRegeneration)
  *   group                the block or multi-song fixed event the row belongs to (see groups below)
- *   disbanded            it was in a block that was broken up: labelled by category / Excursion / dance
+ *   disbanded            it was in a block that was broken up: labeled by category / Excursion / dance
  * Times, numbering, stats, the rule check and every output use only the rows that are not removed.
  * Rule breaks are reported only if an edit caused them (`baselineViolations` / `editViolations`).
  *
  * Every edit can be undone (`undo`): before each edit the rows are copied onto `r.history`; undoing
  * them all gives the generated playlist back, which is what `resetAll` does in one step.
  *
- * Groups (the agreed spec, NOTES.md v0.2.5): themed blocks and fixed events with several songs. A group
+ * Groups (the agreed spec, NOTES.md v0.2.5): movable blocks and fixed events with several songs. A group
  * is intact while its songs are together (in any order) and "modified" if its songs were reordered,
  * swapped or removed; if another song lands inside it or its songs are scattered, it is disbanded:
- * its songs lose the block, are labelled by category / "Excursion" / dance, and are locked.
+ * its songs lose the block, are labeled by category / "Excursion" / dance, and are locked.
  */
 
 import { associationMap, checkRules, computeStats } from "./generator.js";
@@ -44,7 +44,7 @@ export function prepareGenerated(r, settings) {
 
 /* ------------------------------------------------------------------ groups */
 
-/** Number the generated playlist's groups: themed blocks, and runs of one fixed event (2+ songs). */
+/** Number the generated playlist's groups: movable blocks, and runs of one fixed event (2+ songs). */
 function assignGroups(r) {
   r.groups = {};
   const rows = activeItems(r);

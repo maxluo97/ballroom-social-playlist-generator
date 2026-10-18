@@ -51,7 +51,7 @@ export async function rememberedFolderName(key) {
 /**
  * The folder to write into: the remembered one (asking for permission again if needed), or one the
  * user picks now. `check(handle)` may return a warning to confirm (e.g. "this is not the data
- * folder"). Pass `choose: true` to pick a different folder. Returns the handle, or null if cancelled.
+ * folder"). Pass `choose: true` to pick a different folder. Returns the handle, or null if canceled.
  */
 export async function getFolder(key, { choose = false, check = null } = {}) {
   if (!choose) {

@@ -425,7 +425,7 @@ function repetitionSection(s) {
       } }),
       "No two versions of the same song in one night"),
     el("p", { class: "help" },
-      "Versions are recognised by title (e.g. a cover, a live version or a remaster); fix mistakes in the library builder. " +
+      "Versions are recognized by title (e.g. a cover, a live version or a remaster); fix mistakes in the library builder. " +
         "The same recording under another Spotify ID never plays twice, whatever this says.")
   );
 }
@@ -639,7 +639,7 @@ function mustPlaySection(s) {
   );
 }
 
-/** Themed blocks (the agreed spec, NOTES.md v0.2.4). */
+/** Movable blocks (the agreed spec, NOTES.md v0.2.4). */
 function blocksSection(s) {
   s.themedBlocks ??= [];
   const rows = s.themedBlocks.map((b, i) => {
@@ -665,7 +665,7 @@ function blocksSection(s) {
     return el("div", { class: "row" },
       el("div", { class: "row-head" },
         textInput(() => b.name, (v) => (b.name = v), { placeholder: `Block name, e.g. Movie medley (empty: "${blockLabel({ ...b, name: "" })}")` }),
-        removeButton(`themed block ${blockLabel(b)}`, () => {
+        removeButton(`movable block ${blockLabel(b)}`, () => {
           s.themedBlocks.splice(i, 1);
           changed(true);
         })),
@@ -707,7 +707,7 @@ function blocksSection(s) {
         }, "After an interruption")));
   });
   return section(
-    "Themed blocks",
+    "Movable blocks",
     live(() => `${s.themedBlocks.length} block(s)`, "span", "summary-note"),
     el("p", { class: "help" },
       "A run of songs that all carry one tag, e.g. 4 Hollywood songs at 40% of the night. " +
@@ -717,7 +717,7 @@ function blocksSection(s) {
     el("div", {}, el("button", { type: "button", class: "small", onclick: () => {
       s.themedBlocks.push(clone(BLOCK_DEFAULTS));
       changed(true);
-    } }, "+ Add themed block"))
+    } }, "+ Add movable block"))
   );
 }
 

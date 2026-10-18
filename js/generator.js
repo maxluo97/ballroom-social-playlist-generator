@@ -70,7 +70,7 @@
  *   9. Opening: the first `earlyCount` songs avoid the blacklist.
  *  9b. Duplicates (same recording under another Spotify ID) never play in one night; with
  *      noRepeatWorks, neither do two versions of the same work (relaxed as a last resort). See js/works.js.
- *  10. Themed blocks: a run of `count` songs with one tag, from a fixed point, a random point or a
+ *  10. Movable blocks: a run of `count` songs with one tag, from a fixed point, a random point or a
  *      window (never inside the opening). Turn-taking blocks are regular songs in the normal turns;
  *      fixed-event blocks (kind 'block') play any dance the settings use, outside the turns, never
  *      back to back with a fixed event. Shuffle-bag and spacing apply; too few tagged songs shrink
@@ -115,7 +115,7 @@ const THEME_DEFAULTS = {
   minGap: null, // theme minimum gap; null = the normal gap (minToRepeat) - 2
 };
 
-/** A themed block's settings, filled in (see the themed-block spec, NOTES.md v0.2.4). */
+/** A movable block's settings, filled in (see the themed-block spec, NOTES.md v0.2.4). */
 export const BLOCK_DEFAULTS = {
   name: "", // shown in the playlist; empty = "<tag> block" or "Chosen songs block"
   source: "tag", // "tag": songs with the tag; "songs": exactly the chosen songs, in their order
@@ -127,7 +127,7 @@ export const BLOCK_DEFAULTS = {
   interruptBy: { excursions: false, theme: false, fixed: false },
   afterInterruption: "continue",
 };
-/** A themed block's name: the user's, else "<tag> block" or "Chosen songs block". */
+/** A movable block's name: the user's, else "<tag> block" or "Chosen songs block". */
 export const blockLabel = (b) =>
   (b.name && b.name.trim()) || (b.source === "songs" ? "Chosen songs block" : `${b.tag || "Tag"} block`);
 
@@ -459,14 +459,14 @@ export function validateSettings(rawSongs, userSettings) {
     }
   }
 
-  // Themed blocks: a turn-taking block plays category dances; a fixed-event block any dance the
+  // Movable blocks: a turn-taking block plays category dances; a fixed-event block any dance the
   // settings use (categories, excursions, standalone theme dances).
   const blockPlan = themePlan(s);
   const usedDances = new Set([...seen.keys(), ...Object.keys(pool).filter((d) => pool[d] > 0), ...blockPlan.standalone]);
   s.themedBlocks.forEach((b, i) => {
     const chosen = b.source === "songs";
-    const name = b.name && b.name.trim() ? `Themed block "${b.name.trim()}"`
-      : chosen ? `Themed block ${i + 1} (chosen songs)` : b.tag ? `Themed block "${b.tag}"` : `Themed block ${i + 1}`;
+    const name = b.name && b.name.trim() ? `Movable block "${b.name.trim()}"`
+      : chosen ? `Movable block ${i + 1} (chosen songs)` : b.tag ? `Movable block "${b.tag}"` : `Movable block ${i + 1}`;
     if (chosen) {
       if (!b.songs.length) errors.push(`${name} has no songs chosen.`);
       const ids = new Set(allSongs.map((sg) => sg.id));
@@ -582,7 +582,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
   // Duplicates never play in one night; with noRepeatWorks, nor do two versions of one work.
   const recOf = new Map(allSongs.map((sg) => [sg.id, recordingKey(sg)]));
   const workOf = new Map(allSongs.map((sg) => [sg.id, workKey(sg)]));
-  // Chosen songs of themed blocks are kept for their block, and so are their duplicates.
+  // Chosen songs of movable blocks are kept for their block, and so are their duplicates.
   const reservedIds = new Set();
   const reservedRecordings = new Set();
   let placingChosen = false; // a chosen song's work does not count toward the works rule
@@ -670,7 +670,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
       startSec: elapsed,
       song,
       dance,
-      kind, // 'regular' | 'excursion' | 'theme' (hidden theme category) | 'block' (fixed-event themed block) | 'fixed' | 'final'
+      kind, // 'regular' | 'excursion' | 'theme' (hidden theme category) | 'block' (fixed-event movable block) | 'fixed' | 'final'
       category,
       source,
       isTheme,
@@ -974,7 +974,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
     return null;
   }
 
-  /* ---- themed blocks (the agreed spec, NOTES.md v0.2.4) ----
+  /* ---- movable blocks (the agreed spec, NOTES.md v0.2.4) ----
    * Each block gets its start time once per night: a fixed point, a random point after the opening
    * songs and before the last 15% of the night, or a random point in a window. It starts at the first
    * song after that time, and never inside the opening (it then waits until the opening is over).
@@ -1249,8 +1249,8 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
         continue;
       }
       warn(playlist.length, active.placed
-        ? `Themed block "${active.label}" shrank to ${active.placed} of ${active.count} songs: no other song with the tag "${active.tag}" fits the rules.`
-        : `Themed block "${active.label}" could not play: no song with the tag "${active.tag}" fits the rules at that point.`);
+        ? `Movable block "${active.label}" shrank to ${active.placed} of ${active.count} songs: no other song with the tag "${active.tag}" fits the rules.`
+        : `Movable block "${active.label}" could not play: no song with the tag "${active.tag}" fits the rules at that point.`);
       active = null;
     }
     if (placeMustPlay()) continue;
@@ -1272,9 +1272,9 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
   for (const m of mustOrder) {
     if (!m.placed) warn(-1, `Must-play song "${m.song.title}" did not play: the night ended first.`);
   }
-  if (active) warn(-1, `Themed block "${active.label}" was cut short by the end of the night (${active.placed} of ${active.count} songs).`);
+  if (active) warn(-1, `Movable block "${active.label}" was cut short by the end of the night (${active.placed} of ${active.count} songs).`);
   for (const b of blocks) {
-    if (!b.started) warn(-1, `Themed block "${b.label}" never started (the night ended first).`);
+    if (!b.started) warn(-1, `Movable block "${b.label}" never started (the night ended first).`);
   }
   for (const ev of fixed) {
     if (!ev.triggered) warn(-1, `Fixed event "${ev.name}" never fired (night ended first or it was blocked).`);
@@ -1304,7 +1304,7 @@ export function generatePlaylist(rawSongs, userSettings = {}, options = {}) {
 
 /** Kinds of songs the theme share is measured over. */
 const SHARE_KINDS = new Set(["regular", "excursion", "theme", "block"]);
-/** Fixed events and fixed-event themed blocks are never back to back. */
+/** Fixed events and fixed-event movable blocks are never back to back. */
 const fixedLike = (it) => !!it && (it.kind === "fixed" || (it.kind === "block" && !!it.fixedBlock));
 
 /* -------------------------------------------------------------------- stats */
@@ -1462,7 +1462,7 @@ export function checkRules(result, userSettings) {
     }
   }
 
-  // 6a. themed blocks: songs carry the tag, never in the opening, no more songs than asked for, not
+  // 6a. movable blocks: songs carry the tag, never in the opening, no more songs than asked for, not
   // before their point (fixed point / window start), and a fixed-event block never directly follows
   // a fixed event (or another such block)
   const blockDefs = mergeSettings(userSettings).themedBlocks;

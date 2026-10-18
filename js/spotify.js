@@ -125,7 +125,7 @@ export async function handleLoginRedirect() {
   history.replaceState(null, "", url.pathname); // remove ?code=... from the address bar
   const fail = (message) => ({ handled: true, error: message });
 
-  if (error) return fail(`Spotify login was cancelled or refused (${error}).`);
+  if (error) return fail(`Spotify login was canceled or refused (${error}).`);
   if (!pending) return fail("Login could not be completed: this tab has no record of starting it. Please try again.");
   if (state !== pending.state) return fail("Login could not be completed: security check (state) did not match. Please try again.");
 
