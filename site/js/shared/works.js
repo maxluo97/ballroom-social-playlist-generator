@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Max Luo
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * works.js — recognizing "the same song" (the agreed spec, NOTES.md v0.2.4 "Works and duplicates").
+ * works.js — recognizing "the same song" (the agreed spec, docs/history.md, v0.2.4 "Works and duplicates").
  *
  *   Duplicates  the same recording under different Spotify IDs (single vs album, re-releases).
  *               A song's recording key is its `recording` override, else its ISRC, else its own ID

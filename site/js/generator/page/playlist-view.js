@@ -42,7 +42,7 @@ export function generate() {
   renderResults();
 }
 
-/** A new playlist around the locked songs (the agreed spec, NOTES.md v0.2.5). */
+/** A new playlist around the locked songs (the agreed spec, docs/history.md, v0.2.5). */
 function regenerateUnlocked() {
   cancelPendingValidation();
   redraw.validation();

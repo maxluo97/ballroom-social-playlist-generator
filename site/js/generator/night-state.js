@@ -164,7 +164,7 @@ export function createNight(rawSongs, userSettings, options) {
     !night.reservedIds.has(song.id) && !night.reservedRecordings.has(recordingOf.get(song.id)) &&
     (!settings.noRepeatWorks || night.worksRelaxed || !night.usedWorks.has(workOf.get(song.id)));
 
-  /* ---- locked rows ("Regenerate unlocked songs", the agreed spec, NOTES.md v0.2.5) ----
+  /* ---- locked rows ("Regenerate unlocked songs", the agreed spec, docs/history.md, v0.2.5) ----
    * Each keeps its place and counts as played from the start (no repeats of it; the repeat gap is kept
    * around it). */
   const lockedPlan = options.locked || null;

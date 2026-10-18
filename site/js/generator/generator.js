@@ -51,7 +51,7 @@
  *   opening              { earlyCount, blacklist: [dances] }
  *   closing              { finalDance }   (null = no designated last dance)
  *   noRepeatWorks        no two versions of the same song (work) in one night (default true)
- *   mustPlay             [Spotify IDs]: songs spread evenly through the night (see NOTES.md v0.2.5)
+ *   mustPlay             [Spotify IDs]: songs spread evenly through the night (see docs/history.md, v0.2.5)
  *   seed                 integer for reproducible output (null = random)
  *
  * RULES (numbers follow the README where possible)
@@ -77,7 +77,7 @@
  *  9b. Duplicates (same recording under another Spotify ID) never play in one night; with
  *      noRepeatWorks, neither do two versions of the same work (relaxed as a last resort). See
  *      site/js/shared/works.js.                                                    [night-state.js]
- *  10. Special blocks (the agreed spec, NOTES.md v0.4): a run of songs at a fixed point, a random point
+ *  10. Special blocks (the agreed spec, docs/history.md, v0.4): a run of songs at a fixed point, a random point
  *      or in a window (never inside the opening), from dances (kind "event": outside the turns, never
  *      theme songs, not in the theme share, spacing ignored among themselves), a tag (in the turns as
  *      regular songs, or outside them as kind "block"; shuffle-bag and spacing apply) or chosen songs

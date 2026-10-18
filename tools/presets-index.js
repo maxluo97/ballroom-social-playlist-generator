@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Max Luo
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * presets-index.js — writes presets/index.json, the list of shared presets the site offers.
+ * presets-index.js — writes site/presets/index.json, the list of shared presets the site offers.
  *
  * GitHub Pages cannot list a folder, so the site reads this list instead. Run it after adding,
- * changing or removing a settings file in presets/, then commit presets/:
+ * changing or removing a settings file in site/presets/, then commit site/presets/:
  *     npm run presets
  */
 
@@ -35,6 +35,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const dir = fileURLToPath(new URL("../site/presets/", import.meta.url));
   const { presets, skipped } = presetsIndex(dir);
   writeFileSync(join(dir, "index.json"), JSON.stringify({ presets }, null, 2) + "\n");
-  console.log(`presets/index.json: ${presets.length} shared preset(s)${presets.length ? `: ${presets.map((preset) => preset.name).join(", ")}` : ""}.`);
+  console.log(`site/presets/index.json: ${presets.length} shared preset(s)${presets.length ? `: ${presets.map((preset) => preset.name).join(", ")}` : ""}.`);
   for (const reason of skipped) console.log(`  skipped (not a settings file): ${reason}`);
 }

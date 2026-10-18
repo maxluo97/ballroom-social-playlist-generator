@@ -1,2 +1,5 @@
 # Notes for the site's owner only (not part of the repository)
 docs/README-local.md
+
+# Snapshots (npm run snapshots:save / :check): large, and only meaningful on this computer
+.snapshots/

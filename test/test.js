@@ -155,7 +155,7 @@ let totalBugs = 0;
   expect(tagExcursionOpeners > 0, "excursion songs with a theme tag never opened");
 }
 
-/* ---- theme rules (the agreed theme spec, NOTES.md v0.2.4) ---- */
+/* ---- theme rules (the agreed theme spec, docs/history.md, v0.2.4) ---- */
 {
   console.log("=== Theme rules");
   const expect = (cond, msg) => {
@@ -255,7 +255,7 @@ let totalBugs = 0;
   expect(!turnsWarning(latinNight(0.5, split)), "with the Latin dances split into two categories, 50% is within reach");
 }
 
-/* ---- special blocks from a tag (the agreed spec, NOTES.md v0.2.4, v0.4) ---- */
+/* ---- special blocks from a tag (the agreed spec, docs/history.md, v0.2.4, v0.4) ---- */
 {
   console.log("=== Themed blocks");
   const expect = (cond, msg) => {
@@ -350,7 +350,7 @@ let totalBugs = 0;
   expect(validateSettings(songs, night([{ tag: "", count: 4 }])).errors.length > 0, "a block without a tag is an error");
 }
 
-/* ---- works and duplicates (the agreed spec, NOTES.md v0.2.4) ---- */
+/* ---- works and duplicates (the agreed spec, docs/history.md, v0.2.4) ---- */
 {
   console.log("=== Works and duplicates");
   const expect = (cond, msg) => {
@@ -400,7 +400,7 @@ let totalBugs = 0;
   }
 
   // A special block from dances whose only songs are versions of one work (also a Waltz in this library)
-  // plays at most one of them; it is shorter, with a warning (NOTES.md v0.4, Q7: no song reuse).
+  // plays at most one of them; it is shorter, with a warning (docs/history.md, v0.4, Q7: no song reuse).
   const ev = { name: "Moon River x2", source: "dances", dances: ["Moon River dance"], count: 2, keepApart: true, placement: { mode: "at", at: 0.5 } };
   const onlyVersions = [...lib, ...["Moon River", "Moon River (Remastered)"].map((title, i) => ({
     id: `mr${i}`, title, lengthSec: 200, dances: ["Moon River dance"], tags: [], isrc: `MR${i}`,
@@ -410,7 +410,7 @@ let totalBugs = 0;
   expect(result3.warnings.some((warning) => /shrank|could not play/.test(warning.message)), `with a warning: ${result3.warnings.map((warning) => warning.message)}`);
 }
 
-/* ---- special blocks with chosen songs (the agreed spec, NOTES.md v0.2.4, v0.4) ---- */
+/* ---- special blocks with chosen songs (the agreed spec, docs/history.md, v0.2.4, v0.4) ---- */
 {
   console.log("=== Special blocks with chosen songs");
   const expect = (cond, msg) => {
@@ -477,7 +477,7 @@ let totalBugs = 0;
   expect(validateSettings(lib, { ...base, specialBlocks: [{ source: "songs", songs: [] }] }).errors.length > 0, "a chosen-songs block with no songs is an error");
 }
 
-/* ---- must-play songs (the agreed spec, NOTES.md v0.2.5) ---- */
+/* ---- must-play songs (the agreed spec, docs/history.md, v0.2.5) ---- */
 {
   console.log("=== Must-play songs");
   const expect = (cond, msg) => {

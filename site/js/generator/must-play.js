@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Max Luo
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * must-play.js — must-play songs (README rule 12; the agreed spec, NOTES.md v0.2.5).
+ * must-play.js — must-play songs (README rule 12; the agreed spec, docs/history.md, v0.2.5).
  *
  * They are spread evenly after the opening, in random order: of k songs, the i-th (from 1) is due at
  * i / (k + 1) of the night. When one is due, it plays where it fits the rules (its category's turn,

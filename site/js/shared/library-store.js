@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * library-store.js — each user's song library, kept in this browser per Spotify account (the agreed
- * v0.3 design, NOTES.md part B).
+ * v0.3 design, docs/history.md, v0.3 part B).
  *
  * A library is the user's own data only (Spotify IDs, dances, tags, work / recording corrections,
  * removed songs) plus the ID of their library playlist; Spotify's details are read from that playlist

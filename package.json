@@ -9,6 +9,8 @@
   "scripts": {
     "start": "node tools/serve.js",
     "presets": "node tools/presets-index.js",
-    "test": "node test/test.js && node test/library-test.js && node test/details-test.js && node test/playlist-test.js && node test/live-test.js"
+    "test": "node test/test.js && node test/library-test.js && node test/details-test.js && node test/playlist-test.js && node test/live-test.js",
+    "snapshots:save": "node tools/snapshots/run.mjs save",
+    "snapshots:check": "node tools/snapshots/run.mjs check"
   }
 }

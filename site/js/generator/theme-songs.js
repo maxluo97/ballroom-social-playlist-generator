@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Max Luo
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * theme-songs.js — the theme's songs (README rule 5; the agreed theme spec, NOTES.md v0.2.4).
+ * theme-songs.js — the theme's songs (README rule 5; the agreed theme spec, docs/history.md, v0.2.4).
  *
  *   Openers    With a theme, the opening songs are theme songs. A theme with dances opens with its theme
  *              dances taking turns in shuffled rounds (each opens equally often, none twice in a row; A and

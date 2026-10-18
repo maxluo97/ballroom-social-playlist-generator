@@ -3,7 +3,7 @@
 /**
  * same-song.js — in the review (step 5): duplicates (the same recording under another Spotify ID) and
  * versions (other recordings of the same work), with the corrections: "Not a duplicate", "Same
- * recording as…", the Work box and "Rename work…" (the agreed spec, NOTES.md v0.2.4; the logic is in
+ * recording as…", the Work box and "Rename work…" (the agreed spec, docs/history.md, v0.2.4; the logic is in
  * site/js/shared/works.js).
  */
 

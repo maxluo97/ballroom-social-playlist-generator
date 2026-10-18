@@ -7,7 +7,7 @@
  * indefinitely, so the library files hold only Spotify IDs and the user's own data (dances, tags,
  * works). The details are read from the library playlist (one playlist in the user's account that
  * holds the whole library, kept in step by the library builder), 50 songs per request, and kept here
- * for at most DETAILS_KEEP_DAYS (the agreed design, NOTES.md v0.3 item 1).
+ * for at most DETAILS_KEEP_DAYS (the agreed design, docs/history.md, v0.3 item 1).
  *
  * Stored as { playlistId, fetchedAt, songs: { trackId: { title, artist, album, released, lengthSec,
  * isrc, playable, reason } } }. `playable` is Spotify's is_playable for the user's country.

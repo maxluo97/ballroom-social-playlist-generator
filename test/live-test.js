@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Max Luo
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * live-test.js — the live view and the program (the agreed spec, NOTES.md v0.4 "Live view and
+ * live-test.js — the live view and the program (the agreed spec, docs/history.md, v0.4 "Live view and
  * program"): following what Spotify plays, the Word document, and windows sharing one login.
  * Run with:   npm test
  */

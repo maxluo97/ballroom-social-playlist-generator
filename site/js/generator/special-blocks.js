@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Max Luo
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * special-blocks.js — special blocks (README rules 3, 4 and 10; the agreed spec, NOTES.md v0.4).
+ * special-blocks.js — special blocks (README rules 3, 4 and 10; the agreed spec, docs/history.md, v0.4).
  *
  * Each block gets its start time once per night: a fixed point, a random point (after the opening songs
  * and before the last 15% of the night), or a random point in a window. It starts at the first song

@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Max Luo
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * blocks-form.js — the settings sections for special blocks (the agreed spec, NOTES.md v0.4) and must-play
- * songs (NOTES.md v0.2.5), and the "find songs" chooser they share.
+ * blocks-form.js — the settings sections for special blocks (the agreed spec, docs/history.md, v0.4) and must-play
+ * songs (docs/history.md, v0.2.5), and the "find songs" chooser they share.
  */
 
 import { associationMap, BLOCK_DEFAULTS, blockLabel } from "../generator.js";
@@ -111,7 +111,7 @@ function chosenSongsEditor(settings, owner, key = "songs", ordered = true) {
     results);
 }
 
-/** Must-play songs (the agreed spec, NOTES.md v0.2.5). */
+/** Must-play songs (the agreed spec, docs/history.md, v0.2.5). */
 export function mustPlaySection(settings) {
   settings.mustPlay ??= [];
   return section(
@@ -125,7 +125,7 @@ export function mustPlaySection(settings) {
   );
 }
 
-/** Special blocks (the agreed spec, NOTES.md v0.4): from dances, a tag, or chosen songs. */
+/** Special blocks (the agreed spec, docs/history.md, v0.4): from dances, a tag, or chosen songs. */
 export function blocksSection(settings) {
   settings.specialBlocks ??= [];
   const rows = settings.specialBlocks.map((block, iBlock) => {

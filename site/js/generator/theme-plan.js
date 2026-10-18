@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Max Luo
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * theme-plan.js — how a night's theme is played (the agreed theme spec, NOTES.md v0.2.4).
+ * theme-plan.js — how a night's theme is played (the agreed theme spec, docs/history.md, v0.2.4).
  *
  * A theme lists theme dances and/or theme song tags. A song is a "theme song" if it plays as a theme
  * dance, or carries a theme tag. Theme dances come in two kinds:

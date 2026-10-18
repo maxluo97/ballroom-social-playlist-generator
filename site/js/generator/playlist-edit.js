@@ -18,7 +18,7 @@
  * Every edit can be undone (`undo`): before each edit the rows are copied onto `result.history`; undoing
  * them all gives the generated playlist back, which is what `resetAll` does in one step.
  *
- * Groups (the agreed spec, NOTES.md v0.2.5): special blocks with several songs. A group is intact while
+ * Groups (the agreed spec, docs/history.md, v0.2.5): special blocks with several songs. A group is intact while
  * its songs are together (in any order) and "modified" if its songs were reordered, swapped or removed;
  * if another song lands inside it or its songs are scattered, it is disbanded: its songs lose the block,
  * are labeled by category / "Excursion" / dance, and are locked.
@@ -190,7 +190,7 @@ export const lockAll = (result, settings) => edit(result, settings, () => active
 export const unlockAll = (result, settings) => edit(result, settings, () => result.playlist.forEach((row) => (row.locked = false)));
 
 /**
- * What "Regenerate unlocked songs" keeps (the agreed spec, NOTES.md v0.2.5), for the generator's
+ * What "Regenerate unlocked songs" keeps (the agreed spec, docs/history.md, v0.2.5), for the generator's
  * `locked` option: [{ position, row }] plus the blocks not to create again.
  *   - a locked row keeps its place;
  *   - an intact group with locked songs keeps only those, together, from its first locked song's

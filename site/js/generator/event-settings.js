@@ -40,7 +40,7 @@ export const THEME_DEFAULTS = {
   minGap: null, // theme minimum gap; null = the normal gap (minToRepeat) - 2
 };
 
-/** A special block's settings, filled in (the agreed spec, NOTES.md v0.4). */
+/** A special block's settings, filled in (the agreed spec, docs/history.md, v0.4). */
 export const BLOCK_DEFAULTS = {
   name: "", // shown in the playlist; empty = its dances, "<tag> block" or "Chosen songs block"
   source: "tag", // "dances": songs of these dances; "tag": songs with the tag; "songs": exactly the chosen songs, in order

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * spotify-panel.js — "Spotify connection": which Spotify app key (Client ID) this browser uses, and
- * how to use one's own (the agreed v0.3 design, NOTES.md: option (a)).
+ * how to use one's own (the agreed v0.3 design, docs/history.md, v0.3: option (a)).
  *
  * Everyone needs a Spotify account. By default the site uses the owner's key, which Spotify allows
  * for at most 5 accounts that the owner adds by email (free accounts are fine). Anyone with Premium

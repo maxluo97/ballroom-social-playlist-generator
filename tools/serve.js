@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Max Luo
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * Tiny local web server for testing the app (no dependencies).
- * Run with:   npm start      then open http://127.0.0.1:8000/
+ * serve.js — a small local web server for the website folder (site/), with no dependencies.
+ * Run with:   npm start      then open http://127.0.0.1:8000/   (another port: set PORT, e.g. for the snapshots)
  *
  * A server is needed because browsers block ES-module imports and data loading from
  * file:// pages. 127.0.0.1 (not "localhost") matches what Spotify requires for redirect URIs.

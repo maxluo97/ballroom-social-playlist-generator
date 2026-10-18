@@ -83,7 +83,7 @@ console.log("=== Problems caused by edits are reported");
   const result = fresh();
   const line = result.playlist.find((row) => row.kind === "event" && row.source === "Line dance break");
   edit.removeItem(result, line, settings);
-  // A shorter special block is allowed (NOTES.md v0.4, rule 5); only the later songs moving earlier may be reported.
+  // A shorter special block is allowed (docs/history.md, v0.4, rule 5); only the later songs moving earlier may be reported.
   check(result.editViolations.every((violation) => violation.rule === "blockTime"), `removing a line-dance song: only timing is reported: ${JSON.stringify(result.editViolations)}`);
   edit.restoreItem(result, line, settings);
   check(result.editViolations.length === 0, "restoring it clears the report");

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * live-core.js — the live view's and the program's logic, without the page (the agreed spec,
- * NOTES.md v0.4 "Live view and program").
+ * docs/history.md, v0.4 "Live view and program").
  *
  * The generator page hands the playlist to the live and program pages as a "live plan", kept in this
  * browser's storage so every window of the app sees the latest version (edits included):

@@ -15,7 +15,7 @@ import { mergeImport, markPreviouslyRemoved, keptSongs, updatedBlacklist, blackl
 import { state, redraw, freshDetails, loadRules } from "./page-state.js";
 
 /*
- * Works and duplicates (the agreed spec, NOTES.md v0.2.4; logic in site/js/shared/works.js), among the
+ * Works and duplicates (the agreed spec, docs/history.md, v0.2.4; logic in site/js/shared/works.js), among the
  * songs that stay in the library. Worked out again on every redraw of the review table.
  *   duplicates  song id -> the other songs that are the same recording
  *   versions    song id -> the other songs of the same work

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * program.js — the printable program (program.html): the night's song order with each song's dance
- * and special block, to print or download as a Word document (the agreed spec, NOTES.md v0.4 "Live
+ * and special block, to print or download as a Word document (the agreed spec, docs/history.md, v0.4 "Live
  * view and program", rule 11).
  *
  * Song titles and artists are never included: a printed or saved copy of Spotify's details would be a

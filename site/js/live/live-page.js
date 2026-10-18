@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * live.js — the live view (live.html): what is playing now, what comes next, during the night itself
- * (the agreed spec, NOTES.md v0.4 "Live view and program").
+ * (the agreed spec, docs/history.md, v0.4 "Live view and program").
  *
  * Two layouts of the same page: the Music runner's (live.html) and the Dancers' (live.html?screen=dancers,
  * full screen on a projector). The playlist comes from the generator page (the live plan, see
