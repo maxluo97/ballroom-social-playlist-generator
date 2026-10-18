@@ -106,7 +106,7 @@ let totalBugs = 0;
   // The openers are the opening songs (Opening length).
   const night = (dances, openers, seed) => {
     const settings = {
-      ...APP_DEFAULTS, seed, fixedEvents: [],
+      ...APP_DEFAULTS, seed, specialBlocks: [],
       opening: { earlyCount: openers, blacklist: ["Quickstep"] },
       theme: { name: "t", dances, fractionMin: 0.2, fractionMax: 0.25 },
     };
@@ -142,7 +142,7 @@ let totalBugs = 0;
     }
 
     // A tag-only theme: excursion songs with the tag may open, without using up their excursion counts.
-    const tagSettings = { ...APP_DEFAULTS, seed, fixedEvents: [], opening: { ...APP_DEFAULTS.opening, earlyCount: 3 }, theme: { name: "Hollywood", tags: ["Hollywood"] } };
+    const tagSettings = { ...APP_DEFAULTS, seed, specialBlocks: [], opening: { ...APP_DEFAULTS.opening, earlyCount: 3 }, theme: { name: "Hollywood", tags: ["Hollywood"] } };
     const tag = generatePlaylist(lib, tagSettings);
     const openers = tag.playlist.slice(0, 3);
     expect(openers.every((it) => it.isTheme), `tag-theme openers are theme songs: ${openers.map((it) => it.dance)}`);
@@ -238,7 +238,7 @@ let totalBugs = 0;
   expect(firstExcursion.size > 3, `the first excursion's time varies: ${firstExcursion.size} different start times`);
 }
 
-/* ---- themed blocks (the agreed spec, NOTES.md v0.2.4) ---- */
+/* ---- special blocks from a tag (the agreed spec, NOTES.md v0.2.4, v0.4) ---- */
 {
   console.log("=== Themed blocks");
   const expect = (cond, msg) => {
@@ -249,7 +249,8 @@ let totalBugs = 0;
   };
   const songs = buildSongs(10);
   const base = SCENARIOS.find((sc) => sc.name.includes("N=2 (Ballroom/Latin), 3 h, no theme")).settings;
-  const night = (themedBlocks, extra = {}) => ({ ...base, ...extra, themedBlocks });
+  // The tested blocks come first (block IDs 0, 1, …), then the base's line dance and Paso Doble.
+  const night = (blocks, extra = {}) => ({ ...base, ...extra, specialBlocks: [...blocks, ...base.specialBlocks] });
   const blockSongs = (r, id = 0) => r.playlist.filter((it) => it.blockId === id);
   const together = (items) => items.every((it, i) => i === 0 || it.index === items[i - 1].index + 1);
   const ruleBreaks = (r, settings) => checkRules(r, settings);
@@ -266,15 +267,15 @@ let totalBugs = 0;
     expect(b1[0].startSec >= 0.4 * r1.targetSec, "it starts at or after its point");
     expect(ruleBreaks(r1, s1).length === 0, `turn-taking block: no broken rules: ${JSON.stringify(ruleBreaks(r1, s1)[0])}`);
 
-    // A fixed-event block at the same point as the line dance (50%): never back to back with it.
-    const s2 = night([{ tag: "Hollywood", count: 3, fixedEvent: true, placement: { mode: "at", at: 0.5 } }], { seed });
+    // A kept-apart block at the same point as the line dance (50%): never back to back with it.
+    const s2 = night([{ tag: "Hollywood", count: 3, inTurns: false, keepApart: true, placement: { mode: "at", at: 0.5 } }], { seed });
     const r2 = generatePlaylist(songs, s2);
     const b2 = blockSongs(r2);
-    expect(b2.length === 3 && together(b2) && b2.every((it) => it.kind === "block"), "a fixed-event block plays together, outside the turns");
+    expect(b2.length === 3 && together(b2) && b2.every((it) => it.kind === "block"), "a kept-apart block plays together, outside the turns");
     const before = r2.playlist[b2[0].index - 1];
     const after = r2.playlist[b2.at(-1).index + 1];
-    expect(before.kind !== "fixed" && (!after || after.kind !== "fixed"), "a fixed-event block is never back to back with a fixed event");
-    expect(ruleBreaks(r2, s2).length === 0, `fixed-event block: no broken rules: ${JSON.stringify(ruleBreaks(r2, s2)[0])}`);
+    expect(before.kind !== "event" && (!after || after.kind !== "event"), "a kept-apart block is never back to back with the line dance or Paso Doble");
+    expect(ruleBreaks(r2, s2).length === 0, `kept-apart block: no broken rules: ${JSON.stringify(ruleBreaks(r2, s2)[0])}`);
 
     // A block placed in the opening waits until the opening is over.
     const s3 = night([{ tag: "Hollywood", count: 2, placement: { mode: "at", at: 0 } }], { seed });
@@ -304,7 +305,7 @@ let totalBugs = 0;
     // Several blocks; a block that comes due during another one waits for it.
     const s7 = night([
       { tag: "Hollywood", count: 3, placement: { mode: "at", at: 0.3 } },
-      { tag: "Hollywood", count: 3, fixedEvent: true, placement: { mode: "at", at: 0.3 } },
+      { tag: "Hollywood", count: 3, inTurns: false, keepApart: true, placement: { mode: "at", at: 0.3 } },
     ], { seed });
     const r7 = generatePlaylist(songs, s7);
     const [x, y] = [blockSongs(r7, 0), blockSongs(r7, 1)];
@@ -325,7 +326,7 @@ let totalBugs = 0;
   const pickDance = (d) => songs.find((sg) => sg.dances.length === 1 && sg.dances[0] === d);
   const few = [...songs.map((sg) => ({ ...sg, tags: [] })), ...["Foxtrot", "Cha-cha"].map((d, i) => ({ ...pickDance(d), id: `rare${i}`, tags: ["Rare"] }))];
   const s9 = night([{ tag: "Rare", count: 4, placement: { mode: "at", at: 0.4 } }], { seed: 1 });
-  expect(validateSettings(few, s9).warnings.some((w) => w.includes('"Rare" needs 4 songs')), "too few tagged songs is warned about");
+  expect(validateSettings(few, s9).warnings.some((w) => w.includes('"Rare block" needs 4 songs')), "too few tagged songs is warned about");
   const r9 = generatePlaylist(few, s9);
   expect(blockSongs(r9).length < 4 && r9.warnings.some((w) => /shrank to d of 4|could not play/.test(w.message)),
     `the block shrinks, with a warning: ${blockSongs(r9).length} songs; ${r9.warnings.map((w) => w.message)}`);
@@ -381,19 +382,20 @@ let totalBugs = 0;
       "songs joined as the same recording never play together");
   }
 
-  // Last resort: a fixed event whose only songs are versions of one work still plays, with a warning.
-  const ev = { name: "Moon River x2", dances: ["Moon River dance"], count: 2, at: 0.5 };
+  // A special block from dances whose only songs are versions of one work (also a Waltz in this library)
+  // plays at most one of them; it is shorter, with a warning (NOTES.md v0.4, Q7: no song reuse).
+  const ev = { name: "Moon River x2", source: "dances", dances: ["Moon River dance"], count: 2, keepApart: true, placement: { mode: "at", at: 0.5 } };
   const onlyVersions = [...lib, ...["Moon River", "Moon River (Remastered)"].map((title, i) => ({
     id: `mr${i}`, title, lengthSec: 200, dances: ["Moon River dance"], tags: [], isrc: `MR${i}`,
   }))];
-  const r3 = generatePlaylist(onlyVersions, { ...base, seed: 1, fixedEvents: [ev] });
-  expect(r3.playlist.filter((it) => it.source === ev.name).length === 2, "the fixed event plays both versions as a last resort");
-  expect(r3.warnings.some((w) => /versions of the same song allowed/.test(w.message)), "with a warning");
+  const r3 = generatePlaylist(onlyVersions, { ...base, seed: 1, specialBlocks: [ev] });
+  expect(r3.playlist.filter((it) => it.source === ev.name).length <= 1, "the block plays at most one version");
+  expect(r3.warnings.some((w) => /shrank|could not play/.test(w.message)), `with a warning: ${r3.warnings.map((w) => w.message)}`);
 }
 
-/* ---- themed blocks with chosen songs (the agreed spec, NOTES.md v0.2.4) ---- */
+/* ---- special blocks with chosen songs (the agreed spec, NOTES.md v0.2.4, v0.4) ---- */
 {
-  console.log("=== Themed blocks with chosen songs");
+  console.log("=== Special blocks with chosen songs");
   const expect = (cond, msg) => {
     if (!cond) {
       console.log(`  BUG: ${msg}`);
@@ -417,7 +419,7 @@ let totalBugs = 0;
   let relaxed = 0;
   for (let seed = 1; seed <= 100; seed++) {
     const settings = { ...base, seed, maxSongSec: 300,
-      themedBlocks: [{ source: "songs", songs: chosen, placement: { mode: "at", at: 0.4 } }] };
+      specialBlocks: [{ source: "songs", songs: chosen, placement: { mode: "at", at: 0.4 } }, ...base.specialBlocks] };
     const r = generatePlaylist(lib3, settings);
     const b = blockOf(r);
     expect(b.map((it) => it.song.id).join() === chosen.join(), `plays exactly the chosen songs, in order: ${b.map((x) => x.song.id)}`);
@@ -436,14 +438,14 @@ let totalBugs = 0;
     expect(checkRules(r, settings).length === 0 || r.warnings.length > 0, `no silently broken rules: ${JSON.stringify(checkRules(r, settings)[0])}`);
     if (r.warnings.some((w) => /Rule relaxed/.test(w.message))) relaxed++;
 
-    // Interruptions keep the order; a fixed-event chosen block is never next to a fixed event.
+    // Interruptions keep the order; a kept-apart chosen block is never directly after the line dance or Paso Doble.
     const often = { ...base, seed, excursions: { ...base.excursions, intervalMinutes: 4 },
-      themedBlocks: [{ source: "songs", songs: chosen, fixedEvent: true, placement: { mode: "at", at: 0.5 }, interruptBy: { excursions: true } }] };
+      specialBlocks: [{ source: "songs", songs: chosen, keepApart: true, placement: { mode: "at", at: 0.5 }, interruptBy: { excursions: true } }, ...base.specialBlocks] };
     const r2 = generatePlaylist(lib2, often);
     const b2 = blockOf(r2);
     expect(b2.map((it) => it.song.id).join() === chosen.join(), "interrupted, the block keeps its order");
     const prev = r2.playlist[b2[0].index - 1];
-    expect(prev.kind !== "fixed", "a fixed-event chosen block is never directly after a fixed event");
+    expect(prev.kind !== "event", "a kept-apart chosen block is never directly after the line dance or Paso Doble");
     expect(checkRules(r2, often).length === 0 || r2.warnings.length > 0, `interrupted chosen block: no silently broken rules: ${JSON.stringify(checkRules(r2, often)[0])}`);
     if (r2.warnings.some((w) => /Rule relaxed/.test(w.message))) relaxed++;
   }
@@ -451,11 +453,11 @@ let totalBugs = 0;
   expect(relaxed <= 10, `chosen-songs blocks should rarely need a rule relaxed: ${relaxed} of 200`);
 
   // A chosen song that is not in the library is left out, with a warning.
-  const s4 = { ...base, seed: 1, themedBlocks: [{ source: "songs", songs: [chosen[0], "notinthelibrary"], placement: { mode: "at", at: 0.4 } }] };
+  const s4 = { ...base, seed: 1, specialBlocks: [{ source: "songs", songs: [chosen[0], "notinthelibrary"], placement: { mode: "at", at: 0.4 } }] };
   const r4 = generatePlaylist(lib, s4);
   expect(blockOf(r4).length === 1 && r4.warnings.some((w) => /not in the library/.test(w.message)), "a missing chosen song is left out, with a warning");
   expect(validateSettings(lib, s4).warnings.some((w) => /not in the library/.test(w)), "and warned about before generating");
-  expect(validateSettings(lib, { ...base, themedBlocks: [{ source: "songs", songs: [] }] }).errors.length > 0, "a chosen-songs block with no songs is an error");
+  expect(validateSettings(lib, { ...base, specialBlocks: [{ source: "songs", songs: [] }] }).errors.length > 0, "a chosen-songs block with no songs is an error");
 }
 
 /* ---- must-play songs (the agreed spec, NOTES.md v0.2.5) ---- */
@@ -471,7 +473,7 @@ let totalBugs = 0;
   const lib = buildSongs(10).map((sg) => ({ ...sg, isrc: `I${sg.id}` }));
   const one = (d, k = 0) => lib.filter((sg) => sg.dances.length === 1 && sg.dances[0] === d)[k];
   // A Waltz and a Rumba (categories), a Bachata (excursion), a very long Foxtrot, and a Paso Doble
-  // (only a fixed event's dance, so it can never be a must-play).
+  // (only a special block's dance, so it can never be a must-play).
   const longFox = { ...one("Foxtrot"), id: "longfox", lengthSec: 420, isrc: "LONGFOX" };
   const dup = { ...one("Waltz"), id: "dupwaltz" }; // the same recording as the must-play Waltz
   const lib2 = [...lib, longFox, dup];
@@ -500,11 +502,11 @@ let totalBugs = 0;
 
   // A dance the settings never let play: warned about, never played.
   const paso = one("Paso Doble").id;
-  const s2 = { ...base, seed: 1, fixedEvents: [], mustPlay: [paso] };
+  const s2 = { ...base, seed: 1, specialBlocks: [], mustPlay: [paso] };
   expect(validateSettings(lib, s2).warnings.some((w) => /will never play/.test(w)), "a must-play song with an unused dance is warned about");
   expect(!generatePlaylist(lib, s2).playlist.some((it) => it.song.id === paso), "and never plays");
   // In a chosen-songs block too: plays once, in the block.
-  const s3 = { ...base, seed: 2, mustPlay: [must[0]], themedBlocks: [{ source: "songs", songs: [must[0]], placement: { mode: "at", at: 0.5 } }] };
+  const s3 = { ...base, seed: 2, mustPlay: [must[0]], specialBlocks: [{ source: "songs", songs: [must[0]], placement: { mode: "at", at: 0.5 } }, ...base.specialBlocks] };
   const r3 = generatePlaylist(lib, s3);
   const plays = r3.playlist.filter((it) => it.song.id === must[0]);
   expect(plays.length === 1 && plays[0].chosen, "a must-play song in a chosen-songs block plays once, in the block");

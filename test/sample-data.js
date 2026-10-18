@@ -55,9 +55,9 @@ const ballroomLatinBase = {
     jitterMinutes: 0,
     pool: { Polka: 1, Hustle: 1, Bachata: 3, "West Coast Swing": 2, "Night Club Two Step": 1 },
   },
-  fixedEvents: [
-    { name: "Line dance", dances: ["Line dance"], count: 3, at: 0.5 },
-    { name: "Paso Doble", dances: ["Paso Doble"], count: 1, at: 0.7, notAfter: ["Line dance"] },
+  specialBlocks: [
+    { name: "Line dance", source: "dances", dances: ["Line dance"], count: 3, keepApart: true, placement: { mode: "at", at: 0.5 } },
+    { name: "Paso Doble", source: "dances", dances: ["Paso Doble"], count: 1, keepApart: true, placement: { mode: "at", at: 0.7 }, notAfter: ["Line dance"] },
   ],
   theme: null,
   opening: { earlyCount: 6, blacklist: ["Mambo", "Quickstep"] },
@@ -77,13 +77,13 @@ export const SCENARIOS = [
     settings: { ...APP_DEFAULTS, minSongSec: 165, maxSongSec: 225 },
   },
   {
-    name: "App defaults + a fixed event with several dances (Latin showcase)",
+    name: "App defaults + a special block with several dances (Latin showcase)",
     songs: buildSampleLibrary(),
     settings: {
       ...APP_DEFAULTS,
-      fixedEvents: [
-        ...APP_DEFAULTS.fixedEvents,
-        { name: "Latin showcase", dances: ["Latin Samba", "Latin Jive", "Latin Paso Doble"], count: 3, at: 0.3 },
+      specialBlocks: [
+        ...APP_DEFAULTS.specialBlocks,
+        { name: "Latin showcase", source: "dances", dances: ["Latin Samba", "Latin Jive", "Latin Paso Doble"], count: 3, keepApart: true, placement: { mode: "at", at: 0.3 } },
       ],
     },
   },
@@ -110,7 +110,7 @@ export const SCENARIOS = [
       eventLengthMinutes: 120,
       categories: [{ name: "Ballroom", dances: BALLROOM }],
       excursions: { intervalMinutes: 25, pool: { Polka: 1, Hustle: 1 } },
-      fixedEvents: [],
+      specialBlocks: [],
       opening: { earlyCount: 6, blacklist: ["Quickstep"] },
     },
   },
@@ -180,36 +180,38 @@ export const SCENARIOS = [
     },
   },
   {
-    name: "N=2, 3 h, themed blocks: turn-taking at 40%, fixed-event block in a 45-55% window (clashes with the line dance)",
+    name: "N=2, 3 h, special blocks: turn-taking at 40%, kept-apart tag block in a 45-55% window (clashes with the line dance)",
     perDance: 10,
     settings: {
       ...ballroomLatinBase,
-      themedBlocks: [
+      specialBlocks: [
+        ...ballroomLatinBase.specialBlocks,
         { tag: "Hollywood", count: 4, placement: { mode: "at", at: 0.4 } },
-        { tag: "Hollywood", count: 3, fixedEvent: true, placement: { mode: "window", from: 0.45, to: 0.55 } },
+        { tag: "Hollywood", count: 3, keepApart: true, placement: { mode: "window", from: 0.45, to: 0.55 } },
       ],
     },
   },
   {
-    name: "N=2, 3 h, themed blocks that may be interrupted (excursions every 5 min, fixed events), random placement",
+    name: "N=2, 3 h, special blocks that may be interrupted (excursions every 5 min), random placement",
     perDance: 10,
     settings: {
       ...ballroomLatinBase,
       excursions: { ...ballroomLatinBase.excursions, intervalMinutes: 5 },
-      themedBlocks: [
-        { tag: "Hollywood", count: 5, placement: { mode: "random" }, interruptBy: { excursions: true, fixed: true } },
-        { tag: "Hollywood", count: 4, fixedEvent: true, placement: { mode: "random" }, interruptBy: { excursions: true }, afterInterruption: "end" },
+      specialBlocks: [
+        ...ballroomLatinBase.specialBlocks,
+        { tag: "Hollywood", count: 5, placement: { mode: "random" }, interruptBy: { excursions: true } },
+        { tag: "Hollywood", count: 4, keepApart: true, placement: { mode: "random" }, interruptBy: { excursions: true }, afterInterruption: "end" },
       ],
     },
   },
   {
-    name: "N=2, 3 h, themed block + Hollywood theme + standalone theme dance that may interrupt it",
+    name: "N=2, 3 h, tag block + Hollywood theme + standalone theme dance that may interrupt it",
     perDance: 12,
     settings: {
       ...ballroomLatinBase,
       excursions: { intervalMinutes: 25, pool: { Polka: 1, Bachata: 3, "West Coast Swing": 2 } },
       theme: { name: "Movie night", dances: ["Hustle"], tags: ["Hollywood"], fractionMin: 0.3, fractionMax: 0.45 },
-      themedBlocks: [{ tag: "Hollywood", count: 4, placement: { mode: "window", from: 0.3, to: 0.6 }, interruptBy: { theme: true } }],
+      specialBlocks: [...ballroomLatinBase.specialBlocks, { tag: "Hollywood", count: 4, placement: { mode: "window", from: 0.3, to: 0.6 }, interruptBy: { theme: true } }],
     },
   },
   {

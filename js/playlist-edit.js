@@ -9,7 +9,7 @@
  *   autoReplaced         the Spotify check replaced an unavailable song here (the generator's choice)
  *   genIndex             its position when generated (the generator's warnings refer to these)
  *   locked               kept by "Regenerate unlocked songs" (see lockedForRegeneration)
- *   group                the block or multi-song fixed event the row belongs to (see groups below)
+ *   group                the special block (2+ songs) the row belongs to (see groups below)
  *   disbanded            it was in a block that was broken up: labeled by category / Excursion / dance
  * Times, numbering, stats, the rule check and every output use only the rows that are not removed.
  * Rule breaks are reported only if an edit caused them (`baselineViolations` / `editViolations`).
@@ -17,7 +17,7 @@
  * Every edit can be undone (`undo`): before each edit the rows are copied onto `r.history`; undoing
  * them all gives the generated playlist back, which is what `resetAll` does in one step.
  *
- * Groups (the agreed spec, NOTES.md v0.2.5): movable blocks and fixed events with several songs. A group
+ * Groups (the agreed spec, NOTES.md v0.2.5): special blocks with several songs. A group
  * is intact while its songs are together (in any order) and "modified" if its songs were reordered,
  * swapped or removed; if another song lands inside it or its songs are scattered, it is disbanded:
  * its songs lose the block, are labeled by category / "Excursion" / dance, and are locked.
@@ -44,7 +44,7 @@ export function prepareGenerated(r, settings) {
 
 /* ------------------------------------------------------------------ groups */
 
-/** Number the generated playlist's groups: movable blocks, and runs of one fixed event (2+ songs). */
+/** Number the generated playlist's groups: special blocks with 2+ songs. */
 function assignGroups(r) {
   r.groups = {};
   const rows = activeItems(r);
@@ -52,11 +52,7 @@ function assignGroups(r) {
   for (let i = 0; i < rows.length; i++) {
     const it = rows[i];
     if (it.disbanded || it.group) continue;
-    let members = [];
-    if (it.blockId !== undefined) members = rows.filter((x) => x.blockId === it.blockId && !x.disbanded);
-    else if (it.kind === "fixed") {
-      for (let j = i; j < rows.length && rows[j].kind === "fixed" && rows[j].source === it.source && !rows[j].disbanded; j++) members.push(rows[j]);
-    }
+    const members = it.blockId !== undefined ? rows.filter((x) => x.blockId === it.blockId && !x.disbanded) : [];
     if (members.length < 2) continue;
     const id = `g${++n}`;
     const label = it.groupLabel || it.blockLabel || it.source || "Block";
@@ -90,9 +86,9 @@ function updateGroups(r) {
     for (const x of st.rows) {
       x.disbanded = true;
       x.locked = true;
-      x.disbandedFrom = x.blockId !== undefined ? { blockId: x.blockId, key: x.blockId } : { key: x.source };
+      x.disbandedFrom = { blockId: x.blockId };
       delete x.group;
-      for (const k of ["blockId", "blockLabel", "blockTag", "fixedBlock", "groupLabel"]) delete x[k];
+      for (const k of ["blockId", "blockLabel", "blockTag", "keepApart", "groupLabel"]) delete x[k];
     }
   }
 }
@@ -108,7 +104,7 @@ export function typeLabel(it, r, settings) {
     const pool = Object.keys((settings.excursions && settings.excursions.pool) || {}).map(m);
     return pool.includes(it.dance) ? "Excursion" : it.dance;
   }
-  return null; // the usual label (category, Excursion, fixed event, …)
+  return null; // the usual label (category, Excursion, block, …)
 }
 
 /* -------------------------------------------------------------------- undo */
@@ -187,7 +183,7 @@ export const unlockAll = (r, settings) => edit(r, settings, () => r.playlist.for
 
 /**
  * What "Regenerate unlocked songs" keeps (the agreed spec, NOTES.md v0.2.5), for the generator's
- * `locked` option: [{ position, row }] plus the fixed events and blocks not to create again.
+ * `locked` option: [{ position, row }] plus the blocks not to create again.
  *   - a locked row keeps its place;
  *   - an intact group with locked songs keeps only those, together, from its first locked song's
  *     place ("(modified)" if any were dropped), and is not created again;
@@ -197,7 +193,6 @@ export function lockedForRegeneration(r) {
   const rows = activeItems(r);
   const states = groupStates(r);
   const keep = [];
-  const skipFixed = new Set();
   const skipBlocks = new Set();
   const handled = new Set();
   for (const it of rows) {
@@ -210,22 +205,20 @@ export function lockedForRegeneration(r) {
       const dropped = kept.length < st.rows.length;
       const label = st.label.replace(/ \(modified\)$/, "") + (st.modified || dropped ? " (modified)" : "");
       kept.forEach((x, k) => keep.push({ position: kept[0].index + k, row: { ...x, groupLabel: label, blockLabel: x.blockLabel ? label : x.blockLabel } }));
-      if (it.blockId !== undefined) skipBlocks.add(it.blockId);
-      else if (it.kind === "fixed") skipFixed.add(it.source);
+      skipBlocks.add(it.blockId);
       continue;
     }
     handled.add(it);
     if (!it.locked) continue;
     keep.push({ position: it.index, row: { ...it } });
-    // A one-song fixed event or block that is kept is not created again.
+    // A one-song block that is kept is not created again.
     if (!it.disbanded && it.blockId !== undefined) skipBlocks.add(it.blockId);
-    else if (!it.disbanded && it.kind === "fixed") skipFixed.add(it.source);
-    if (it.disbanded && it.disbandedFrom) (it.disbandedFrom.blockId !== undefined ? skipBlocks : skipFixed).add(it.disbandedFrom.key);
+    if (it.disbanded && it.disbandedFrom) skipBlocks.add(it.disbandedFrom.blockId);
   }
   // Places must not collide: a later row moves down one place if needed.
   keep.sort((a, b) => a.position - b.position);
   for (let k = 1; k < keep.length; k++) if (keep[k].position <= keep[k - 1].position) keep[k].position = keep[k - 1].position + 1;
-  return { keep, skipFixed: [...skipFixed], skipBlocks: [...skipBlocks] };
+  return { keep, skipBlocks: [...skipBlocks] };
 }
 
 /** Remember which rules are broken right now, so later edits only report problems they cause. */
@@ -243,7 +236,7 @@ export function asPlaylistSong(song, settings) {
 
 /** Whether a song counts toward the theme when played as `dance`. */
 export function isThemeSong(song, dance, kind, settings) {
-  if (!settings.theme || kind === "fixed") return false;
+  if (!settings.theme || kind === "event") return false; // songs of a block from dances are never theme songs
   const m = associationMap(settings.associations);
   return new Set((settings.theme.dances || []).map(m)).has(dance) ||
     (song.tags || []).some((t) => (settings.theme.tags || []).includes(t));

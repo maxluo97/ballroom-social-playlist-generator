@@ -125,24 +125,48 @@
         "West Coast Swing": 2
       }
     },
-    "fixedEvents": [
+    "specialBlocks": [
       {
         "name": "Line dance break",
-        "count": 3,
-        "at": 0.5,
-        "notAfter": [],
+        "source": "dances",
         "dances": [
           "Line dance"
-        ]
+        ],
+        "count": 3,
+        "keepApart": true,
+        "notAfter": [],
+        "placement": {
+          "mode": "at",
+          "at": 0.5,
+          "from": 0.3,
+          "to": 0.6
+        },
+        "interruptBy": {
+          "excursions": false,
+          "theme": false
+        },
+        "afterInterruption": "continue"
       },
       {
         "name": "Paso Doble",
-        "count": 1,
-        "at": 0.7,
-        "notAfter": [],
+        "source": "dances",
         "dances": [
           "Paso Doble"
-        ]
+        ],
+        "count": 1,
+        "keepApart": true,
+        "notAfter": [],
+        "placement": {
+          "mode": "at",
+          "at": 0.7,
+          "from": 0.3,
+          "to": 0.6
+        },
+        "interruptBy": {
+          "excursions": false,
+          "theme": false
+        },
+        "afterInterruption": "continue"
       }
     ],
     "theme": null,

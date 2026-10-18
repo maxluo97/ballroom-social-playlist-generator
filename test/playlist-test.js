@@ -79,9 +79,10 @@ console.log("=== Insert, remove, restore");
 console.log("=== Problems caused by edits are reported");
 {
   const r = fresh();
-  const line = r.playlist.find((x) => x.kind === "fixed" && x.source === "Line dance break");
+  const line = r.playlist.find((x) => x.kind === "event" && x.source === "Line dance break");
   edit.removeItem(r, line, settings);
-  check(r.editViolations.some((v) => v.rule === "fixedEvent"), "removing a line-dance song: the event is a song short");
+  // A shorter special block is allowed (NOTES.md v0.4, rule 5); only the later songs moving earlier may be reported.
+  check(r.editViolations.every((v) => v.rule === "blockTime"), `removing a line-dance song: only timing is reported: ${JSON.stringify(r.editViolations)}`);
   edit.restoreItem(r, line, settings);
   check(r.editViolations.length === 0, "restoring it clears the report");
   const already = r.playlist[3].song;
@@ -152,7 +153,7 @@ console.log("=== Moving songs and blocks");
   const line = () => edit.activeItems(r).filter((x) => x.source === "Line dance break");
   const gid = line()[0].group;
   const st = () => edit.groupStates(r)[gid];
-  check(gid && st().intact && !st().modified, "a fixed event with several songs is a block");
+  check(gid && st().intact && !st().modified, "a special block from dances with several songs is a block");
   const at = line()[0].index;
   edit.moveGroupBy(r, gid, -1, settings);
   check(line()[0].index === at - 1 && st().intact && !st().modified, "moving the whole block keeps it unmodified");

@@ -263,7 +263,7 @@ table.playlist th, table.playlist td { text-align: left; padding: 4px 8px; borde
 table.playlist th { position: sticky; top: 0; background: var(--panel); font-weight: 600; }
 table.playlist td.num { font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
 table.playlist tr.excursion td.type { color: var(--excursion); font-weight: 600; }
-table.playlist tr.fixed td.type { color: var(--fixed); font-weight: 600; }
+table.playlist tr.event td.type { color: var(--fixed); font-weight: 600; }
 table.playlist tr.final td.type { color: var(--final); font-weight: 600; }
 table.playlist tr.theme td.type { color: var(--accent); font-weight: 600; }
 table.playlist tr.block td.type { color: var(--block); font-weight: 600; }

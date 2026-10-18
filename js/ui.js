@@ -128,7 +128,7 @@ function referencedDances() {
   const out = new Set();
   s.categories.forEach((c) => c.dances.forEach((d) => out.add(m(d))));
   Object.keys(s.excursions.pool).forEach((d) => out.add(m(d)));
-  s.fixedEvents.forEach((e) => e.dances.forEach((d) => out.add(m(d))));
+  (s.specialBlocks || []).forEach((b) => b.source === "dances" && (b.dances || []).forEach((d) => out.add(m(d))));
   if (s.closing.finalDance) out.add(m(s.closing.finalDance));
   return out;
 }
@@ -157,9 +157,9 @@ function renameEverywhere(oldName, newName) {
   if (oldName in s.excursions.pool) {
     s.excursions.pool = Object.fromEntries(Object.entries(s.excursions.pool).map(([d, w]) => [d === oldName ? newName : d, w]));
   }
-  s.fixedEvents.forEach((e) => {
-    swap(e.dances);
-    swap(e.notAfter);
+  (s.specialBlocks || []).forEach((b) => {
+    swap(b.dances);
+    swap(b.notAfter);
   });
   if (s.theme) swap(s.theme.dances);
   swap(s.opening.blacklist);
@@ -404,7 +404,7 @@ function categoriesSection(s) {
       const used = referencedDances();
       const unused = resolvedDances().filter((d) => !used.has(d));
       return unused.length
-        ? `Not used anywhere (categories, excursions, fixed events, final dance): ${unused.join(", ")}.`
+        ? `Not used anywhere (categories, excursions, special blocks, final dance): ${unused.join(", ")}.`
         : "Every dance in the library is used somewhere.";
     })
   );
@@ -491,47 +491,7 @@ function excursionsSection(s) {
   );
 }
 
-function fixedSection(s) {
-  const rows = s.fixedEvents.map((e, i) => {
-    e.notAfter ??= [];
-    return el("div", { class: "row" },
-      el("div", { class: "row-head" },
-        textInput(() => e.name, (v) => (e.name = v), { placeholder: "Event name, e.g. Line dance break" }),
-        removeButton(`fixed event ${e.name}`, () => {
-          s.fixedEvents.splice(i, 1);
-          changed(true);
-        })),
-      el("div", { class: "inline-fields" }, "Dance(s):",
-        chipEditor(e.dances, resolvedDances, { ...onlyDances(settingDances), placeholder: "add a dance…", label: `Add a dance to ${e.name}` })),
-      el("div", { class: "inline-fields" },
-        el("label", {}, "Songs", numberInput(() => e.count ?? 1, (v) => (e.count = v), { min: 1, max: 10 }))),
-      el("div", { class: "inline-fields" }, "At", percentSlider(() => e.at, (v) => (e.at = v)), "of the night"),
-      el("div", { class: "inline-fields" }, "Never directly after:",
-        chipEditor(e.notAfter, () => [...s.fixedEvents.filter((x) => x !== e).map((x) => x.name), ...resolvedDances()], {
-          allowed: () => [...s.fixedEvents.filter((x) => x !== e).map((x) => x.name), ...settingDances()],
-          notAllowed: (v) => `“${v}” is not a known dance or fixed event.`,
-          placeholder: "dance or event…",
-          label: `Never directly after (${e.name})`,
-        })));
-  });
-  return section(
-    "Fixed events",
-    live(() => `${s.fixedEvents.length} event(s)`, "span", "summary-note"),
-    el("p", { class: "help" },
-      "Dances placed at a set point in the night, e.g. a line-dance break halfway through (50%) or one Paso Doble at 70%. " +
-        "If an event lists several dances, each of its songs is one of them. Two fixed events never play back to back."),
-    el("div", { class: "rows" }, rows),
-    el("div", {}, el("button", { type: "button", class: "small", onclick: () => {
-      s.fixedEvents.push({ name: "New event", dances: [], count: 1, at: 0.5, notAfter: [] });
-      changed(true);
-    } }, "+ Add fixed event"))
-  );
-}
 
-/**
- * A chosen-songs block's song list (the agreed spec, NOTES.md v0.2.4): find songs by tag, work, dance
- * or category (plus text), click to add; reorder with ↑/↓, remove with ×. Edits redraw only this box.
- */
 function chosenSongsEditor(s, b, key = "songs", ordered = true) {
   const m = associationMap(s.associations);
   const dancesOf = (sg) => [...new Set(sg.dances.map(m))];
@@ -639,12 +599,16 @@ function mustPlaySection(s) {
   );
 }
 
-/** Movable blocks (the agreed spec, NOTES.md v0.2.4). */
+/** Special blocks (the agreed spec, NOTES.md v0.4): from dances, a tag, or chosen songs. */
 function blocksSection(s) {
-  s.themedBlocks ??= [];
-  const rows = s.themedBlocks.map((b, i) => {
+  s.specialBlocks ??= [];
+  const rows = s.specialBlocks.map((b, i) => {
     b.placement = { ...BLOCK_DEFAULTS.placement, ...(b.placement || {}) };
     b.interruptBy = { ...BLOCK_DEFAULTS.interruptBy, ...(b.interruptBy || {}) };
+    b.dances ??= [];
+    b.songs ??= [];
+    b.notAfter ??= [];
+    b.inTurns ??= true;
     const p = b.placement;
     const ib = b.interruptBy;
     const select = (value, options, onChange, label) => {
@@ -660,46 +624,61 @@ function blocksSection(s) {
           el("div", { class: "inline-fields" }, "From", percentSlider(() => p.from, (v) => (p.from = v))),
           el("div", { class: "inline-fields" }, "to", percentSlider(() => p.to, (v) => (p.to = v)), "of the night"))
           : el("p", { class: "help" }, "Somewhere after the opening songs and before the last 15% of the night, different every time.");
-    b.songs ??= [];
-    const chosen = b.source === "songs";
+    const source = b.source || "tag";
+    const count = el("div", { class: "inline-fields" },
+      el("label", {}, "Songs", numberInput(() => b.count, (v) => (b.count = v), { min: 1, max: 20 })));
+    const songsFrom =
+      source === "songs" ? chosenSongsEditor(s, b)
+        : source === "dances" ? el("div", {},
+          el("div", { class: "inline-fields" }, "Dance(s):",
+            chipEditor(b.dances, resolvedDances, { ...onlyDances(settingDances), placeholder: "add a dance…", label: `Add a dance to ${blockLabel(b)}` })),
+          count)
+          : el("div", {},
+            el("div", { class: "inline-fields" }, "Tag:",
+              textInput(() => b.tag, (v) => (b.tag = v), { placeholder: "e.g. Hollywood", suggest: allTags })),
+            count,
+            tick(!!b.inTurns, (v) => {
+              b.inTurns = v;
+              changed(true);
+            }, "Takes part in the category turns"));
+    const help =
+      source === "dances" ? "Songs of these dances (each song one of them, varied when it can), outside the category turns; e.g. a line-dance break, or one Paso Doble. They are never theme songs."
+        : source === "songs" ? "Plays exactly these songs, in this order, outside the category turns. They may break the song length limits."
+          : b.inTurns ? "The next songs in the normal category turns, each with the tag."
+            : "Any dance with the tag, outside the category turns.";
+    const others = () => s.specialBlocks.filter((x) => x !== b).map(blockLabel);
     return el("div", { class: "row" },
       el("div", { class: "row-head" },
-        textInput(() => b.name, (v) => (b.name = v), { placeholder: `Block name, e.g. Movie medley (empty: "${blockLabel({ ...b, name: "" })}")` }),
-        removeButton(`movable block ${blockLabel(b)}`, () => {
-          s.themedBlocks.splice(i, 1);
+        textInput(() => b.name, (v) => (b.name = v), { placeholder: `Block name, e.g. Line dance break (empty: "${blockLabel({ ...b, name: "" })}")` }),
+        removeButton(`special block ${blockLabel(b)}`, () => {
+          s.specialBlocks.splice(i, 1);
           changed(true);
         })),
       el("div", { class: "inline-fields" }, "Songs from:",
-        select(b.source || "tag", [["tag", "a tag"], ["songs", "songs I choose"]], (v) => {
+        select(source, [["dances", "dances"], ["tag", "a tag"], ["songs", "songs I choose"]], (v) => {
           b.source = v;
+          b.keepApart = v === "dances"; // the default for each kind of block
           changed(true);
         }, "Songs from")),
-      chosen ? chosenSongsEditor(s, b) : el("div", {},
-        el("div", { class: "inline-fields" }, "Tag:",
-          textInput(() => b.tag, (v) => (b.tag = v), { placeholder: "e.g. Hollywood", suggest: allTags })),
-        el("div", { class: "inline-fields" },
-          el("label", {}, "Songs", numberInput(() => b.count, (v) => (b.count = v), { min: 1, max: 20 })))),
-      tick(!!b.fixedEvent, (v) => {
-        b.fixedEvent = v;
-        changed(true);
-      }, "Plays as a fixed event"),
-      el("p", { class: "help" }, chosen
-        ? "Plays exactly these songs, in this order, outside the category turns" +
-          (b.fixedEvent ? "; never directly before or after a fixed event." : ".") +
-          " They may break the song length limits."
-        : b.fixedEvent
-          ? "Any dance with the tag, outside the category turns. Never directly before or after a fixed event."
-          : "The next songs in the normal category turns, each with the tag."),
+      songsFrom,
+      el("p", { class: "help" }, help),
       el("div", { class: "inline-fields" }, "Placement:",
         select(p.mode, [["at", "At a point"], ["random", "At a random point"], ["window", "At a random point between"]], (v) => {
           p.mode = v;
           changed(true);
         }, "Placement")),
       placement,
+      tick(!!b.keepApart, (v) => ((b.keepApart = v), changed()), "Keep apart from other special blocks"),
+      el("div", { class: "inline-fields" }, "Never directly after:",
+        chipEditor(b.notAfter, () => [...others(), ...resolvedDances()], {
+          allowed: () => [...others(), ...settingDances()],
+          notAllowed: (v) => `“${v}” is not a known dance or special block.`,
+          placeholder: "dance or block…",
+          label: `Never directly after (${blockLabel(b)})`,
+        })),
       el("div", { class: "inline-fields" }, "May be interrupted by:",
         tick(!!ib.excursions, (v) => ((ib.excursions = v), changed()), "excursions"),
-        tick(!!ib.theme, (v) => ((ib.theme = v), changed()), "theme dances in no category"),
-        !b.fixedEvent && tick(!!ib.fixed, (v) => ((ib.fixed = v), changed()), "fixed events")),
+        tick(!!ib.theme, (v) => ((ib.theme = v), changed()), "theme dances in no category")),
       el("div", { class: "inline-fields" }, "After an interruption:",
         select(b.afterInterruption, [["continue", "continue the block"], ["end", "end the block"]], (v) => {
           b.afterInterruption = v;
@@ -707,17 +686,17 @@ function blocksSection(s) {
         }, "After an interruption")));
   });
   return section(
-    "Movable blocks",
-    live(() => `${s.themedBlocks.length} block(s)`, "span", "summary-note"),
+    "Special blocks",
+    live(() => `${s.specialBlocks.length} block(s)`, "span", "summary-note"),
     el("p", { class: "help" },
-      "A run of songs that all carry one tag, e.g. 4 Hollywood songs at 40% of the night. " +
-        "Blocks keep the shuffle-bag and the gap between repeats; if too few tagged songs fit, a block is shorter. " +
-        "Anything that may not interrupt a block waits until it ends."),
+      "A run of songs at one point in the night: songs of chosen dances (e.g. a line-dance break halfway through), songs with a tag " +
+        "(e.g. 4 Hollywood songs at 40%), or songs you choose. If too few songs fit, a block is shorter. " +
+        "Special blocks never interrupt each other; anything else that may not interrupt a block waits until it ends."),
     el("div", { class: "rows" }, rows),
     el("div", {}, el("button", { type: "button", class: "small", onclick: () => {
-      s.themedBlocks.push(clone(BLOCK_DEFAULTS));
+      s.specialBlocks.push({ ...clone(BLOCK_DEFAULTS), source: "dances", count: 3, keepApart: true });
       changed(true);
-    } }, "+ Add movable block"))
+    } }, "+ Add special block"))
   );
 }
 
@@ -830,7 +809,6 @@ function renderForm() {
     categoriesSection(s),
     repetitionSection(s),
     excursionsSection(s),
-    fixedSection(s),
     blocksSection(s),
     mustPlaySection(s),
     themeSection(s),
@@ -1312,7 +1290,7 @@ function renderResults() {
       : it.kind === "regular" ? it.category
       : it.kind === "excursion" ? "Excursion"
       : it.kind === "theme" ? it.source
-      : it.kind === "fixed" ? it.source
+      : it.kind === "event" ? it.source
       : it.kind === "inserted" ? "Added by you"
       : "Last dance");
 
