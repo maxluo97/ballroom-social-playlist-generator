@@ -959,12 +959,44 @@ async function loadUserSettings() {
   input.click();
 }
 
+/** The shared presets the site offers (presets/index.json, written by `npm run presets`). */
+async function loadSharedPresets() {
+  try {
+    const res = await fetch("presets/index.json", { cache: "no-store" });
+    const data = res.ok ? await res.json() : null;
+    state.sharedPresets = data && Array.isArray(data.presets) ? data.presets.filter((p) => p && p.file && p.name) : [];
+  } catch {
+    state.sharedPresets = [];
+  }
+  renderSettingsBar();
+}
+
+/** Load one of the shared presets. */
+async function useSharedPreset(preset) {
+  if (state.settingsModified && !confirm(`Load “${preset.name}”? Changes you have not saved to a file will be lost.`)) return renderSettingsBar();
+  try {
+    const res = await fetch(`presets/${encodeURIComponent(preset.file)}`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`it could not be read (HTTP ${res.status})`);
+    const { name, settings } = parseSettingsFile(await res.text());
+    applySettings(settings, `${name || preset.name} (shared preset)`);
+  } catch (err) {
+    alert(`Could not load the shared preset “${preset.name}”: ${err.message}`);
+    renderSettingsBar();
+  }
+}
+
 function renderSettingsBar() {
+  const presets = state.sharedPresets || [];
+  const picker = presets.length > 0 && el("select", { "aria-label": "Load a shared preset", onchange: (e) => {
+    const p = presets[Number(e.target.value)];
+    if (p) useSharedPreset(p);
+  } }, el("option", { value: "" }, "Shared presets…"), presets.map((p, i) => el("option", { value: String(i) }, p.name)));
   fill($("settings-bar"),
     el("div", { class: "library-line" },
       el("span", {}, "Current settings: ", el("strong", {}, state.settingsLabel),
         state.settingsModified && el("span", { class: "muted" }, " (changed, not saved to a file)")),
       el("button", { type: "button", class: "small", onclick: loadDefaults }, "Load default settings"),
+      picker,
       el("button", { type: "button", class: "small", onclick: saveUserSettings }, "Save user settings…"),
       el("button", { type: "button", class: "small", onclick: loadUserSettings }, "Load user settings…")));
 }
@@ -1690,6 +1722,7 @@ async function init() {
 
   renderSettingsBar();
   renderForm();
+  loadSharedPresets(); // the list arrives a moment later
   await loadStartingLibrary();
   restorePendingResult();
 }

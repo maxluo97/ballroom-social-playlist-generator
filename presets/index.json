@@ -1,0 +1,12 @@
+{
+  "presets": [
+    {
+      "file": "test default preset.json",
+      "name": "test default preset"
+    },
+    {
+      "file": "test hollywood preset.json",
+      "name": "test hollywood preset"
+    }
+  ]
+}

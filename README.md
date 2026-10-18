@@ -54,11 +54,11 @@ The app is online at **https://maxluo97.github.io/ballroom-social-playlist-gener
 
 1. **Log in to Spotify.**
 2. **Set up your library** in the **Library builder** (from the generator page): **Start from the shared library** (songs already sorted into dances and tagged) or **Start empty**; import your single-dance playlists (each playlist's dance is guessed from its name), add individual songs if needed, review the dances and tags (and the songs flagged as **Duplicates** or **Versions**; ▶ plays a song), and **Save**. Saving keeps the library in your browser and brings your library playlist in step (the first save creates it). **Download a backup** saves it as three files, which **Load library files…** reads back, e.g. on another computer.
-3. **Set up the night** on the generator page: categories, repetition, excursions, fixed events, themed blocks, must-play songs, the theme, and the opening and closing. Settings can be saved to and loaded from files; **Load default settings** restores `data/default-settings.json`.
+3. **Set up the night** on the generator page: categories, repetition, excursions, fixed events, themed blocks, must-play songs, the theme, and the opening and closing. Settings can be saved to and loaded from files; **Load default settings** restores `data/default-settings.json`, and **Shared presets…** offers the settings files the site's owner shares (in `presets/`).
 4. **Generate** a playlist. Songs that cannot be played on Spotify right now are never picked (**Refresh from Spotify** reads the library again). Then change it by hand: swap, insert and remove songs, and move them (drag a row, or use ↑ / ↓; a block moves by its header line). **Undo** takes back one change at a time, **Reset all** every change. **Lock** the songs you want to keep and press **Regenerate unlocked songs** to redo the rest around them. A block whose songs you scatter is broken up: its songs are locked and keep playing, but the block is not made again.
 5. **Save to Spotify** creates the playlist in your account, or **Copy Spotify links** lets you paste the songs into a playlist yourself.
 
-To run the app on your own computer (the site's owner does this to publish the shared library), you need [Node.js](https://nodejs.org/): run `npm start` and open **http://127.0.0.1:8000/**. In the library builder, **Publish as the shared library** (Chrome or Edge) writes your saved library into the project's `data` folder; commit and push it to update the shared library online.
+To run the app on your own computer (the site's owner does this to publish the shared library), you need [Node.js](https://nodejs.org/): run `npm start` and open **http://127.0.0.1:8000/**. In the library builder, **Publish as the shared library** (Chrome or Edge) writes your saved library into the project's `data` folder; commit and push it to update the shared library online. To share a preset, save a settings file into `presets/`, run `npm run presets` (it updates the list the site reads), and commit and push `presets/`.
 
 Run `npm test` to check the generator and the library logic.
 
@@ -70,7 +70,7 @@ Run `npm test` to check the generator and the library logic.
 | `data/removed-songs.csv` | Songs removed from the shared library (the same columns, plus the date removed). |
 | `data/library.json` | The owner's library playlist (reused only by its owner; everyone else's first save makes their own). |
 | `data/default-settings.json` | The default settings, in the same format as a saved settings file. |
-| `presets/` | Your saved settings files. |
+| `presets/` | Shared presets: settings files the site offers to everyone, listed in `presets/index.json` (`npm run presets` rewrites it). |
 | `index.html`, `library.html`, `js/`, `css/` | The app. |
 | `test/`, `tools/` | Tests, and the local web server. |
 | `CHANGELOG.md` | What changed in each release (from v0.2.4 on). |

@@ -277,5 +277,14 @@ console.log("=== Works and duplicates (js/works.js)");
   check(removed.work === "Hello (Adele)" && removed.recording === lib[0].recording, "and removed-songs.csv");
 }
 
+console.log("=== Shared presets (presets/index.json)");
+{
+  const { presetsIndex } = await import("../tools/presets-index.js");
+  const { presets, skipped } = presetsIndex(new URL("./fixtures/presets/", import.meta.url));
+  check(presets.map((p) => p.name).join() === "A standard social,Latin night", `settings files are listed, by name: ${presets.map((p) => p.name)}`);
+  check(presets[1].file === "latin-night.json", "with their file names");
+  check(skipped.length === 1 && skipped[0].startsWith("notes.json"), `other files are skipped and reported: ${skipped}`);
+}
+
 console.log(failures ? `\nFAILED: ${failures} check(s).` : "\nPASSED: library checks.");
 process.exitCode = failures ? 1 : 0;

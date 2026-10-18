@@ -1,0 +1,174 @@
+{
+  "app": "Dance Playlist Generator",
+  "kind": "settings",
+  "name": "test hollywood preset",
+  "savedAt": "2026-10-18T08:11:23.794Z",
+  "settings": {
+    "eventLengthMinutes": 180,
+    "associations": [
+      {
+        "name": "Waltz",
+        "dances": [
+          "Waltz",
+          "Smooth Waltz",
+          "Standard Waltz"
+        ]
+      },
+      {
+        "name": "Tango",
+        "dances": [
+          "Tango",
+          "Smooth Tango",
+          "Standard Tango"
+        ]
+      },
+      {
+        "name": "Foxtrot",
+        "dances": [
+          "Foxtrot",
+          "Smooth Foxtrot",
+          "Standard Foxtrot"
+        ]
+      },
+      {
+        "name": "Viennese Waltz",
+        "dances": [
+          "Viennese Waltz",
+          "Smooth Viennese Waltz",
+          "Standard Viennese Waltz"
+        ]
+      },
+      {
+        "name": "Quickstep",
+        "dances": [
+          "Quickstep",
+          "Standard Quickstep"
+        ]
+      },
+      {
+        "name": "Cha-cha",
+        "dances": [
+          "Cha-cha",
+          "Rhythm Cha-cha",
+          "Latin Cha-cha"
+        ]
+      },
+      {
+        "name": "Swing",
+        "dances": [
+          "Swing",
+          "Rhythm Swing",
+          "Latin Jive",
+          "Jive"
+        ]
+      },
+      {
+        "name": "Bolero / Rumba",
+        "dances": [
+          "Rhythm Bolero",
+          "Latin Rumba"
+        ]
+      },
+      {
+        "name": "Mambo / Salsa",
+        "dances": [
+          "Rhythm Mambo",
+          "Salsa"
+        ]
+      },
+      {
+        "name": "Samba",
+        "dances": [
+          "Samba",
+          "Latin Samba"
+        ]
+      },
+      {
+        "name": "Paso Doble",
+        "dances": [
+          "Paso Doble",
+          "Latin Paso Doble"
+        ]
+      }
+    ],
+    "categories": [
+      {
+        "name": "Smooth / Standard",
+        "dances": [
+          "Waltz",
+          "Tango",
+          "Foxtrot",
+          "Viennese Waltz",
+          "Quickstep"
+        ]
+      },
+      {
+        "name": "Rhythm / Latin",
+        "dances": [
+          "Cha-cha",
+          "Rhythm Rumba",
+          "Swing",
+          "Bolero / Rumba",
+          "Mambo / Salsa",
+          "Samba"
+        ]
+      }
+    ],
+    "maxInARow": 3,
+    "minToRepeat": 4,
+    "excursions": {
+      "intervalMinutes": 25,
+      "jitterMinutes": 3,
+      "pool": {
+        "Hustle": 2,
+        "Bachata": 3,
+        "West Coast Swing": 2
+      }
+    },
+    "fixedEvents": [
+      {
+        "name": "Line dance break",
+        "count": 3,
+        "at": 0.5,
+        "notAfter": [],
+        "dances": [
+          "Line dance"
+        ]
+      },
+      {
+        "name": "Paso Doble",
+        "count": 1,
+        "at": 0.7,
+        "notAfter": [],
+        "dances": [
+          "Paso Doble"
+        ]
+      }
+    ],
+    "theme": {
+      "name": "",
+      "dances": [],
+      "tags": [
+        "Hollywood"
+      ],
+      "fractionMin": 0.5,
+      "fractionMax": 0.7,
+      "minGap": null
+    },
+    "opening": {
+      "earlyCount": 6,
+      "blacklist": [
+        "Mambo / Salsa",
+        "Quickstep"
+      ]
+    },
+    "closing": {
+      "finalDance": "Waltz"
+    },
+    "minSongSec": 120,
+    "maxSongSec": 270,
+    "themedBlocks": [],
+    "mustPlay": [],
+    "seed": null
+  }
+}
