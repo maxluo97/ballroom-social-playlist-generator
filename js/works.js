@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Max Luo
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * works.js — recognizing "the same song" (the agreed spec, NOTES.md v0.2.4 "Works and duplicates").
  *

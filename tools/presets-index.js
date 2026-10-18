@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Max Luo
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * presets-index.js — writes presets/index.json, the list of shared presets the site offers.
  *

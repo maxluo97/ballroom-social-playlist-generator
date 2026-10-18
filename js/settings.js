@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Max Luo
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * settings.js — default settings, settings files, and remembering the last-used settings.
  *

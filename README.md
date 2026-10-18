@@ -90,7 +90,7 @@ timeline
 
 ## Using the app
 
-The app is online at **https://maxluo97.github.io/ballroom-social-playlist-generator/**. It works on any device, and has two pages: the **generator** (where you set up a night and make its playlist) and the **library builder** (where you set up your library).
+The app is online at **https://maxluo97.github.io/dance-social-playlist-generator/**. It works on any device, and has two pages: the **generator** (where you set up a night and make its playlist) and the **library builder** (where you set up your library).
 
 **You need a Spotify account.** There are two ways to connect; the **Spotify connection** panel on each page explains both:
 - **The site's key:** The key supplied by the author. Spotify allows its usage for at most 5 accounts, which the site's owner adds by email. A free Spotify account is fine; ask the site's owner to add yours.
@@ -154,6 +154,17 @@ flowchart TD
     * A song that is not in the playlist shows as **Off the plan**. On the Music runner screen, either say which planned song it is ("It's #15…"), or **Add to the night** with its dance; the playlist's order does not change. **Check Spotify now** asks Spotify at once.
     * Changes made to the playlist on the generator page during the night show up on the live view.
 7. **Program** shows the night's song order with each song's dance and special blocks, to **print** or **download as a Word document**. Song titles are not included, since Spotify's terms do not allow the app to keep copies of them; the Word document has an empty **Song name** column to fill in by hand.
+
+---
+
+## License
+
+© 2026 Max Luo.
+
+* **The app's code** is free software, licensed under the **GNU Affero General Public License, version 3 or later** (AGPL 3.0; see [LICENSE](LICENSE)). You may use, change and share it; if you share a changed version, or run one as a website, you must make its source code available under the same license.
+* **The shared library and the presets** ([data/](data/), [presets/](presets/)) are licensed under **Creative Commons Attribution 4.0** (CC BY 4.0): you may reuse them with credit.
+* **Spotify's logos** ([images/spotify/](images/spotify/)) belong to Spotify and are used under Spotify's design guidelines; they are not covered by these licenses.
+* The app comes with no warranty (see the license).
 
 ---
 

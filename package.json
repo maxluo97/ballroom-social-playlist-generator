@@ -2,6 +2,8 @@
   "name": "dance-playlist-generator",
   "version": "0.4.0",
   "private": true,
+  "license": "AGPL-3.0-or-later",
+  "author": "Max Luo",
   "description": "Rule-based random playlist generator for dance socials.",
   "type": "module",
   "scripts": {

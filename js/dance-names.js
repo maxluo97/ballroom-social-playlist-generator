@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Max Luo
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * dance-names.js — recognizing dance names in text (playlist names, CSV cells).
  *

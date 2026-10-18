@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Max Luo
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * generator.js — rule-based random playlist generator for dance events.
  *

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Max Luo
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * docx.js — a small Word document (.docx) maker for the printable program, with no outside library
  * (the site only runs its own scripts).

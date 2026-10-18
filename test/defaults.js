@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Max Luo
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * defaults.js — the app's default settings (data/default-settings.json), for the tests.
  * The page loads the same file, so the tests check exactly what users get by default.

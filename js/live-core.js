@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Max Luo
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * live-core.js — the live view's and the program's logic, without the page (the agreed spec,
  * NOTES.md v0.4 "Live view and program").

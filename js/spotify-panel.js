@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Max Luo
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * spotify-panel.js — "Spotify connection": which Spotify app key (Client ID) this browser uses, and
  * how to use one's own (the agreed v0.3 design, NOTES.md: option (a)).

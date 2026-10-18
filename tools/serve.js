@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Max Luo
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Tiny local web server for testing the app (no dependencies).
  * Run with:   npm start      then open http://127.0.0.1:8000/

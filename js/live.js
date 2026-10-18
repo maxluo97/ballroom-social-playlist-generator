@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Max Luo
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * live.js — the live view (live.html): what is playing now, what comes next, during the night itself
  * (the agreed spec, NOTES.md v0.4 "Live view and program").
@@ -187,7 +189,9 @@ function render(force = true) {
   const tools = el("div", { class: "live-tools" },
     !dancers && ready() && el("button", { type: "button", title: "Ask Spotify what is playing right now", onclick: checkNow }, "Check Spotify now"),
     !dancers && el("button", { type: "button", onclick: () => window.open("live.html?screen=dancers", "dpg-live-dancers") }, "Open the Dancers screen"),
-    dancers && !document.fullscreenElement && el("button", { type: "button", onclick: () => document.documentElement.requestFullscreen().catch(() => {}) }, "Full screen"));
+    dancers && !document.fullscreenElement && el("button", { type: "button", onclick: () => document.documentElement.requestFullscreen().catch(() => {}) }, "Full screen"),
+    // The license asks that users of the site can get its source (not on the projector screen).
+    !dancers && el("a", { class: "site-footer-link", href: "https://github.com/maxluo97/dance-social-playlist-generator", target: "_blank", rel: "noopener" }, "Source code (AGPL 3.0)"));
 
   fill(box,
     notice,

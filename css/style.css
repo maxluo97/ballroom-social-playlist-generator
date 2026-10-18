@@ -1,3 +1,5 @@
+/* SPDX-FileCopyrightText: 2026 Max Luo
+   SPDX-License-Identifier: AGPL-3.0-or-later */
 :root {
   --bg: #f6f5f2;
   --panel: #ffffff;
@@ -51,6 +53,10 @@ body {
 .site-header { padding: 20px 16px 4px; max-width: 1400px; margin: 0 auto; }
 .site-header h1 { margin: 0; font-size: 1.6rem; }
 .tagline { margin: 2px 0 0; color: var(--muted); }
+/* "Source code · AGPL 3.0 · © Max Luo" at the bottom of each page (the license asks for the source to be offered). */
+.site-footer { max-width: 1400px; margin: 0 auto; padding: 8px 16px 24px; color: var(--muted); font-size: 0.85rem; }
+.site-footer a, .site-footer-link { color: var(--muted); }
+.live-tools .site-footer-link { align-self: center; font-size: 0.85rem; }
 
 .layout {
   display: grid;

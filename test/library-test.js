@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Max Luo
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * library-test.js — checks dance-name guessing, library merging, and the CSV round trip.
  * Run with:   npm test   (runs this after test/test.js)

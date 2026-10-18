@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Max Luo
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * sample-library.js — a made-up song library tagged the way a competitive-ballroom
  * database might be: style-specific dance names ("Smooth Waltz", "Standard Waltz", ...).

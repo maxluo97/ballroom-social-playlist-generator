@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Max Luo
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * library-store.js — each user's song library, kept in this browser per Spotify account (the agreed
  * v0.3 design, NOTES.md part B).

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Max Luo
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * config.js — app-wide settings that are not user settings.
  *
@@ -37,13 +39,13 @@ export function setOwnClientId(id) {
 /**
  * Where Spotify sends the browser back after login: the app's root folder.
  * Locally that is http://127.0.0.1:8000/ ; online (GitHub Pages) it is
- * https://maxluo97.github.io/ballroom-social-playlist-generator/ .
+ * https://maxluo97.github.io/dance-social-playlist-generator/ .
  * Each of these must be registered exactly in the Spotify dashboard (Settings -> Redirect URIs).
  */
 export const SPOTIFY_REDIRECT_URI = new URL("../", import.meta.url).href;
 
 /** The online address of the app (GitHub Pages). */
-export const ONLINE_URL = "https://maxluo97.github.io/ballroom-social-playlist-generator/";
+export const ONLINE_URL = "https://maxluo97.github.io/dance-social-playlist-generator/";
 
 /**
  * True when the app runs on this computer (`npm start`), false when it runs online. The library

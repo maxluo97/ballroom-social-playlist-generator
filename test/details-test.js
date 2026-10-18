@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Max Luo
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * details-test.js — Spotify's details of the library, read from the library playlist and kept in the
  * browser only temporarily (js/song-details.js), against a fake Spotify.

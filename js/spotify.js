@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Max Luo
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * spotify.js — Spotify login (Authorization Code with PKCE) and the Web API calls the app uses.
  *

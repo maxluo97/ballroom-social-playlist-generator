@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Max Luo
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * folders.js — writing files straight into a folder on this computer (Chrome / Edge only).
  *

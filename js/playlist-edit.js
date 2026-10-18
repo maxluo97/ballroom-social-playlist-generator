@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Max Luo
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * playlist-edit.js — changing a generated playlist by hand. No page code: the generator page calls
  * these and redraws; the tests call them directly.

@@ -81,7 +81,7 @@ Each release lists what changed since the previous one. The log starts at v0.2.4
 
 What the app does as of v0.2.4:
 
-**Generator** (online at https://maxluo97.github.io/ballroom-social-playlist-generator/, or locally with `npm start`)
+**Generator** (online at https://maxluo97.github.io/dance-social-playlist-generator/, or locally with `npm start`)
 - Generates a dance-social playlist from your song library, following configurable rules:
   - categories take turns in blocks
   - no dance repeats until its category's other dances have played (shuffle-bag), and a minimum number of songs between repeats of a dance

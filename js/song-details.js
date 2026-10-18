@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Max Luo
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * song-details.js — Spotify's details of the library's songs, kept in this browser only temporarily.
  *

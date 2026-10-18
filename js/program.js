@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Max Luo
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * program.js — the printable program (program.html): the night's song order with each song's dance
  * and special block, to print or download as a Word document (the agreed spec, NOTES.md v0.4 "Live
