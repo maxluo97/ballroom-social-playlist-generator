@@ -48,8 +48,9 @@ export function computeStats(result) {
 /** Seconds as m:ss (e.g. 185 -> "3:05", -75 -> "-1:15"). */
 export function formatTime(totalSec) {
   const sign = totalSec < 0 ? "-" : "";
-  const absoluteSec = Math.abs(totalSec);
-  const minutes = Math.floor(absoluteSec / 60);
-  const seconds = Math.round(absoluteSec % 60);
+  // Round to whole seconds first, so 59.6 s is "1:00" (not "0:60").
+  const roundedSec = Math.round(Math.abs(totalSec));
+  const minutes = Math.floor(roundedSec / 60);
+  const seconds = roundedSec % 60;
   return `${sign}${minutes}:${String(seconds).padStart(2, "0")}`;
 }
