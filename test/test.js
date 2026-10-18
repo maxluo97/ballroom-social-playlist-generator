@@ -236,6 +236,21 @@ let totalBugs = 0;
   expect(lowered > 0, "a single standalone dance never used its shorter gap");
   expect(tagSongs > 0 && waltzThemeSongs > 0, "a mixed theme should play both tag and dance theme songs");
   expect(firstExcursion.size > 3, `the first excursion's time varies: ${firstExcursion.size} different start times`);
+
+  // Categories take turns equally: theme dances in one of two categories cannot reach much more than
+  // half of the songs, and the settings check says so (the Latin night preset splits its category instead).
+  const sample = buildSampleLibrary();
+  const latin = APP_DEFAULTS.categories.find((c) => /Latin/.test(c.name)).dances;
+  const latinNight = (fractionMin, categories = APP_DEFAULTS.categories) => ({
+    ...APP_DEFAULTS, categories, theme: { name: "Latin night", dances: latin, fractionMin, fractionMax: Math.max(fractionMin, 0.65) },
+  });
+  const turnsWarning = (s) => validateSettings(sample, s).warnings.some((w) => /categories take turns equally/.test(w));
+  expect(turnsWarning(latinNight(0.6)), "a theme share out of reach because of the category turns is warned about");
+  const reached = Array.from({ length: 20 }, (_, i) => generatePlaylist(sample, { ...latinNight(0.6), seed: i + 1 }).stats.themeFraction);
+  expect(Math.max(...reached) < 0.5, `and it is indeed out of reach: up to ${Math.round(Math.max(...reached) * 100)}%`);
+  expect(!turnsWarning(latinNight(0.3)), "a share within reach is not warned about");
+  const split = [APP_DEFAULTS.categories[0], { name: "Latin I", dances: latin.slice(0, 3) }, { name: "Latin II", dances: latin.slice(3) }];
+  expect(!turnsWarning(latinNight(0.5, split)), "with the Latin dances split into two categories, 50% is within reach");
 }
 
 /* ---- special blocks from a tag (the agreed spec, NOTES.md v0.2.4, v0.4) ---- */

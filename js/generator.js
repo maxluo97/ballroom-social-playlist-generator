@@ -427,7 +427,20 @@ export function validateSettings(rawSongs, userSettings) {
       const inCats = plan.catDances.filter((d) => countFor(d) > 0);
       const inPool = [...th.dances].filter((d) => !seen.has(d) && pool[d] > 0 && countFor(d) > 0);
       const standalone = plan.standalone.filter((d) => countFor(d) > 0);
-      const ceiling = Math.min(1, inCats.length / (s.minToRepeat + 1) + standalone.length / (plan.standaloneGap + 1));
+      // Categories also take turns equally, and a theme dance in a category only plays in that category's
+      // turns: with theme dances in one of two categories, at most about half of the category songs can be
+      // theme songs, whatever the theme share asks for. Excursions are not steered, so they lower it further.
+      const catsWithTheme = s.categories.filter((c) => c.dances.some((d) => inCats.includes(d))).length;
+      const turnShare = s.categories.length ? catsWithTheme / s.categories.length : 0;
+      const avgSongSec = songs.length ? songs.reduce((t, sg) => t + sg.lengthSec, 0) / songs.length : 0;
+      const hasExcursions = s.excursions.intervalMinutes > 0 && Object.values(pool).some((n) => n > 0);
+      const excursionShare = hasExcursions && avgSongSec
+        ? Math.min(1, s.eventLengthMinutes / s.excursions.intervalMinutes / ((s.eventLengthMinutes * 60) / avgSongSec))
+        : 0;
+      const gapCeiling = inCats.length / (s.minToRepeat + 1);
+      const turnCeiling = turnShare * (1 - excursionShare);
+      const limitedByTurns = inCats.length > 0 && turnCeiling < gapCeiling;
+      const ceiling = Math.min(1, Math.min(gapCeiling, turnCeiling) + standalone.length / (plan.standaloneGap + 1));
       // Theme dances in no category have a shorter repeat gap (the hidden theme category), so taking
       // them out of their categories can raise the ceiling: suggest it when it would.
       const all = inCats.length + standalone.length;
@@ -438,8 +451,11 @@ export function validateSettings(rawSongs, userSettings) {
           `theme dances in no category have a shorter repeat gap, which allows up to about ${pct(outCeiling)}.`
         : "";
       if (inCats.length + standalone.length && s.theme.fractionMin >= ceiling - 1e-9) {
-        warnings.push(
-          `With ${inCats.length + standalone.length} playable theme dance(s) and their repeat gaps, theme songs can make up ` +
+        warnings.push(limitedByTurns
+          ? `The theme dances are in ${catsWithTheme} of the ${s.categories.length} categories, and categories take turns equally, ` +
+            `so theme songs can make up at most about ${pct(ceiling)} of songs; the requested minimum (${pct(s.theme.fractionMin)}) will often be missed. ` +
+            `To allow more, add dances of the other categories to the theme, or split the theme dances' category into two (two turns in three).`
+          : `With ${inCats.length + standalone.length} playable theme dance(s) and their repeat gaps, theme songs can make up ` +
             `at most about ${pct(ceiling)} of songs; the requested minimum (${pct(s.theme.fractionMin)}) will often be missed.` +
             moveOutHint
         );
@@ -1460,8 +1476,12 @@ export function checkRules(result, userSettings) {
       }
     }
     const earliest = b.placement.mode === "at" ? b.placement.at : b.placement.mode === "window" ? b.placement.from : 0;
-    if (result.targetSec && items[0].startSec < earliest * result.targetSec - 1e-6) {
-      v.push({ rule: "blockTime", index: items[0].index, message: `"${label}" started before ${(earliest * 100).toFixed(0)}% of the night.` });
+    // A block starts at the first song at or after its point; edits before it (a swap for a shorter song, a
+    // removed song) move it a little earlier. Only a start more than one song early counts as broken.
+    const songBefore = pl[items[0].index - 1];
+    const slack = songBefore && songBefore.song ? songBefore.song.lengthSec || 0 : 0;
+    if (result.targetSec && items[0].startSec < earliest * result.targetSec - slack - 1e-6) {
+      v.push({ rule: "blockTime", index: items[0].index, message: `"${label}" started more than a song before ${(earliest * 100).toFixed(0)}% of the night.` });
     }
     const before = items[0].index > 0 ? pl[items[0].index - 1] : null;
     if (before && b.keepApart && keptApart(before) && before.blockId !== id) {

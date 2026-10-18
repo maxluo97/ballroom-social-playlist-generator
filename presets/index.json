@@ -1,12 +1,16 @@
 {
   "presets": [
     {
-      "file": "test default preset.json",
-      "name": "test default preset"
+      "file": "Latin night.json",
+      "name": "Latin night"
     },
     {
-      "file": "test hollywood preset.json",
-      "name": "test hollywood preset"
+      "file": "Roarin' Twenties.json",
+      "name": "Roarin' Twenties"
+    },
+    {
+      "file": "Short social (2 hours).json",
+      "name": "Short social (2 hours)"
     }
   ]
 }

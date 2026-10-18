@@ -1,8 +1,8 @@
 {
   "app": "Dance Playlist Generator",
   "kind": "settings",
-  "name": "test default preset",
-  "savedAt": "2026-10-18T08:11:41.911Z",
+  "name": "Roarin' Twenties",
+  "savedAt": "2026-10-18T11:41:34.947Z",
   "settings": {
     "eventLengthMinutes": 180,
     "associations": [
@@ -136,9 +136,9 @@
         "keepApart": true,
         "notAfter": [],
         "placement": {
-          "mode": "at",
+          "mode": "window",
           "at": 0.5,
-          "from": 0.3,
+          "from": 0.5,
           "to": 0.6
         },
         "interruptBy": {
@@ -169,20 +169,30 @@
         "afterInterruption": "continue"
       }
     ],
-    "theme": null,
+    "theme": {
+      "name": "Roarin' Twenties",
+      "dances": [
+        "Foxtrot",
+        "Quickstep",
+        "Swing"
+      ],
+      "tags": [],
+      "fractionMin": 0.3,
+      "fractionMax": 0.4,
+      "minGap": null
+    },
     "opening": {
-      "earlyCount": 6,
+      "earlyCount": 4,
       "blacklist": [
         "Mambo / Salsa",
         "Quickstep"
       ]
     },
     "closing": {
-      "finalDance": "Waltz"
+      "finalDance": "Foxtrot"
     },
     "minSongSec": 120,
     "maxSongSec": 270,
-    "mustPlay": [],
     "seed": null
   }
 }

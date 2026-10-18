@@ -1,8 +1,8 @@
 {
   "app": "Dance Playlist Generator",
   "kind": "settings",
-  "name": "test hollywood preset",
-  "savedAt": "2026-10-18T08:11:23.794Z",
+  "name": "Latin night",
+  "savedAt": "2026-10-18T11:41:34.947Z",
   "settings": {
     "eventLengthMinutes": 180,
     "associations": [
@@ -103,14 +103,19 @@
         ]
       },
       {
-        "name": "Rhythm / Latin",
+        "name": "Latin I",
         "dances": [
           "Cha-cha",
           "Rhythm Rumba",
+          "Samba"
+        ]
+      },
+      {
+        "name": "Latin II",
+        "dances": [
           "Swing",
           "Bolero / Rumba",
-          "Mambo / Salsa",
-          "Samba"
+          "Mambo / Salsa"
         ]
       }
     ],
@@ -120,9 +125,9 @@
       "intervalMinutes": 25,
       "jitterMinutes": 3,
       "pool": {
-        "Hustle": 2,
-        "Bachata": 3,
-        "West Coast Swing": 2
+        "Hustle": 1,
+        "Bachata": 4,
+        "West Coast Swing": 1
       }
     },
     "specialBlocks": [
@@ -136,9 +141,9 @@
         "keepApart": true,
         "notAfter": [],
         "placement": {
-          "mode": "at",
+          "mode": "window",
           "at": 0.5,
-          "from": 0.3,
+          "from": 0.5,
           "to": 0.6
         },
         "interruptBy": {
@@ -170,28 +175,32 @@
       }
     ],
     "theme": {
-      "name": "",
-      "dances": [],
-      "tags": [
-        "Hollywood"
+      "name": "Latin night",
+      "dances": [
+        "Cha-cha",
+        "Rhythm Rumba",
+        "Samba",
+        "Swing",
+        "Bolero / Rumba",
+        "Mambo / Salsa"
       ],
+      "tags": [],
       "fractionMin": 0.5,
-      "fractionMax": 0.7,
+      "fractionMax": 0.65,
       "minGap": null
     },
     "opening": {
-      "earlyCount": 6,
+      "earlyCount": 4,
       "blacklist": [
         "Mambo / Salsa",
         "Quickstep"
       ]
     },
     "closing": {
-      "finalDance": "Waltz"
+      "finalDance": "Bolero / Rumba"
     },
     "minSongSec": 120,
     "maxSongSec": 270,
-    "mustPlay": [],
     "seed": null
   }
 }
