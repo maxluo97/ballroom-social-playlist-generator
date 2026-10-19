@@ -1,5 +1,8 @@
 # Notes for the site's owner only (not part of the repository)
 docs/README-local.md
 
+# The onboarding guide, a draft for now: take this off before 1.0, when the guide is published
+docs/onboarding/
+
 # Snapshots (npm run snapshots:save / :check): large, and only meaningful on this computer
 .snapshots/
