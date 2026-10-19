@@ -6,9 +6,12 @@
  *
  * Everyone needs a Spotify account. By default the site uses the owner's key, which Spotify allows
  * for at most 5 accounts that the owner adds by email (free accounts are fine). Anyone with Premium
- * can instead register their own key in their Spotify developer dashboard, and share it with up to 5
- * accounts of their own choosing (the key's owner adds them; they need no Premium). The key is pasted
- * here and kept in this browser. The site and its code stay the site owner's either way.
+ * can instead register their own key in their Spotify developer dashboard, for their own use only. The
+ * key is pasted here and kept in this browser. The site and its code stay the site owner's either way.
+ *
+ * The panel never suggests passing a key on to others: Spotify's developer terms count a Client ID as
+ * one of the developer's "Security Codes", which may not be disclosed to anyone else (Developer Terms
+ * VI.1.c; the developer's decision, Oct 2026, docs/NOTES.md).
  */
 
 import { el } from "./dom.js";
@@ -49,16 +52,15 @@ export function spotifyConnectionPanel({ onChange, notAllowed = false }) {
       usingOwnKey && el("span", { class: "muted" }, ` (${spotifyClientId().slice(0, 6)}…)`)),
     notAllowed && el("ul", { class: "msgs" }, el("li", { class: "error" },
       usingOwnKey
-        ? "Spotify refused this account with this key. If it is your own key: in your Spotify developer dashboard, open your app's Settings → User Management, add this account's email if it is not listed, then log out and in again. If someone shared the key with you: ask them to add your Spotify email there."
+        ? "Spotify refused this account with this key. If it is your own key: in your Spotify developer dashboard, open your app's Settings → User Management, add this account's email if it is not listed, then log out and in again."
         : "Spotify refused this account: it is not on the list of accounts allowed to use the site's key (Spotify allows at most 5). Ask the site's owner to add your Spotify email address, or, if you have Spotify Premium, use your own key (below).")),
     el("p", { class: "help" },
       "Everyone needs a Spotify account. There are two ways to connect:"),
     el("ol", { class: "help" },
       el("li", {}, el("strong", {}, "The site's key (no setup): "),
         "Spotify allows the site's key for at most 5 accounts, which the site's owner adds by email. A free Spotify account is fine. Ask the owner to add yours."),
-      el("li", {}, el("strong", {}, "Your own key, or one shared with you by its owner: "),
-        "a key's owner needs Spotify Premium and can let up to 5 accounts use it (you do not need Premium if someone shares their key with you). ",
-        el("strong", {}, "If someone shares a key with you: "), "ask them to add your Spotify email to it, then paste the Client ID they give you below. ",
+      el("li", {}, el("strong", {}, "Your own key, for your own use: "),
+        "you need Spotify Premium. The key is yours alone: Spotify's developer terms do not allow passing it on to others. ",
         el("strong", {}, "To make your own (about 10 minutes):"),
         el("ol", {},
           el("li", {}, "Open the ", el("a", { href: DASHBOARD_URL, target: "_blank", rel: "noopener" }, "Spotify developer dashboard"),
@@ -66,7 +68,6 @@ export function spotifyConnectionPanel({ onChange, notAllowed = false }) {
           el("li", {}, "Create an app: any name and description; under ", el("strong", {}, "Redirect URIs"), " add exactly ",
             ...redirectAddresses.map((address) => el("code", {}, address)), "; under the APIs used, tick ", el("strong", {}, "Web API"), "; agree and save."),
           el("li", {}, "Open the app's ", el("strong", {}, "Settings"), ", copy its ", el("strong", {}, "Client ID"), " and paste it below."),
-          el("li", {}, "To let others use your key: under ", el("strong", {}, "User Management"), ", add their Spotify emails (up to 5 accounts), and give them the Client ID."),
           el("li", {}, "Log in again on this site. Your key is kept in this browser only; on another device or browser, paste it there too.")))),
     el("div", { class: "inline-fields" }, keyBox, el("button", { type: "button", class: "small", onclick: useOwnKey }, "Use my key"),
       usingOwnKey && el("button", { type: "button", class: "small undo", onclick: backToSitesKey }, "Use the site's key instead")),

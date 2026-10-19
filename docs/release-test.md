@@ -71,7 +71,7 @@ Use a phone, or the browser's device mode (F12, then Ctrl+Shift+M) on a narrow p
 
 - [ ] An account **not** on the key's list: a clear message saying to ask the site's owner (or use your own key).
 - [ ] **Log out** on the generator page: the library's details are cleared; logging in again brings everything back.
-- [ ] (Optional) Your own key: paste a Client ID in the Spotify connection panel; logging in uses it; **Use the site's key instead** goes back.
+- [ ] (Optional) Your own key: paste a Client ID in the Spotify connection panel; logging in uses it; **Use the site's key instead** goes back. The panel says the key is for your own use, and nowhere suggests sharing it.
 - [ ] **Delete everything this site keeps in this browser…** (in the private window, or after downloading a backup): logged out, the library gone; **Load library files…** brings it back.
 
 ## G. Before tagging

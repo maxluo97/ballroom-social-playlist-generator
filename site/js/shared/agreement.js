@@ -11,7 +11,7 @@
 import { el } from "./dom.js";
 
 /** The date of the current privacy policy and terms of use (as shown on privacy.html). */
-export const TERMS_VERSION = "2026-10-18";
+export const TERMS_VERSION = "2026-10-19";
 const AGREEMENT_KEY = "dpg.agreement.v1";
 
 /** Whether this browser agreed to the current privacy policy and terms. */

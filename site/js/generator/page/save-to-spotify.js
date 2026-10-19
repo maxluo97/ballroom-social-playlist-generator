@@ -53,7 +53,7 @@ export function saveToSpotifyBox(result, trackIds) {
     } catch (err) {
       createButton.disabled = false;
       const hint = err.status === 403
-        ? " Spotify refused (403). Check that your account is listed under User Management in the Spotify developer dashboard, then log out and in again."
+        ? " Spotify refused (403): this account may not be allowed to use this key. With the site's key, ask the site's owner to add your Spotify email; with your own key, check that your account is listed under User Management in your Spotify developer dashboard. Then log out and in again."
         : "";
       return say("error", `Could not create the playlist: ${err.message}.${hint}${fallback}`);
     }
