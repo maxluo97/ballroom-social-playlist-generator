@@ -2,6 +2,37 @@
 
 Each release lists what changed since the previous one. The log starts at v0.2.4, with a summary of what the app could do at that point; earlier versions are not covered.
 
+## v0.5 (October 2026): a new address, privacy and terms, defaults and presets, licenses
+
+**A new address**
+- The site is now at **https://maxluo97.github.io/dance-social-playlist-generator/** (the project was renamed). The old address no longer works.
+- Your library, settings and login carry over: nothing to do.
+- **If you use your own Spotify key:** add the new address under **Redirect URIs** in your app in Spotify's developer dashboard (your app → Settings), or logging in fails.
+
+**Privacy and terms**
+- A **Privacy and terms** page: the privacy policy (everything stays in your browser; nothing is sent anywhere except to Spotify; no cookies, no tracking) and the terms of use.
+- You agree to them once, before you first log in. Anyone already logged in is asked once, when they next open the site.
+- **Delete everything this site keeps in this browser…**, in the Spotify connection panel.
+- Every page's footer links to the privacy and terms, the source code and the license.
+
+**Settings**
+- **New default settings:** an opening of 4 songs, and the line-dance break at a random point between 50% and 60% of the night.
+- **Three shared presets:** Short social (2 hours), Latin night, and Roarin' Twenties.
+- The settings check now warns when the theme share asked for is out of reach because the categories take turns equally, and says how to raise it.
+
+**Smaller changes**
+- Links to songs on Spotify now read **Play on Spotify** (Spotify's design guidelines), after each title.
+- After an edit, a special block is reported as starting too early only if it starts more than a song before its point (a swap for a slightly shorter song no longer counts).
+- A time of 59.6 seconds shows as "1:00" (it showed "0:60").
+
+**Licenses**
+- The app's code is free software under the **GNU AGPL 3.0 or later**; the shared library, the default settings and the presets under **CC BY 4.0**. Spotify's logos are Spotify's.
+
+**Under the hood**
+- The website moved into its own folder, and is published automatically once the tests pass.
+- The code was reorganized into smaller parts, with meaningful names and more comments, and proven to work exactly as before.
+- Spotify's terms, policy and design guidelines were checked again (October 2026).
+
 ## v0.4 (October 2026): special blocks, the live view and the program
 
 **Special blocks**
