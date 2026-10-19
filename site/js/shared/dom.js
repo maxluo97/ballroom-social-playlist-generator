@@ -260,8 +260,9 @@ export function chipEditor(list, source, {
  * Spotify's design guidelines (developer.spotify.com/documentation/design): content from Spotify is
  * always credited with Spotify's logo — the full logo where there is room (at least 70 px wide), the
  * icon alone where there is not (at least 21 px) — in black on light backgrounds and white on dark
- * ones, unchanged, with clear space around it; and song details always link back to Spotify
- * ("LISTEN ON SPOTIFY"). The official files are in images/spotify/.
+ * ones, unchanged, with clear space around it (the icon alone only as an app icon on a device's app
+ * screen); and song details always link back to Spotify, with the words OPEN SPOTIFY, PLAY ON SPOTIFY or
+ * LISTEN ON SPOTIFY. The official files are in images/spotify/.
  */
 
 /** Spotify's logo ("full-logo" or "icon"). `tone` "white" or "black" fixes its color; otherwise it follows the system's light / dark setting. */
@@ -276,9 +277,9 @@ function spotifyLogo(kind, alt, tone = null) {
 export const spotifyCredit = (text = "Song details from", tone = null) =>
   el("span", { class: "spotify-credit" }, text, " ", spotifyLogo("full-logo", "Spotify", tone));
 
-/** A Spotify icon linking to the song on Spotify ("Listen on Spotify"), or null without a real ID. */
-export function spotifyListenLink(url, name, tone = null) {
+/** A "Play on Spotify" link to the song on Spotify, or null without a real ID. */
+export function spotifyListenLink(url, name) {
   if (!url) return null;
-  const label = `Listen on Spotify: ${name}`;
-  return el("a", { href: url, target: "_blank", rel: "noopener", class: "spotify-listen", title: label, "aria-label": label }, spotifyLogo("icon", "", tone));
+  const label = `Play ${name} on Spotify`;
+  return el("a", { href: url, target: "_blank", rel: "noopener", class: "spotify-listen", title: label, "aria-label": label }, "Play on Spotify");
 }

@@ -83,7 +83,7 @@ export function openSongPicker({ row = null, insertAt = null, onPick }) {
       shown.slice(0, MAX_LISTED).map(({ song, why }) =>
         el("tr", { class: why.length ? "not-allowed" : null },
           el("td", {}, el("button", { type: "button", class: "small", onclick: () => pick(song) }, swapping ? "Use this" : "Insert")),
-          el("td", {}, spotifyListenLink(spotifyLink(song.id), song.title), song.title, why.length > 0 && el("div", { class: "swap-warning" }, `Warning: ${why.join("; ")}.`)),
+          el("td", {}, song.title, " ", spotifyListenLink(spotifyLink(song.id), song.title), why.length > 0 && el("div", { class: "swap-warning" }, `Warning: ${why.join("; ")}.`)),
           el("td", { class: "muted" }, song.artist || ""),
           el("td", {}, song.dances.join(", ")),
           el("td", { class: "num" }, formatDuration(song.lengthSec)),

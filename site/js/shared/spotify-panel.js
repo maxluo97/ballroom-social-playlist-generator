@@ -70,5 +70,34 @@ export function spotifyConnectionPanel({ onChange, notAllowed = false }) {
           el("li", {}, "Log in again on this site. Your key is kept in this browser only; on another device or browser, paste it there too.")))),
     el("div", { class: "inline-fields" }, keyBox, el("button", { type: "button", class: "small", onclick: useOwnKey }, "Use my key"),
       usingOwnKey && el("button", { type: "button", class: "small undo", onclick: backToSitesKey }, "Use the site's key instead")),
-    problem);
+    problem,
+    el("p", { class: "help" }, "Everything this site keeps is in this browser (see ",
+      el("a", { href: "privacy.html", target: "_blank", rel: "noopener" }, "Privacy and terms"), "). ",
+      el("button", { type: "button", class: "small", onclick: deleteEverything }, "Delete everything this site keeps in this browser…"),
+      " To also remove the app's access to your Spotify account, use ",
+      el("a", { href: "https://www.spotify.com/account/apps/", target: "_blank", rel: "noopener" }, "Spotify's Manage apps page"), "."));
+}
+
+/**
+ * Delete everything this site keeps in this browser (the privacy policy offers it): the login, every
+ * account's library, Spotify's song details, settings, your own dances and tag rules, a pasted key,
+ * the live view's plan, the agreement, the remembered data folder. Then the page starts afresh.
+ */
+function deleteEverything() {
+  if (!confirm("Delete everything this site keeps in this browser?\n\nThis logs you out and deletes your library here, your settings, " +
+    "your own dances and your tag rules. Files you downloaded (backups, settings files) are not touched.\n\n" +
+    "If you want to keep your library, download a backup first (library builder, step 6).")) return;
+  for (const storage of [localStorage, sessionStorage]) {
+    try {
+      for (const key of Object.keys(storage)) if (key.startsWith("dpg.") || key.startsWith("dpg-")) storage.removeItem(key);
+    } catch {
+      /* storage unavailable: nothing kept there */
+    }
+  }
+  try {
+    indexedDB.deleteDatabase("dpg-folders"); // the remembered data folder (site owner only)
+  } catch {
+    /* none */
+  }
+  location.reload();
 }

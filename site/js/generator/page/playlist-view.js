@@ -207,7 +207,7 @@ export function renderResults() {
       el("td", { class: "num" }, formatDuration(row.startSec)),
       el("td", { title: row.song.sourceDances ? `Tagged: ${row.song.sourceDances.join(", ")}` : null }, row.dance),
       el("td", { class: "type" }, kindLabel(row)),
-      el("td", {}, spotifyListenLink(spotifyLink(row.song.id), row.song.title), row.song.title, row.song.artist && el("span", { class: "muted" }, ` – ${row.song.artist}`),
+      el("td", {}, row.song.title, row.song.artist && el("span", { class: "muted" }, ` – ${row.song.artist}`), " ", spotifyListenLink(spotifyLink(row.song.id), row.song.title),
         row.swapped && el("span", { class: "swap-note", title: `The generator chose: ${row.original.song.title}` }, " (swapped)"),
         isUnavailable(row.song.id) && el("div", { class: "swap-warning" }, `Warning: ${unavailableReason(row.song.id)}.`)),
       el("td", { class: "num" }, formatDuration(row.song.lengthSec)),

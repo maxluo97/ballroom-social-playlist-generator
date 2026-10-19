@@ -235,7 +235,7 @@ function reviewRow(row) {
   tableRow = el("tr", { class: !song.dances.length ? "nodance" : null },
     el("td", {}, row.reimported ? (row.fromBlacklist ? "Restored" : "Re-imported")
       : row.status === "new" ? "New" : row.status === "updated" ? `+ ${[...row.added.dances, ...row.added.tags].join(", ")}` : ""),
-    el("td", {}, previewButton(song), " ", !song.unknown && spotifyListenLink(spotifyLink(song.id), song.title), song.title, availabilityNote(song), sameSongNotes(song)),
+    el("td", {}, previewButton(song), " ", song.title, " ", !song.unknown && spotifyListenLink(spotifyLink(song.id), song.title), availabilityNote(song), sameSongNotes(song)),
     el("td", {}, song.artist),
     el("td", {}, song.album || ""),
     el("td", { class: "num" }, formatTime(song.lengthSec)),

@@ -11,7 +11,7 @@
  * screens do not ask twice as often.
  */
 
-import { isLoggedIn, hasScopes, login, getCurrentlyPlaying, syncLogin } from "../shared/spotify.js";
+import { isLoggedIn, hasScopes, login, getCurrentlyPlaying, syncLogin, confirmAgreementIfLoggedIn } from "../shared/spotify.js";
 import { SPOTIFY_SCOPES } from "../shared/config.js";
 import { el, fill, $, spotifyCredit, spotifyListenLink } from "../shared/dom.js";
 import { detailsOf, reloadDetails } from "../shared/song-details.js";
@@ -154,8 +154,8 @@ function render(force = true) {
         !dancers && view.index >= 0 && el("span", { class: "live-of" }, ` of ${total}`)),
       view.current && view.current.block && el("div", { class: "live-block" }, view.current.block),
       view.current && view.current.last && el("div", { class: "live-block" }, "Last dance of the night"),
-      el("div", { class: "live-song" }, spotifyListenLink(spotifyLink(song.id), song.title, tone), el("span", {}, song.title),
-        song.artist && el("span", { class: "live-artist" }, ` — ${song.artist}`)),
+      el("div", { class: "live-song" }, el("span", {}, song.title),
+        song.artist && el("span", { class: "live-artist" }, ` — ${song.artist}`), " ", spotifyListenLink(spotifyLink(song.id), song.title)),
       el("div", { class: "live-bar" }, progressBar),
       progressText,
       !dancers && view.offPlan && matchBox(song, view));
@@ -192,6 +192,7 @@ function render(force = true) {
     !dancers && el("button", { type: "button", onclick: () => window.open("live.html?screen=dancers", "dpg-live-dancers") }, "Open the Dancers screen"),
     dancers && !document.fullscreenElement && el("button", { type: "button", onclick: () => document.documentElement.requestFullscreen().catch(() => {}) }, "Full screen"),
     // The license asks that users of the site can get its source (not on the projector screen).
+    !dancers && el("a", { class: "site-footer-link", href: "privacy.html", target: "_blank", rel: "noopener" }, "Privacy and terms"),
     !dancers && el("a", { class: "site-footer-link", href: "https://github.com/maxluo97/dance-social-playlist-generator", target: "_blank", rel: "noopener" }, "Source code (AGPL 3.0)"));
 
   fill(box,
@@ -267,5 +268,7 @@ addEventListener("storage", (event) => {
   render();
 });
 document.addEventListener("fullscreenchange", render);
-render();
-setInterval(tick, 500);
+confirmAgreementIfLoggedIn().then(() => {
+  render();
+  setInterval(tick, 500);
+});

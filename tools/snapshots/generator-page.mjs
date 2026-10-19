@@ -7,7 +7,7 @@
  */
 
 import { launchBrowser, PAGE_HELPERS } from "./browser.mjs";
-import { ALL_SCOPES, fakeTrack, sharedLibraryRows, fakeSpotifyScript } from "./fake-spotify.mjs";
+import { ALL_SCOPES, fakeTrack, sharedLibraryRows, fakeSpotifyScript, agreedScript } from "./fake-spotify.mjs";
 
 export async function recordGeneratorPage(root, baseUrl) {
   const rows = await sharedLibraryRows(root);
@@ -15,8 +15,14 @@ export async function recordGeneratorPage(root, baseUrl) {
     number % 61 === 0 ? { external_ids: { isrc: "SAMEREC" } } : {}));
   const library = { rows, removed: [], playlistId: "PLAYLISTLIB", savedAt: "2026-10-01T00:00:00.000Z", downloadedAt: "2026-10-02T00:00:00.000Z" };
   const injected = `(() => {
-    localStorage.setItem("dpg.spotify.tokens.v1", JSON.stringify({ accessToken: "fake", refreshToken: "fake", expiresAt: Date.now() + 36e5, scope: ${JSON.stringify(ALL_SCOPES)} }));
-    localStorage.setItem("dpg.library.v1:tester", ${JSON.stringify(JSON.stringify(library))});
+    // The login, the library and the agreement to the privacy policy and terms are put in once per browser
+    // tab, so later steps can change them (log out, delete everything) and reloading keeps the change.
+    if (!sessionStorage.getItem("seeded")) {
+      sessionStorage.setItem("seeded", "1");
+      localStorage.setItem("dpg.spotify.tokens.v1", JSON.stringify({ accessToken: "fake", refreshToken: "fake", expiresAt: 4102444800000, scope: ${JSON.stringify(ALL_SCOPES)} }));
+      localStorage.setItem("dpg.library.v1:tester", ${JSON.stringify(JSON.stringify(library))});
+      ${agreedScript(root)}
+    }
     ${PAGE_HELPERS}
     ${fakeSpotifyScript({ playlists: [{ id: "PLAYLISTLIB", name: "Library", owner: "tester", items: tracks }] })}
     window.__snap = () => ({
@@ -24,6 +30,7 @@ export async function recordGeneratorPage(root, baseUrl) {
       values: [...document.querySelectorAll("input, select, textarea")].map((node) => (node.type === "checkbox" ? node.checked : node.value)),
       alerts: window.__alerts.splice(0),
       requests: window.__requests.splice(0),
+      stored: Object.keys(localStorage).filter((key) => key.startsWith("dpg.")).sort().join(", "),
     });
   })();`;
 
@@ -88,7 +95,16 @@ export async function recordGeneratorPage(root, baseUrl) {
     await goto("index.html");
     await waitFor(`/Song library/.test(document.querySelector("#library").textContent)`);
     await step("reloaded");
+    // The agreement window: someone logged in who has not agreed is asked at start-up.
+    await browser.evaluate(`localStorage.removeItem("dpg.agreement.v1")`);
+    await goto("index.html");
+    await step("agreement window");
+    await step("agreed", `__click("I agree, log in")`, 1500);
+    await waitFor(`/Song library/.test(document.querySelector("#library").textContent)`);
     await step("log out", `__click("Log out")`);
+    // Delete everything this site keeps in this browser (in the Spotify connection panel).
+    await step("delete everything", `document.querySelector("details.spotify-connection").open = true; __click("Delete everything this site keeps in this browser…")`, 2500);
+    await step("after deleting");
   } finally {
     await browser.close();
   }

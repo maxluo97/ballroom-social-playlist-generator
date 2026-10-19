@@ -8,7 +8,7 @@
  */
 
 import { launchBrowser, PAGE_HELPERS } from "./browser.mjs";
-import { ALL_SCOPES, fakeTrack, sharedLibraryRows, fakeSpotifyScript } from "./fake-spotify.mjs";
+import { ALL_SCOPES, fakeTrack, sharedLibraryRows, fakeSpotifyScript, agreedScript } from "./fake-spotify.mjs";
 
 export async function recordLibraryPage(root, baseUrl) {
   const rows = await sharedLibraryRows(root, 300); // a smaller library, so the steps are quick
@@ -38,6 +38,7 @@ export async function recordLibraryPage(root, baseUrl) {
       sessionStorage.setItem("seeded", "1");
       localStorage.setItem("dpg.spotify.tokens.v1", JSON.stringify({ accessToken: "fake", refreshToken: "fake", expiresAt: 4102444800000, scope: ${JSON.stringify(ALL_SCOPES)} }));
       localStorage.setItem("dpg.library.v1:tester", ${JSON.stringify(JSON.stringify(library))});
+      ${agreedScript(root)}
     }
     // A fixed clock: the page shows when the library was saved.
     const FIXED_TIME = Date.parse("2026-10-18T12:00:00Z");

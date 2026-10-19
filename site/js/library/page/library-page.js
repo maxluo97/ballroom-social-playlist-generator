@@ -23,7 +23,7 @@
  * Library merging is in ../library-merge.js, writing to a folder in ../folders.js.
  */
 
-import { isLoggedIn, checkAccess, handleLoginRedirect } from "../../shared/spotify.js";
+import { isLoggedIn, checkAccess, handleLoginRedirect, confirmAgreementIfLoggedIn } from "../../shared/spotify.js";
 import { forgetExpiredDetails } from "../../shared/song-details.js";
 import { rememberedFolderName } from "../folders.js";
 import { state, redraw, DATA_FOLDER_KEY } from "./page-state.js";
@@ -46,6 +46,7 @@ redraw.output = renderOutput;
 async function start() {
   const login = await handleLoginRedirect();
   if (login.handled && !login.error) return;
+  await confirmAgreementIfLoggedIn();
   renderSpotify(login.error);
   if (isLoggedIn()) {
     // An account not on the key's list can log in, but Spotify refuses everything: say so.

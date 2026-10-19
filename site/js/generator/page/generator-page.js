@@ -18,7 +18,7 @@
 
 import { DEFAULT_SETTINGS } from "../generator.js";
 import { clone, loadLastSettings, loadDefaultSettings, workingSettings } from "../../shared/settings.js";
-import { handleLoginRedirect } from "../../shared/spotify.js";
+import { handleLoginRedirect, confirmAgreementIfLoggedIn } from "../../shared/spotify.js";
 import { $ } from "../../shared/dom.js";
 import { state, redraw, DEFAULTS_LABEL } from "./page-state.js";
 import { renderForm, renderValidation } from "./settings-form.js";
@@ -39,6 +39,7 @@ async function start() {
   const login = await handleLoginRedirect();
   if (login.handled && !login.error) return;
   if (login.error) alert(login.error);
+  await confirmAgreementIfLoggedIn();
 
   $("generate").addEventListener("click", generate);
 

@@ -10,6 +10,17 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
+/** The current version of the privacy policy and terms (from site/js/shared/agreement.js), so the fake user has agreed to it. */
+export function termsVersion(root) {
+  const match = readFileSync(join(root, "site/js/shared/agreement.js"), "utf8").match(/TERMS_VERSION = "([^"]+)"/);
+  if (!match) throw new Error("TERMS_VERSION not found in site/js/shared/agreement.js");
+  return match[1];
+}
+
+/** The page code that records the fake user's agreement to the privacy policy and terms. */
+export const agreedScript = (root) =>
+  `localStorage.setItem("dpg.agreement.v1", JSON.stringify({ version: ${JSON.stringify(termsVersion(root))}, agreedAt: "2026-10-18T00:00:00.000Z" }));`;
+
 /** The permissions the fake login has (every page's). */
 export const ALL_SCOPES = "playlist-read-private playlist-modify-private playlist-modify-public playlist-read-collaborative user-read-currently-playing";
 

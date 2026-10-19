@@ -27,6 +27,7 @@
  */
 
 import { spotifyClientId, SPOTIFY_REDIRECT_URI } from "./config.js";
+import { ensureAgreement } from "./agreement.js";
 
 const AUTH_URL = "https://accounts.spotify.com/authorize";
 const TOKEN_URL = "https://accounts.spotify.com/api/token";
@@ -117,9 +118,11 @@ export const hasScopes = (scopes) => isLoggedIn() && scopes.every((scope) => gra
 /**
  * Send the browser to Spotify's login/approval page, asking for `scopes` (a page's permissions, see
  * SPOTIFY_SCOPES) plus any already given, so logging in on one page never takes away what the other
- * page needs. Returns to the current page afterwards.
+ * page needs. Returns to the current page afterwards. The first time, the user agrees to the privacy
+ * policy and terms of use (site/js/shared/agreement.js); if they cancel, nothing happens.
  */
 export async function login(scopes) {
+  if (!(await ensureAgreement())) return;
   const verifier = randomString(64);
   const state = randomString(16);
   sessionStorage.setItem(PENDING_KEY, JSON.stringify({ verifier, state, returnTo: location.href }));
@@ -133,6 +136,16 @@ export async function login(scopes) {
     state,
   });
   location.assign(`${AUTH_URL}?${params}`);
+}
+
+/**
+ * At start-up: someone already logged in who has not agreed to the current privacy policy and terms
+ * (they logged in before there were any, or the terms changed) is asked now; if they decline, they are
+ * logged out. Resolves when done.
+ */
+export async function confirmAgreementIfLoggedIn() {
+  if (!isLoggedIn()) return;
+  if (!(await ensureAgreement())) logout();
 }
 
 /**
@@ -336,7 +349,8 @@ export function checkAccess() {
  * is { id, linkedFromId, title, artist, isrc, durationMs }, or null when nothing (or an ad, or a podcast)
  * is playing. `at` is when the answer arrived (this computer's clock), for counting on from progressMs.
  * Asked with the user's country (market=from_token): Spotify may play another version of a song than the
- * one in the playlist ("relinking"), and only then says which song it stands in for (linkedFromId).
+ * one in the playlist ("relinking"), and may then say which song it stands in for (linkedFromId). Development
+ * Mode apps no longer get that field (February 2026), so the live view also matches by ISRC, and by hand.
  */
 export async function getCurrentlyPlaying() {
   const answer = await api("/me/player/currently-playing?additional_types=track&market=from_token");
@@ -418,7 +432,7 @@ export async function getPlaylistTracks(playlistId, onPage) {
  * country (`GET /playlists/{id}/items?market=from_token`, 50 per request; see site/js/shared/song-details.js).
  * With a market, Spotify may "relink" a song to another version (the library keeps the original ID,
  * and Spotify plays the other version itself). The original ID comes from `linked_from`, which the
- * OpenAPI spec marks deprecated; so if `libraryIds` is given and a song comes back under an ID the
+ * OpenAPI spec marks deprecated and which Development Mode apps no longer get (February 2026); so if `libraryIds` is given and a song comes back under an ID the
  * library does not know, the playlist is read once more without a market (no relinking: the original
  * IDs) and the two are matched by position.
  * Returns [{ id, title, artist, album, released, lengthSec, isrc, isPlayable, reason }].

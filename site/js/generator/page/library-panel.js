@@ -222,7 +222,7 @@ function openLibraryView() {
     summary.textContent = `Showing ${Math.min(shown.length, MAX_SHOWN)} of ${shown.length} matching songs (${rows.length} in the library).`;
     fill(tbody, shown.slice(0, MAX_SHOWN).map((row) =>
       el("tr", { class: row.why ? "cannot-play" : null },
-        el("td", {}, spotifyListenLink(spotifyLink(row.song.id), row.song.title), row.song.title),
+        el("td", {}, row.song.title, " ", spotifyListenLink(spotifyLink(row.song.id), row.song.title)),
         el("td", { class: "muted" }, row.song.artist || ""),
         el("td", { class: "num" }, formatDuration(row.song.lengthSec)),
         el("td", { title: row.merged.join(", ") !== row.song.dances.join(", ") ? `Counts as: ${row.merged.join(", ")}` : null }, row.song.dances.join(", ")),
